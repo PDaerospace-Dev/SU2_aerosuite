@@ -88,6 +88,14 @@ cd aerosuite_edited
 python run_aerosuite.py
 ```
 
+The Aerosuite is added to source in the workstation. In the terminal:
+
+```bash
+su2aero
+```
+
+
+
 ## Typical Workflow
 
 1. **ISA and Y+ Calculator** — enter altitude and Mach, click Transfer → values land in SU2 tab
@@ -102,41 +110,4 @@ Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator setting
 Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
 
 ## Version History
-
-### v10.4 — Current
-- SU2 Config Generator: Batch Control tab moved to last position
-- Batch Control tab: per-file preview table — each generated cfg file appears as a row with its own Restart Option dropdown (none / previous / custom) and editable Custom Path field
-- When a row is changed to `previous` or `custom`, RESTART_SOL is automatically patched to YES in the corresponding .cfg file on disk; changing back to `none` sets it to NO
-- "Apply to All" button to set all rows at once
-- "Write run_control.txt from Table" button writes the control file using per-file settings
-- After Generate Config Files, the Batch Control tab auto-opens and is pre-populated
-- Standalone scan panel updated: "Scan Existing .cfg Folder" now loads files into the preview table instead of writing directly
-
-### v10.3
-- Sweep Runner: timestamped log file written to Config Dir on every run (e.g. `sweep_20250501_143022.log`) — captures all script output, iteration progress, errors, and exit code for post-run review
-- Log file path shown in the Execution Summary panel and in the completion dialog
-
-### v10.2
-- Sweep Runner: mesh file copy — browse a mesh from any directory and copy it into Config Dir with one click
-- Sweep Runner: simulation is now independent of AeroSuite — closing the app will NOT kill SU2 (subprocess detached via `start_new_session`)
-- Sweep Runner: Stop button removed (no longer applicable with detached process)
-
-### v10.x
-- Added Y+ value
-
-
-### v9.x
-- Sweep Runner: clean subprocess architecture, script runs exactly as from terminal
-- Cross-tab auto-fill: SU2 generation → Sweep Runner paths pre-populated
-
-
-### v8.x
-- Standalone control file generator (Batch Control tab)
-
-
-### v7 — Modular Edition
-- combined all the python scripts to one.
-- Modular approach
-- Sweep Runner tab added
----
-© 2024 AeroSuite Development Team
+- v11
