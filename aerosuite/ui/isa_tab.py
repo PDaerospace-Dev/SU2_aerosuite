@@ -499,6 +499,7 @@ class ISATab(QWidget):
             "QTabBar::tab:selected { font-weight: bold; color: #1a237e; "
             "border-bottom: 2px solid #1a237e; }"
         )
+        self.tabs.tabBar().hide()  # navigation now happens via the workflow tree
 
         self.isa_widget   = _ISAWidget()
         self.yplus_widget = _YPlusWidget()

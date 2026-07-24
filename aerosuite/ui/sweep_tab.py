@@ -19,9 +19,10 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import QSettings, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QSettings, QThread, pyqtSignal
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
+    QApplication,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -91,6 +92,7 @@ class SweepTab(QWidget):
 
     status_message = pyqtSignal(str)
     _SETTINGS_KEY  = "sweep_runner/script_path"
+    _DEFAULT_SCRIPT_PATH = "/home/pdas/Midhun/Scripts/aoa_sweep_v8.py"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -101,6 +103,8 @@ class SweepTab(QWidget):
         saved = self._settings.value(self._SETTINGS_KEY, "")
         if saved and os.path.isfile(saved):
             self.script_edit.setText(saved)
+        else:
+            self.script_edit.setText(self._DEFAULT_SCRIPT_PATH)
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -173,6 +177,32 @@ class SweepTab(QWidget):
         grid.addLayout(mesh_btn_row,            4, 2)
 
         root.addLayout(grid)
+
+        # ── Caution: recommend running directly in a terminal ──────────────
+        caution_row = QHBoxLayout()
+        self.terminal_caution = QLabel()
+        self.terminal_caution.setWordWrap(True)
+        self.terminal_caution.setTextFormat(Qt.RichText)
+        self.terminal_caution.setStyleSheet(
+            "background:#fff8e1; border:1px solid #ffca28; border-radius:4px; "
+            "padding:8px; color:#5d4037; font-size:11px;"
+        )
+        caution_row.addWidget(self.terminal_caution, 1)
+
+        copy_cmd_btn = QPushButton("📋  Copy Command")
+        copy_cmd_btn.setToolTip("Copy the equivalent terminal command to the clipboard")
+        copy_cmd_btn.clicked.connect(self._copy_terminal_command)
+        copy_cmd_btn.setStyleSheet("padding: 6px 14px;")
+        caution_row.addWidget(copy_cmd_btn, 0, Qt.AlignTop)
+
+        root.addLayout(caution_row)
+
+        self._last_command_plain = ""
+        for w in (self.script_edit, self.cfg_dir_edit, self.ctrl_edit):
+            w.textChanged.connect(self._update_terminal_caution)
+        self.partitions_spin.valueChanged.connect(self._update_terminal_caution)
+        self._update_terminal_caution()
+
         root.addWidget(_hline())
 
         # ── 2. Execution plan table ────────────────────────────────────────
@@ -256,6 +286,30 @@ class SweepTab(QWidget):
         root.addStretch()
 
     # ── Browse helpers ────────────────────────────────────────────────────────
+
+    def _update_terminal_caution(self):
+        script = self.script_edit.text().strip() or "<sweep script>"
+        cfg_dir = self.cfg_dir_edit.text().strip() or "<config dir>"
+        ctrl = self.ctrl_edit.text().strip()
+        ctrl_name = os.path.basename(ctrl) if ctrl else "run_control.txt"
+        partitions = self.partitions_spin.value()
+
+        cmd_plain = f"cd {cfg_dir} && python {script} -d . -c {ctrl_name} -n {partitions}"
+        self._last_command_plain = cmd_plain
+
+        cmd_html = f"cd {cfg_dir} &amp;&amp; python {script} -d . -c {ctrl_name} -n {partitions}"
+        self.terminal_caution.setText(
+            "<b>⚠ Recommended:</b> for long sweeps it's best to run this directly in a "
+            "terminal rather than through the GUI, so the run keeps going independently "
+            "of this application.<br>"
+            f"<code style='background:#fff3c4; padding:2px 4px;'>{cmd_html}</code>"
+        )
+
+    def _copy_terminal_command(self):
+        if not self._last_command_plain:
+            return
+        QApplication.clipboard().setText(self._last_command_plain)
+        self.status_message.emit("Terminal command copied to clipboard.")
 
     def _browse_script(self):
         path, _ = QFileDialog.getOpenFileName(
