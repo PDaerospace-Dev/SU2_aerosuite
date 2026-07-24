@@ -1,7 +1,10 @@
-AeroSuite Pro V2
+# AeroSuite Pro V2
+
 AeroSuite Pro is a desktop application for preparing, running, and reviewing SU2 CFD studies. From mesh loading through config (CFG) generation, parametric sweeps, execution, convergence monitoring, and results analysis.
 
-Layout
+## Layout
+
+```
 +--------------------------------------------------------------------+
 | Menu   Toolbar                                      Project Name   |
 +---------------+------------------------------------------------------+
@@ -35,40 +38,49 @@ Glyph	Meaning
 ✗	Not started
 ▶	Ready to run
 ○	Pending (comes after something not yet done)
-Geometry is greyed out and disabled — it's a placeholder for a future stage, not part of the current workflow.
+```
 
-Workflow
+*Geometry is greyed out and disabled — it's a placeholder for a future stage, not part of the current workflow.*
+
+## Workflow
 The tree runs top to bottom in execution order:
 
-Calculators
+1. **Calculators**
+   - **ISA Calculator** — Standard atmosphere properties at any altitude up to 100 km.
+   - **y+ Calculator** — First-cell height for a target y+, feeding into mesh sizing.
+*The **"Update SU2 Parameters"** button pushes altitude/temperature/Reynolds straight into the Sweep and CFG pages.*
 
-ISA Calculator — Standard atmosphere properties at any altitude up to 100 km.
-y+ Calculator — First-cell height for a target y+, feeding into mesh sizing. The "Update SU2 Parameters" button pushes altitude/temperature/Reynolds straight into the Sweep and CFG pages.
-Directory — Working directory + output run-folder name. Everything downstream (Mesh, Sweep, Control File) reads its default paths from here.
+2. **Directory** — Working directory + output run-folder name. Everything downstream (Mesh, Sweep, Control File) reads its default paths from here.
 
-Geometry — not yet implemented.
+3. **Geometry** — not yet implemented.
 
-Mesh — Load a mesh file. For .su2 meshes, marker tags (e.g. airfoil, farfield) are auto-extracted and surfaced on the CFG page.
+4. **Mesh** — Load a mesh file. 
+For `.su2` meshes, marker tags (e.g. `airfoil`, `farfield`) are auto-extracted and surfaced on the CFG page.
 
-CFG
+5. **CFG**
 
-Aircraft Aero (Designed for X07)
-load a .cfg template and set freestream, toggle markers, set physical/reference properties and numerics, and generate a single config file.
-Includes a live preview of the substituted output.
-General — load any .cfg file and edit its raw text directly, with the reference panel at the side.
-Reference- https://github.com/su2code/SU2/blob/master/config_template.cfg (config_template.cfg) for checking or copying marker blocks.
-Sweep — Load a base .cfg file and generate the full Mach × Alpha × Beta parametric sweep from it.
+   - **Aircraft Aero** (Designed for X07)
+    - load a `.cfg` template and set freestream, toggle markers, set physical/reference properties and numerics, and generate a single config file. 
+    - Includes a live preview of the substituted output.
+   - **General** — load any `.cfg` file and edit its raw text directly, with the reference panel at the side. 
+- *Reference- https://github.com/su2code/SU2/blob/master/config_template.cfg (config_template.cfg) for checking or copying marker blocks.*
 
-Control File — Scan a folder of generated .cfg files (defaults to the Directory page's working directory) into a per-case restart-configuration table, and write run_control.txt from it.
+6. **Sweep** — Load a base `.cfg` file and generate the full Mach × Alpha × Beta parametric sweep from it.
 
-Includes a collapsible "What is a control file?" explainer.
-Run — Launches the sweep script (aoa_sweep_v8.py or compatible) as a subprocess and streams its output live.
-For long sweeps, running directly in a terminal (rather than through the GUI) is recommended so the run isn't tied to the app staying open.
-Monitor — Live-refreshing residual plots read from SU2 history files.
+7. **Control File** — Scan a folder of generated `.cfg` files (defaults to the Directory page's working directory) into a per-case restart-configuration table, and write `run_control.txt` from it.
+- *Includes a collapsible "What is a control file?" explainer.*
 
-Results — Consolidates a batch run's history files into a summary CSV and auto-plots CL/CD/moment.
+8. **Run** — Launches the sweep script (`aoa_sweep_v8.py` or compatible) as a subprocess and streams its output live.
+- *For long sweeps, running directly in a terminal (rather than through the GUI) is recommended so the run isn't tied to the app staying open.*
 
-Project Structure
+9. **Monitor** — Live-refreshing residual plots read from SU2 history files.
+
+10. **Results** — Consolidates a batch run's history files into a summary CSV and auto-plots CL/CD/moment.
+
+
+## Project Structure
+
+```
 run_aerosuite.py             Entry point
 diagnose.py                  Startup diagnostics (see "Running" above)
 aerosuite/
@@ -101,37 +113,56 @@ aerosuite/
 └── utils/
     ├── validators.py         Input validation helpers
     └── file_handlers.py      JSON/text file read/write helpers
-Installation
-Requirements
-Python 3.7+
-PyQt5
-pandas
-matplotlib
-pip install -r aerosuite/requirements.txt
-Running
-Run the following python script in the terminal
+```
 
+
+## Installation
+
+### Requirements
+
+- Python 3.7+
+- PyQt5
+- pandas
+- matplotlib
+
+
+```bash
+pip install -r aerosuite/requirements.txt
+```
+
+## Running
+
+Run the following python script in the terminal
+```bash
 python run_aerosuite.py
-OR
+```
+
+**OR**
 
 The Aerosuite is added to source in the workstation. In the terminal:
-
+```bash
 su2aero2
-Typical Workflow
-Calculator
+```
 
-ISA and Y+ Calculator — enter altitude and Mach, click Transfer → values land in SU2 tab.
-SU2 Project
+## Typical Workflow
 
-Set a project directory and select the mesh.
-Open CFG and complete the General or Aircraft Aero settings.
-Generate one or more SU2 configuration files.
-In Control File, scan the configuration folder and write run_control.txt.
-In Run, choose the sweep script, configuration directory, and control file; load the plan and run it.
-Convergence Monitor — select a history file while the sweep is running; plot auto-refreshes
-Results Analysis — point at the run directory, select columns, consolidate and plot
-Profile Save / Load
-Use Profiles → Save SU2 Profile (Ctrl+S) to save all SU2 Generator settings to a JSON file.
-Use Profiles → Load SU2 Profile (Ctrl+O) to restore them.
+*Calculator*
+1. **ISA and Y+ Calculator** — enter altitude and Mach, click Transfer → values land in SU2 tab.
 
-Future Plans
+*SU2 Project*
+1. Set a project directory and select the mesh.
+2. Open **CFG** and complete the **General** or **Aircraft Aero** settings.
+3. Generate one or more SU2 configuration files.
+4. In **Control File**, scan the configuration folder and write `run_control.txt`.
+5. In **Run**, choose the sweep script, configuration directory, and control file; load the plan and run it.
+4. **Convergence Monitor** — select a history file while the sweep is running; plot auto-refreshes
+5. **Results Analysis** — point at the run directory, select columns, consolidate and plot
+
+
+## Profile Save / Load
+
+Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator settings to a JSON file.  
+Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
+
+## Future Plans
+- 
