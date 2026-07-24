@@ -364,7 +364,7 @@ class AeroSuiteMainWindow(QMainWindow):
         add_child(calc_node, self.NODE_CALC_YPLUS, "y+ Calculator",  self.isa_tab, 1)
 
         # ── Project (top-to-bottom CFD workflow) ────────────────────────────────
-        project_node = QTreeWidgetItem(self.workflow_tree, [" Project"])
+        project_node = QTreeWidgetItem(self.workflow_tree, ["SU2 Project"])
 
         add_child(project_node, self.NODE_DIRECTORY, "Directory", self.directory_tab)
 
