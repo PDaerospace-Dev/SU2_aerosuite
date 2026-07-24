@@ -1,6 +1,6 @@
-# AeroSuite Pro
+# AeroSuite Pro V2
 
-A PyQt5-based desktop toolkit for SU2 CFD preprocessing and aerodynamic calculations.
+AeroSuite Pro is a desktop application for preparing, running, and reviewing SU2 CFD studies. It combines project setup, mesh selection, configuration generation, batch control, sweep execution, convergence monitoring, and results summaries in one PyQt5 interface.
 
 ## Features
 
@@ -14,14 +14,10 @@ A PyQt5-based desktop toolkit for SU2 CFD preprocessing and aerodynamic calculat
 
 ### SU2 Config Generator
 - Batch-generate `.cfg` files from a master template across Mach, alpha, and beta sweep ranges
-- Sub-tabs for Setup & Freestream, Batch Control, Markers, and Physics & Numerics
 - Custom placeholder support for any non-standard template fields
-- Dry-run preview (list filenames before generating)
 - Mesh marker auto-extraction from SU2 mesh files
 - Profile save/load (JSON) to persist all settings between sessions
-- **Auto-generates `run_control.txt`** alongside the `.cfg` files on every generation
 - **Standalone Control File Generator** — scan an existing folder of `.cfg` files and write `run_control.txt` without re-generating the configs (collapsible panel in the Batch Control tab)
-- After generation, **automatically switches to Sweep Runner** and pre-fills the config directory and control file
 
 ### Sweep Runner
 - Launches `aoa_sweep_v8.py` (or any compatible sweep script) as a subprocess from inside the config directory — exactly as it was used from the terminal
@@ -94,15 +90,20 @@ The Aerosuite is added to source in the workstation. In the terminal:
 su2aero
 ```
 
-
-
 ## Typical Workflow
 
-1. **ISA and Y+ Calculator** — enter altitude and Mach, click Transfer → values land in SU2 tab
-2. **SU2 Config Generator** — set sweep ranges, generate configs → app switches to Sweep Runner automatically
-3. **Sweep Runner** — config dir and control file are already filled; click Load Plan then Run Sweep
+*Calculator*
+1. **ISA and Y+ Calculator** — enter altitude and Mach, click Transfer → values land in SU2 tab.
+
+*SU2 Project*
+1. Set a project directory and select the mesh.
+2. Open **CFG** and complete the **General** or **Aircraft Aero** settings.
+3. Generate one or more SU2 configuration files.
+4. In **Control File**, scan the configuration folder and write `run_control.txt`.
+5. In **Run**, choose the sweep script, configuration directory, and control file; load the plan and run it.
 4. **Convergence Monitor** — select a history file while the sweep is running; plot auto-refreshes
 5. **Results Analysis** — point at the run directory, select columns, consolidate and plot
+
 
 ## Profile Save / Load
 
@@ -110,4 +111,4 @@ Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator setting
 Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
 
 ## Version History
-- v11
+- v2
