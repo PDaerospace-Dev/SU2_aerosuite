@@ -17,7 +17,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont
 
 from ..core.su2_generator import SU2Generator
-from .style import section_label, HINT_LABEL_STYLE, MONO_FONT_FAMILY, MONO_FONT_PX
+from .style import section_label, HINT_LABEL_STYLE, MONO_FONT_FAMILY, MONO_FONT_PX, PRIMARY_BUTTON_STYLE
 
 
 class MeshTab(QWidget):
@@ -55,7 +55,7 @@ class MeshTab(QWidget):
             "Supported: .su2  .cgns  .msh  .med  .dat  .nas  .bdf  .stl  .vtk  .vtu"
         )
         load_mesh_btn = QPushButton("Load Mesh")
-        load_mesh_btn.setStyleSheet("background:#1565C0; color:white; font-weight:bold; padding:5px 12px;")
+        load_mesh_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         load_mesh_btn.clicked.connect(self.load_mesh_and_extract_markers)
 
         layout.addWidget(QLabel("Mesh File:"), 1, 0); layout.addWidget(self.mesh_edit, 1, 1); layout.addWidget(load_mesh_btn, 1, 2)

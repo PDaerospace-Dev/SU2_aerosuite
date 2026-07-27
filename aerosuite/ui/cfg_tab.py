@@ -26,7 +26,8 @@ from PyQt5.QtGui import QFont
 from ..core.su2_generator import SU2Generator
 from ..utils.file_handlers import read_template_file, write_config_file
 from .reference_panel import ReferencePanel
-from .style import section_label, hint_label, MONO_FONT_FAMILY, MONO_FONT_PX
+from .collapsible import CollapsibleSection
+from .style import section_label, hint_label, MONO_FONT_FAMILY, MONO_FONT_PX, PRIMARY_BUTTON_STYLE
 
 
 class AircraftAeroPage(QWidget):
@@ -158,8 +159,9 @@ class AircraftAeroPage(QWidget):
         phys_grid.setColumnStretch(1, 1)
         layout.addLayout(phys_grid)
 
-        # ── Numerics ─────────────────────────────────────────────────────────
-        layout.addWidget(section_label("NUMERICAL METHODS"))
+        # ── Numerics (collapsible — defaults tend to be fine as-is) ───────────
+        self.numerics_section = CollapsibleSection("Advanced Numerics")
+        numerics_section = self.numerics_section
         num_grid = QGridLayout(); num_grid.setSpacing(6)
 
         self.conv_dropdown       = QComboBox(); self.conv_dropdown.addItems(['ROE', 'JST', 'AUSM'])
@@ -176,7 +178,8 @@ class AircraftAeroPage(QWidget):
         num_grid.addWidget(QLabel("CFL:"),         4, 0); num_grid.addWidget(self.cfl_spinner,         4, 1)
         num_grid.addWidget(QLabel("Iterations:"),  5, 0); num_grid.addWidget(self.iter_spinner,        5, 1)
         num_grid.setColumnStretch(1, 1)
-        layout.addLayout(num_grid)
+        numerics_section.addLayout(num_grid)
+        layout.addWidget(numerics_section)
 
         for w in [self.mach_edit, self.alpha_edit, self.beta_edit, self.temp_edit, self.reynolds_edit,
                   self.rey_len, self.ref_len, self.ref_area, self.ref_origin_x,
@@ -188,9 +191,10 @@ class AircraftAeroPage(QWidget):
         self.iter_spinner.valueChanged.connect(self._update_preview)
         self.template_edit.textChanged.connect(self._update_preview)
 
-        # ── Custom placeholders ──────────────────────────────────────────────
-        layout.addWidget(section_label("CUSTOM PLACEHOLDERS"))
-        layout.addWidget(hint_label(
+        # ── Custom placeholders (collapsible — most templates won't need this) ─
+        self.placeholders_section = CollapsibleSection("Custom Placeholders")
+        placeholders_section = self.placeholders_section
+        placeholders_section.addWidget(hint_label(
             "<i>One <code>KEY= value</code> per line. Existing keys are replaced in place; "
             "new keys are appended.</i>"
         ))
@@ -200,14 +204,15 @@ class AircraftAeroPage(QWidget):
         self.custom_placeholders_edit.setFixedHeight(80)
         self.custom_placeholders_edit.setFont(QFont(MONO_FONT_FAMILY, MONO_FONT_PX))
         self.custom_placeholders_edit.textChanged.connect(self._update_preview)
-        layout.addWidget(self.custom_placeholders_edit)
+        placeholders_section.addWidget(self.custom_placeholders_edit)
+        layout.addWidget(placeholders_section)
 
         layout.addStretch()
         scroll.setWidget(content)
         outer.addWidget(scroll, 1)
 
         gen_btn = QPushButton("⚙  Generate Config File")
-        gen_btn.setStyleSheet("background:#2E7D32; color:white; font-weight:bold; padding:9px 16px;")
+        gen_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         gen_btn.setToolTip("Write ONE .cfg file with freestream, markers, and physics substituted.")
         gen_btn.clicked.connect(self.generate_single_config)
         outer.addWidget(gen_btn)
@@ -396,7 +401,7 @@ class GeneralPage(QWidget):
         layout.addWidget(self.editor, 1)
 
         gen_btn = QPushButton("⚙  Generate Config File")
-        gen_btn.setStyleSheet("background:#2E7D32; color:white; font-weight:bold; padding:9px 16px;")
+        gen_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         gen_btn.clicked.connect(self.generate_config)
         layout.addWidget(gen_btn)
 

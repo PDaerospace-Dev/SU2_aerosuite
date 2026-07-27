@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import (
 )
 
 from ..core.sweep_runner import SweepRunner, parse_control_file
+from .style import WARNING_BOX_STYLE, section_label
 
 
 # ── Status display helpers ────────────────────────────────────────────────────
@@ -183,10 +184,7 @@ class SweepTab(QWidget):
         self.terminal_caution = QLabel()
         self.terminal_caution.setWordWrap(True)
         self.terminal_caution.setTextFormat(Qt.RichText)
-        self.terminal_caution.setStyleSheet(
-            "background:#fff8e1; border:1px solid #ffca28; border-radius:4px; "
-            "padding:8px; color:#5d4037; font-size:11px;"
-        )
+        self.terminal_caution.setStyleSheet(WARNING_BOX_STYLE)
         caution_row.addWidget(self.terminal_caution, 1)
 
         copy_cmd_btn = QPushButton("📋  Copy Command")
@@ -228,7 +226,6 @@ class SweepTab(QWidget):
         btn_row = QHBoxLayout()
 
         self.btn_load = QPushButton("Load Plan")
-        self.btn_load.setStyleSheet(_btn_style("#1976D2"))
         self.btn_load.clicked.connect(self.load_plan)
 
         self.btn_run = QPushButton("▶  Run Sweep")
@@ -587,12 +584,7 @@ class SweepTab(QWidget):
 # ── Small UI helpers ──────────────────────────────────────────────────────────
 
 def _section_header(text: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setStyleSheet(
-        "font-weight: bold; font-size: 11px; color: #2c3e50;"
-        "background: #e8eaf6; padding: 3px 6px; border-radius: 3px;"
-    )
-    return lbl
+    return section_label(text)
 
 
 def _hline() -> QFrame:

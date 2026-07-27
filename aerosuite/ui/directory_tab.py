@@ -2,7 +2,7 @@
 Directory Tab UI.
 
 Working directory + output run-folder name, standalone as its own
-workflow node (before Geometry). Mesh, Sweep, and Control File all
+workflow node, at the top of the Project tree. Mesh, Sweep, and Control File all
 read from here instead of owning their own copies.
 """
 

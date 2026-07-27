@@ -11,7 +11,6 @@ Tree structure:
     - y+ Calculator
   Project (top-to-bottom CFD workflow)
     - Directory
-    - Geometry (disabled placeholder)
     - Mesh
     - CFG (group node)
         - Aircraft Aero
@@ -44,7 +43,12 @@ from aerosuite.ui import (
     ISATab, DirectoryTab, MeshTab, AircraftAeroPage, GeneralPage,
     SweepSetupTab, ControlFileTab, MonitorTab, AeroSummaryTab, SweepTab
 )
-from aerosuite.ui.style import APP_QSS, BASE_FONT_FAMILY, BASE_FONT_SIZE
+from aerosuite.ui.style import (
+    APP_QSS, BASE_FONT_FAMILY, BASE_FONT_SIZE, icon,
+    STATUS_COLOR_DONE, STATUS_COLOR_WARN, STATUS_COLOR_TODO,
+    STATUS_COLOR_ACTIVE, STATUS_COLOR_PENDING, COLOR_BORDER,
+    COLOR_MUTED
+)
 from aerosuite.core.isa_calculator import ISACalculator
 from aerosuite.utils.file_handlers import read_json_file, write_json_file
 
@@ -55,39 +59,20 @@ STATUS_TODO    = "\u2717"
 STATUS_ACTIVE  = "\u25B6"
 STATUS_PENDING = "\u25CB"
 
-# NOTE: STATUS_TODO deliberately uses a darker grey than the disabled
-# Geometry node (#b0b3b8) so "not started yet" never looks like "disabled".
 STATUS_COLOR = {
-    STATUS_DONE:    QColor("#2e7d32"),
-    STATUS_WARN:    QColor("#e6a400"),
-    STATUS_TODO:    QColor("#5c6570"),
-    STATUS_ACTIVE:  QColor("#00a2ed"),
-    STATUS_PENDING: QColor("#8a8d93"),
+    STATUS_DONE:    QColor(STATUS_COLOR_DONE),
+    STATUS_WARN:    QColor(STATUS_COLOR_WARN),
+    STATUS_TODO:    QColor(STATUS_COLOR_TODO),
+    STATUS_ACTIVE:  QColor(STATUS_COLOR_ACTIVE),
+    STATUS_PENDING: QColor(STATUS_COLOR_PENDING),
 }
 
-DISABLED_COLOR = QColor("#b0b3b8")
-
-
-class GeometryPlaceholderPage(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-        title = QLabel("Geometry")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size: 22px; font-weight: bold; color: #b0b3b8;")
-        subtitle = QLabel("Coming soon - geometry tools are not yet part of AeroSuite Pro.")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("font-size: 13px; color: #999; margin-top: 6px;")
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
 
 
 class AeroSuiteMainWindow(QMainWindow):
     NODE_CALC_ISA     = "calc_isa"
     NODE_CALC_YPLUS   = "calc_yplus"
     NODE_DIRECTORY    = "directory"
-    NODE_GEOMETRY     = "geometry"
     NODE_MESH         = "mesh"
     NODE_CFG_AIRCRAFT = "cfg_aircraft"
     NODE_CFG_GENERAL  = "cfg_general"
@@ -178,50 +163,50 @@ class AeroSuiteMainWindow(QMainWindow):
 
     def create_toolbar(self):
         toolbar = QToolBar("Main Toolbar")
-        toolbar.setIconSize(QSize(20, 20))
+        toolbar.setIconSize(QSize(18, 18))
         toolbar.setMovable(False)
         toolbar.setStyleSheet(
-            "QToolBar { background: #eef1f4; border-bottom: 1px solid #c9ccd1; spacing: 4px; padding: 4px; }"
+            "QToolBar { background: #ffffff; border-bottom: 1px solid #d0d7de; spacing: 4px; padding: 6px; }"
+            "QToolButton { border-radius: 6px; padding: 5px 8px; }"
+            "QToolButton:hover { background: #f1f3f5; }"
         )
         self.addToolBar(toolbar)
 
-        style = self.style()
-
-        new_action = QAction(style.standardIcon(QStyle.SP_FileIcon), "New Project", self)
+        new_action = QAction(icon("fa5s.file"), "New Project", self)
         new_action.triggered.connect(self.new_project)
         toolbar.addAction(new_action)
 
-        save_action = QAction(style.standardIcon(QStyle.SP_DialogSaveButton), "Save Profile", self)
+        save_action = QAction(icon("fa5s.save"), "Save Profile", self)
         save_action.triggered.connect(self.save_profile)
         toolbar.addAction(save_action)
 
-        load_action = QAction(style.standardIcon(QStyle.SP_DialogOpenButton), "Load Profile", self)
+        load_action = QAction(icon("fa5s.folder-open"), "Load Profile", self)
         load_action.triggered.connect(self.load_profile)
         toolbar.addAction(load_action)
 
         toolbar.addSeparator()
 
-        cfg_gen_action = QAction(style.standardIcon(QStyle.SP_FileDialogDetailedView), "Go to CFG", self)
+        cfg_gen_action = QAction(icon("fa5s.cogs"), "Go to CFG", self)
         cfg_gen_action.setToolTip("Go to the CFG > Aircraft Aero page")
         cfg_gen_action.triggered.connect(self.toolbar_generate_single_config)
         toolbar.addAction(cfg_gen_action)
 
-        sweep_gen_action = QAction(style.standardIcon(QStyle.SP_FileDialogNewFolder), "Go to Sweep", self)
+        sweep_gen_action = QAction(icon("fa5s.wind"), "Go to Sweep", self)
         sweep_gen_action.setToolTip("Go to the Sweep page")
         sweep_gen_action.triggered.connect(self.toolbar_generate_sweep)
         toolbar.addAction(sweep_gen_action)
 
-        run_action = QAction(style.standardIcon(QStyle.SP_MediaPlay), "Run Sweep", self)
+        run_action = QAction(icon("fa5s.play", color="#1a7f37"), "Run Sweep", self)
         run_action.triggered.connect(self.toolbar_run_sweep)
         toolbar.addAction(run_action)
 
-        stop_action = QAction(style.standardIcon(QStyle.SP_MediaStop), "Stop Sweep", self)
+        stop_action = QAction(icon("fa5s.stop", color="#d1242f"), "Stop Sweep", self)
         stop_action.triggered.connect(self.toolbar_stop_sweep)
         toolbar.addAction(stop_action)
 
         toolbar.addSeparator()
 
-        refresh_action = QAction(style.standardIcon(QStyle.SP_BrowserReload), "Refresh Status", self)
+        refresh_action = QAction(icon("fa5s.sync-alt"), "Refresh Status", self)
         refresh_action.triggered.connect(self.refresh_workflow_status)
         toolbar.addAction(refresh_action)
 
@@ -231,7 +216,7 @@ class AeroSuiteMainWindow(QMainWindow):
 
         self.project_name_label = QLabel(self.project_name)
         self.project_name_label.setStyleSheet(
-            "font-weight: bold; font-size: 14px; color: #2c3e50; padding-right: 10px;"
+            "font-weight: 600; font-size: 14px; color: #1f2328; padding-right: 10px;"
         )
         toolbar.addWidget(self.project_name_label)
 
@@ -244,7 +229,6 @@ class AeroSuiteMainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        self.geometry_page     = GeometryPlaceholderPage()
         self.isa_tab           = ISATab()
         self.directory_tab     = DirectoryTab()
         self.mesh_tab          = MeshTab()
@@ -262,20 +246,17 @@ class AeroSuiteMainWindow(QMainWindow):
         self.control_file_tab.set_directory_source(self.directory_tab)
 
         self.content_stack = QStackedWidget()
-        for w in (self.geometry_page, self.isa_tab, self.directory_tab, self.mesh_tab,
+        for w in (self.isa_tab, self.directory_tab, self.mesh_tab,
                   self.cfg_aircraft_tab, self.cfg_general_tab, self.sweep_setup_tab,
                   self.control_file_tab, self.sweep_tab, self.monitor_tab, self.aerosummary_tab):
             self.content_stack.addWidget(w)
 
         self.workflow_tree = QTreeWidget()
         self.workflow_tree.setHeaderHidden(True)
-        self.workflow_tree.setMinimumWidth(220)
+        self.workflow_tree.setMinimumWidth(230)
         self.workflow_tree.setMaximumWidth(340)
-        self.workflow_tree.setStyleSheet(
-            "QTreeWidget { background: #f2f4f7; border: none; border-right: 1px solid #c9ccd1; font-size: 13px; }"
-            "QTreeWidget::item { padding: 6px 2px; }"
-            "QTreeWidget::item:selected { background: #00a2ed; color: white; }"
-        )
+        self.workflow_tree.setIndentation(14)
+        self.workflow_tree.setStyleSheet("QTreeWidget { border-right: 1px solid #d0d7de; }")
         self._build_workflow_tree()
         self.workflow_tree.currentItemChanged.connect(self.handle_tree_navigation)
         # currentItemChanged doesn't fire for the selection made inside
@@ -294,7 +275,7 @@ class AeroSuiteMainWindow(QMainWindow):
         self.console.setReadOnly(True)
         self.console.setFont(QFont("Consolas", 10))
         self.console.setStyleSheet(
-            "QTextEdit { background: #1e1e1e; color: #d4d4d4; border: 1px solid #c9ccd1; }"
+            "QTextEdit { background: #1e1e1e; color: #d4d4d4; border: none; }"
         )
         self._console_container = self._panel("Console / Log", self.console)
         self._console_container.setMaximumHeight(190)
@@ -336,8 +317,8 @@ class AeroSuiteMainWindow(QMainWindow):
 
         header = QLabel(title)
         header.setStyleSheet(
-            "background: #dfe3e8; color: #2c3e50; font-weight: bold; font-size: 12px; "
-            "padding: 4px 8px; border: 1px solid #c9ccd1; border-bottom: none;"
+            "background: #f6f8fa; color: #57606a; font-weight: 500; font-size: 11px; "
+            "letter-spacing: 0.03em; padding: 5px 10px; border: 1px solid #d0d7de; border-bottom: none;"
         )
         layout.addWidget(header)
         layout.addWidget(inner_widget)
@@ -352,40 +333,55 @@ class AeroSuiteMainWindow(QMainWindow):
         self._tree_targets = {}
         self._nodes = {}
 
-        def add_child(parent, key, label, widget, sub_index=None):
+        bold_font = QFont(BASE_FONT_FAMILY, BASE_FONT_SIZE)
+        bold_font.setBold(True)
+
+        def group_item(parent, label, icon_name, icon_color=COLOR_MUTED):
+            item = QTreeWidgetItem(parent, [" " + label]) if parent is not None else QTreeWidgetItem(self.workflow_tree, [" " + label])
+            item.setIcon(0, icon(icon_name, color=icon_color))
+            item.setFont(0, bold_font)
+            return item
+
+        def add_child(parent, key, label, widget, sub_index=None, icon_name=None, icon_color=COLOR_MUTED):
             item = QTreeWidgetItem(parent, [" " + label])
+            if icon_name:
+                item.setIcon(0, icon(icon_name, color=icon_color))
             self._tree_targets[id(item)] = (widget, sub_index)
             self._nodes[key] = item
             return item
 
         # ── Calculators (peer of Project, utility tools — no status tracking) ──
-        calc_node = QTreeWidgetItem(self.workflow_tree, [" Calculators"])
-        add_child(calc_node, self.NODE_CALC_ISA,   "ISA Calculator", self.isa_tab, 0)
-        add_child(calc_node, self.NODE_CALC_YPLUS, "y+ Calculator",  self.isa_tab, 1)
+        # Color story: teal marks "specify flow conditions" stages (Calculators, Sweep).
+        calc_node = group_item(None, "Calculators", "fa5s.layer-group")
+        add_child(calc_node, self.NODE_CALC_ISA,   "ISA Calculator", self.isa_tab, 0, "fa5s.calculator", "#0d9488")
+        add_child(calc_node, self.NODE_CALC_YPLUS, "y+ Calculator",  self.isa_tab, 1, "fa5s.calculator", "#0d9488")
 
         # ── Project (top-to-bottom CFD workflow) ────────────────────────────────
-        project_node = QTreeWidgetItem(self.workflow_tree, ["SU2 Project"])
+        project_node = group_item(None, "Project", "fa5s.route")
 
-        add_child(project_node, self.NODE_DIRECTORY, "Directory", self.directory_tab)
+        # Housekeeping stages stay neutral grey; content-authoring stages get color.
+        add_child(project_node, self.NODE_DIRECTORY, "Directory", self.directory_tab,
+                  icon_name="fa5s.folder", icon_color="#9a6700")
 
-        geo_item = QTreeWidgetItem(project_node, [" Geometry"])
-        geo_item.setDisabled(True)
-        geo_item.setToolTip(0, "Coming soon")
-        geo_item.setForeground(0, QBrush(DISABLED_COLOR))
-        self._tree_targets[id(geo_item)] = (self.geometry_page, None)
-        self._nodes[self.NODE_GEOMETRY] = geo_item
+        add_child(project_node, self.NODE_MESH, "Mesh", self.mesh_tab,
+                  icon_name="fa5s.border-all", icon_color="#1f6feb")
 
-        add_child(project_node, self.NODE_MESH, "Mesh", self.mesh_tab)
+        cfg_node = group_item(project_node, "CFG", "fa5s.sliders-h", "#8250df")
+        add_child(cfg_node, self.NODE_CFG_AIRCRAFT, "Aircraft Aero", self.cfg_aircraft_tab,
+                  icon_name="fa5s.plane", icon_color="#8250df")
+        add_child(cfg_node, self.NODE_CFG_GENERAL,  "General",       self.cfg_general_tab,
+                  icon_name="fa5s.file-alt", icon_color=COLOR_MUTED)
 
-        cfg_node = QTreeWidgetItem(project_node, [" CFG"])
-        add_child(cfg_node, self.NODE_CFG_AIRCRAFT, "Aircraft Aero", self.cfg_aircraft_tab)
-        add_child(cfg_node, self.NODE_CFG_GENERAL,  "General",       self.cfg_general_tab)
-
-        add_child(project_node, self.NODE_SWEEP,   "Sweep",        self.sweep_setup_tab)
-        add_child(project_node, self.NODE_CONTROL, "Control File", self.control_file_tab)
-        add_child(project_node, self.NODE_RUN,     "Run",          self.sweep_tab)
-        add_child(project_node, self.NODE_MONITOR, "Monitor",      self.monitor_tab)
-        add_child(project_node, self.NODE_RESULTS, "Results",      self.aerosummary_tab)
+        add_child(project_node, self.NODE_SWEEP, "Sweep", self.sweep_setup_tab,
+                  icon_name="fa5s.wind", icon_color="#0d9488")
+        add_child(project_node, self.NODE_CONTROL, "Control File", self.control_file_tab,
+                  icon_name="fa5s.list-ol", icon_color=COLOR_MUTED)
+        add_child(project_node, self.NODE_RUN, "Run", self.sweep_tab,
+                  icon_name="fa5s.play", icon_color="#1a7f37")
+        add_child(project_node, self.NODE_MONITOR, "Monitor", self.monitor_tab,
+                  icon_name="fa5s.chart-line", icon_color="#9a6700")
+        add_child(project_node, self.NODE_RESULTS, "Results", self.aerosummary_tab,
+                  icon_name="fa5s.chart-bar", icon_color="#1f6feb")
 
         self.workflow_tree.expandAll()
         self.workflow_tree.setCurrentItem(self._nodes[self.NODE_DIRECTORY])
@@ -756,7 +752,7 @@ class AeroSuiteMainWindow(QMainWindow):
             f"<p>Version {__version__}</p>"
             "<p>A desktop toolkit for SU2 CFD preprocessing and aerodynamic calculations.</p>"
             "<h3>Workflow</h3>"
-            "<p>Calculators &middot; Directory &rarr; Geometry &rarr; Mesh &rarr; "
+            "<p>Calculators &middot; Directory &rarr; Mesh &rarr; "
             "CFG (Aircraft Aero / General) &rarr; Sweep &rarr; "
             "Control File &rarr; Run &rarr; Monitor &rarr; Results</p>"
             "<p><i>Built with PyQt5 and Python 3</i></p>"

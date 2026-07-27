@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
-from .style import section_label, hint_label, INFO_BOX_STYLE, TOGGLE_BUTTON_STYLE, HINT_LABEL_STYLE
+from .style import section_label, hint_label, INFO_BOX_STYLE, TOGGLE_BUTTON_STYLE, HINT_LABEL_STYLE, PRIMARY_BUTTON_STYLE
 
 
 class ControlFileTab(QWidget):
@@ -57,7 +57,6 @@ class ControlFileTab(QWidget):
         use_workdir_btn.setToolTip("Fill in the working directory set on the Mesh page")
         use_workdir_btn.clicked.connect(self._use_workdir)
         scan_btn = QPushButton("🔍  Scan → Load Table")
-        scan_btn.setStyleSheet("background:#6A1B9A; color:white; font-weight:bold; padding:6px 14px;")
         scan_btn.clicked.connect(self._scan_folder_into_table)
 
         scan_row.addWidget(QLabel("Cfg Folder:"), 0, 0)
@@ -108,11 +107,9 @@ class ControlFileTab(QWidget):
 
         self._apply_all_combo = QComboBox(); self._apply_all_combo.addItems(['none', 'previous', 'custom'])
         apply_all_btn = QPushButton("Apply to All")
-        apply_all_btn.setStyleSheet("background:#1976D2; color:white; font-weight:bold; padding:3px 10px;")
         apply_all_btn.clicked.connect(lambda: self._apply_restart_to_all(self._apply_all_combo.currentText()))
 
         refresh_btn = QPushButton("🔄  Refresh")
-        refresh_btn.setStyleSheet("background:#37474F; color:white; font-weight:bold; padding:3px 10px;")
         refresh_btn.clicked.connect(self._refresh_table)
 
         table_hdr.addWidget(QLabel("Apply to all:"))
@@ -140,7 +137,7 @@ class ControlFileTab(QWidget):
         layout.addWidget(self.preview_table, 1)
 
         write_ctrl_btn = QPushButton("💾  Write run_control.txt from Table")
-        write_ctrl_btn.setStyleSheet("background:#2E7D32; color:white; font-weight:bold; padding:8px 18px;")
+        write_ctrl_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         write_ctrl_btn.setToolTip("Write run_control.txt using the restart options in the table")
         write_ctrl_btn.clicked.connect(self._write_control_from_table)
         layout.addWidget(write_ctrl_btn)

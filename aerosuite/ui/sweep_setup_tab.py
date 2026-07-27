@@ -20,7 +20,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 
 from ..core.su2_generator import SU2Generator, GenerationConfig
 from ..utils.file_handlers import read_template_file, write_config_file, ensure_directory
-from .style import section_label
+from .style import section_label, PRIMARY_BUTTON_STYLE
 
 
 class SweepSetupTab(QWidget):
@@ -53,7 +53,6 @@ class SweepSetupTab(QWidget):
         self.base_cfg_edit = QLineEdit("")
         self.base_cfg_edit.setPlaceholderText(".cfg file to use as the base for every case in this sweep")
         browse_cfg_btn = QPushButton("Load CFG File")
-        browse_cfg_btn.setStyleSheet("background:#1565C0; color:white; font-weight:bold; padding:4px 12px;")
         browse_cfg_btn.clicked.connect(self.browse_base_cfg)
         layout.addWidget(QLabel("Cfg File:"), 1, 0); layout.addWidget(self.base_cfg_edit, 1, 1); layout.addWidget(browse_cfg_btn, 1, 2)
 
@@ -108,7 +107,7 @@ class SweepSetupTab(QWidget):
             cb.stateChanged.connect(self.update_summary)
 
         gen_btn = QPushButton("⚙  Generate Sweep Configs")
-        gen_btn.setStyleSheet("background:#2E7D32; color:white; font-weight:bold; padding:9px 20px;")
+        gen_btn.setStyleSheet(PRIMARY_BUTTON_STYLE)
         gen_btn.setToolTip("Generate all .cfg files for the full Mach × Alpha × Beta sweep")
         gen_btn.clicked.connect(self.generate_sweep_configs)
         layout.addWidget(gen_btn, 14, 0, 1, 3)
