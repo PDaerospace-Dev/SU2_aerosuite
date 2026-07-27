@@ -7,7 +7,7 @@ AeroSuite Pro is a desktop application for preparing, running, and reviewing SU2
 ```
 +--------------------------------------------------------------------+
 | Menu   Toolbar                                      Project Name   |
-+---------------+------------------------------------------------------+
++---------------+----------------------------------------------------+
 | Workflow Tree |                                                    |
 |               |                                                    |
 | Calculators   |                Content Pane                        |
@@ -15,7 +15,6 @@ AeroSuite Pro is a desktop application for preparing, running, and reviewing SU2
 |  y+ Calc      |          in the tree on the left)                  |
 | Project       |                                                    |
 |  Directory    |                                                    |
-|  Geometry     |                                                    |
 |  Mesh         |                                                    |
 |  CFG          |                                                    |
 |   Aircraft    |                                                    |
@@ -25,61 +24,43 @@ AeroSuite Pro is a desktop application for preparing, running, and reviewing SU2
 |  Run          |                                                    |
 |  Monitor      |                                                    |
 |  Results      |                                                    |
-+---------------+------------------------------------------------------+
++---------------+----------------------------------------------------+
 | Console / Log                                                      |
 +--------------------------------------------------------------------+
-
-
-Each node in the Workflow Tree shows a status glyph so you can tell at a glance what's been set up:
-
-Glyph	Meaning
-✓	Done
-⚠	Started but incomplete / file not found
-✗	Not started
-▶	Ready to run
-○	Pending (comes after something not yet done)
 ```
-
-*Geometry is greyed out and disabled — it's a placeholder for a future stage, not part of the current workflow.*
-
 ## Workflow
 The tree runs top to bottom in execution order:
 
 1. **Calculators**
    - **ISA Calculator** — Standard atmosphere properties at any altitude up to 100 km.
    - **y+ Calculator** — First-cell height for a target y+, feeding into mesh sizing.
+
 *The **"Update SU2 Parameters"** button pushes altitude/temperature/Reynolds straight into the Sweep and CFG pages.*
 
 2. **Directory** — Working directory + output run-folder name. Everything downstream (Mesh, Sweep, Control File) reads its default paths from here.
 
-3. **Geometry** — not yet implemented.
-
-4. **Mesh** — Load a mesh file. 
+3. **Mesh** — Load a mesh file. 
 For `.su2` meshes, marker tags (e.g. `airfoil`, `farfield`) are auto-extracted and surfaced on the CFG page.
 
-5. **CFG**
+4. **CFG**
 
-   - **Aircraft Aero** (Designed for X07)
-    - load a `.cfg` template and set freestream, toggle markers, set physical/reference properties and numerics, and generate a single config file. 
-    - Includes a live preview of the substituted output.
+   - **Aircraft Aero** (Designed for X07) - Load a `.cfg` template and set freestream, toggle markers, set physical/reference properties and numerics, and generate a single config file. Also includes a live preview of cfg file.
+
    - **General** — load any `.cfg` file and edit its raw text directly, with the reference panel at the side. 
-- *Reference- https://github.com/su2code/SU2/blob/master/config_template.cfg (config_template.cfg) for checking or copying marker blocks.*
 
-6. **Sweep** — Load a base `.cfg` file and generate the full Mach × Alpha × Beta parametric sweep from it.
+*Reference- https://github.com/su2code/SU2/blob/master/config_template.cfg (config_template.cfg) for checking or copying marker blocks.*
 
-7. **Control File** — Scan a folder of generated `.cfg` files (defaults to the Directory page's working directory) into a per-case restart-configuration table, and write `run_control.txt` from it.
+5. **Sweep** — Load a base `.cfg` file and generate the full Mach × Alpha × Beta parametric sweep from it.
+
+6. **Control File** — Scan a folder of generated `.cfg` files (defaults to the Directory page's working directory) into a per-case restart-configuration table, and write `run_control.txt` from it.
 - *Includes a collapsible "What is a control file?" explainer.*
 
-8. **Run** — Launches the sweep script (`aoa_sweep_v8.py` or compatible) as a subprocess and streams its output live.
-- *For long sweeps, running directly in a terminal (rather than through the GUI) is recommended so the run isn't tied to the app staying open.*
+7. **Run** — Launches the sweep script (`aoa_sweep_v8.py` or compatible) as a subprocess and streams its output live.
 
-9. **Monitor** — Live-refreshing residual plots read from SU2 history files.
+8. **Monitor** — Live-refreshing residual plots read from SU2 history files.
 
-10. **Results** — Consolidates a batch run's history files into a summary CSV and auto-plots CL/CD/moment.
-
-
+9. **Results** — Consolidates a batch run's history files into a summary CSV and auto-plots CL/CD/moment.
 ## Project Structure
-
 ```
 run_aerosuite.py             Entry point
 diagnose.py                  Startup diagnostics (see "Running" above)
@@ -114,24 +95,17 @@ aerosuite/
     ├── validators.py         Input validation helpers
     └── file_handlers.py      JSON/text file read/write helpers
 ```
-
-
 ## Installation
-
 ### Requirements
-
 - Python 3.7+
 - PyQt5
 - pandas
 - matplotlib
 
-
 ```bash
 pip install -r aerosuite/requirements.txt
 ```
-
-## Running
-
+### Running
 Run the following python script in the terminal
 ```bash
 python run_aerosuite.py
@@ -145,7 +119,6 @@ su2aero2
 ```
 
 ## Typical Workflow
-
 *Calculator*
 1. **ISA and Y+ Calculator** — enter altitude and Mach, click Transfer → values land in SU2 tab.
 
@@ -158,9 +131,7 @@ su2aero2
 4. **Convergence Monitor** — select a history file while the sweep is running; plot auto-refreshes
 5. **Results Analysis** — point at the run directory, select columns, consolidate and plot
 
-
 ## Profile Save / Load
-
 Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator settings to a JSON file.  
 Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
 
