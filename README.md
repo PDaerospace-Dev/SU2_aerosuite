@@ -136,10 +136,10 @@ Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator setting
 Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
 
 ## Future Plans
-
+-   
 
 ## Contributors
 Thanks to the following contributors for their work on this project:
-Midhun
-Martino
-Daniel
+1. Midhun
+2. Martino
+3. Daniel
