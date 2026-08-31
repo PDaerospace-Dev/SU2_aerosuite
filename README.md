@@ -106,7 +106,7 @@ aerosuite/
 pip install -r aerosuite/requirements.txt
 ```
 ### Running
-Run the following python script in the terminal
+Run the following python script in the terminal from the folder
 ```bash
 python run_aerosuite.py
 ```
@@ -115,7 +115,7 @@ python run_aerosuite.py
 
 The Aerosuite is added to source in the workstation. In the terminal:
 ```bash
-su2aero2
+su2aero
 ```
 
 ## Typical Workflow
