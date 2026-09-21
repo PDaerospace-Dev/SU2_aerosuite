@@ -106,3 +106,23 @@ def test_summarize_skip_and_empty(tmp_path, history_writer):
     df, _ = summarize(runs, ["CL"], skip=["M0p8_a0_b0"])
     assert df.empty
     assert list(df.columns) == ["Case", "Mach", "Alpha", "Beta", "Converged", "CL"]
+
+
+def test_check_convergence_without_coefficient_columns(tmp_path):
+    path = tmp_path / "history.csv"
+    path.write_text('"Inner_Iter", "rms[Rho]"\n' + "".join(f"{i}, {-2 - 0.1 * i}\n" for i in range(50)))
+    assert check_convergence(read_history(path)) == (
+        False, "No CL/CD/CMy columns in history; add them to HISTORY_OUTPUT to judge convergence"
+    )
+    ok, message = check_convergence(read_history(path), ["CL"])
+    assert not ok and message.startswith("No CL columns")
+
+
+def test_check_convergence_near_zero_mean(tmp_path):
+    """A symmetric case (CL about 1e-9) with CD/CMy steady converges although std/mean is large."""
+    path = tmp_path / "history.csv"
+    rows = [f"{i}, {1e-9 + 1e-10 * (-1) ** i:.6e}, 0.02, -0.1\n" for i in range(50)]
+    path.write_text('"Inner_Iter", "CL", "CD", "CMy"\n' + "".join(rows))
+    df = read_history(path)
+    assert df["CL"].std() / abs(df["CL"].mean()) > 1e-3  # the relative rule alone would fail it
+    assert check_convergence(df) == (True, "Converged")

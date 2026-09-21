@@ -20,8 +20,11 @@ class AeroSummary:
     
     @staticmethod
     def check_convergence(df: pd.DataFrame, columns: List[str]) -> Tuple[bool, str]:
-        """Convergence of whichever of CD/CL/CMy the user selected (engine rule)."""
-        return engine_results.check_convergence(df, [c for c in ('CD', 'CL', 'CMy') if c in columns])
+        """Convergence of whichever of CD/CL/CMy the user selected, else of all three (engine rule)."""
+        selected = [c for c in ('CD', 'CL', 'CMy') if c in columns]
+        return engine_results.check_convergence(
+            df, selected or engine_results.DEFAULT_CONVERGENCE_COLUMNS
+        )
 
     @staticmethod
     def extract_mach_from_case_name(case_name: str) -> float:

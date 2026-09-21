@@ -59,3 +59,13 @@ def test_build_results_reports_convergence(tmp_path, history_writer):
         "empty.cfg": "FAILED",
         "never.cfg": "NOT RUN",
     }
+
+
+def test_legacy_convergence_uses_default_columns_when_none_selected(tmp_path, history_writer):
+    from aerosuite.engine.results import read_history
+
+    wobbly = read_history(history_writer(tmp_path / "wobbly", WOBBLY))
+    ok, message = AeroSummary.check_convergence(wobbly, ["rms[Rho]"])
+    assert not ok and message.startswith("CL not converged")
+    ok, _ = AeroSummary.check_convergence(wobbly, ["CD"])
+    assert ok

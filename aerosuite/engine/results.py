@@ -15,6 +15,7 @@ HISTORY_FILE = "history.csv"
 DEFAULT_CONVERGENCE_COLUMNS = ("CL", "CD", "CMy")
 MIN_CONVERGENCE_ITERATIONS = 10
 CONVERGENCE_THRESHOLD = 1e-3
+ABSOLUTE_TOLERANCE = 1e-6  # a column this steady is converged whatever its mean
 SUMMARY_KEY_COLUMNS = ["Case", "Mach", "Alpha", "Beta", "Converged"]
 
 
@@ -75,15 +76,22 @@ def read_history(path: Path) -> pd.DataFrame:
 def check_convergence(
     df: pd.DataFrame, columns: Sequence[str] = DEFAULT_CONVERGENCE_COLUMNS
 ) -> tuple[bool, str]:
-    """Converged when std/mean over the last 10% (at least 10 rows) is below the threshold."""
+    """Converged when, over the last 10% (at least 10 rows), every column is steady.
+
+    Steady: std below ABSOLUTE_TOLERANCE, or std/mean below CONVERGENCE_THRESHOLD.
+    Without any of the requested columns there is no evidence, so not converged.
+    """
     if len(df) < MIN_CONVERGENCE_ITERATIONS:
         return False, f"Insufficient iterations ({len(df)} < {MIN_CONVERGENCE_ITERATIONS})"
     check = [col for col in columns if col in df.columns]
     if not check:
-        return True, "No convergence columns found, assuming converged"
+        wanted = "/".join(columns)
+        return False, f"No {wanted} columns in history; add them to HISTORY_OUTPUT to judge convergence"
     tail = df.tail(max(10, int(len(df) * 0.1)))
     for col in check:
         std = tail[col].std()
+        if std < ABSOLUTE_TOLERANCE:
+            continue
         mean = abs(tail[col].mean())
         if mean > 0 and std / mean > CONVERGENCE_THRESHOLD:
             return False, f"{col} not converged (std/mean = {std / mean:.2e})"
