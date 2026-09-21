@@ -153,3 +153,14 @@ def test_generate_configs_refuses_duplicate_names(tmp_path):
 def test_generate_configs_missing_template(tmp_path):
     with pytest.raises(TemplateError):
         generate_configs(tmp_path, _project())
+
+
+def test_generate_configs_requires_restart_reference(tmp_path):
+    (tmp_path / "template.cfg").write_text(TEMPLATE)
+    project = _project(alpha=[0.0, 2.5])
+    project.cases[0].restart = "from_case"
+    project.cases[0].restart_ref = None
+    project.cases[1].restart = "custom"
+    project.cases[1].restart_ref = None
+    with pytest.raises(GenerationError, match="M0p8_a0_b0.*M0p8_a2p5_b0"):
+        generate_configs(tmp_path, project)

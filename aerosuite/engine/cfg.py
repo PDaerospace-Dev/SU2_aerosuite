@@ -154,6 +154,12 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
             "These case names occur more than once and would overwrite each other: "
             + ", ".join(duplicates)
         )
+    no_ref = [c.name for c in project.cases if c.restart in ("custom", "from_case") and not c.restart_ref]
+    if no_ref:
+        raise GenerationError(
+            "These cases need a restart reference for their restart option: "
+            + ", ".join(no_ref)
+        )
     template = read_template(project_dir, project)
     out_dir = Path(project_dir) / CONFIGS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
