@@ -38,6 +38,10 @@ def _is_number(text: str) -> bool:
     return True
 
 
+def _not_absolute(what: str, value: str) -> Problem:
+    return Problem("error", f"{what} must be an absolute path (the sweep runs from the runs/ folder): {value}")
+
+
 def _marker_problems(project: Project) -> list[Problem]:
     known = set(project.mesh.markers)
     if not known:
@@ -66,6 +70,8 @@ def _restart_problems(project: Project) -> list[Problem]:
         elif case.restart == "custom":
             if not case.restart_ref:
                 problems.append(Problem("error", f"{case.name}: 'custom' restart needs a restart file"))
+            elif not Path(case.restart_ref).is_absolute():
+                problems.append(_not_absolute(f"{case.name}: restart file", case.restart_ref))
             elif not Path(case.restart_ref).is_file():
                 problems.append(Problem("error", f"{case.name}: restart file not found: {case.restart_ref}"))
         elif case.restart == "from_case" and case.restart_ref not in earlier:
@@ -79,6 +85,8 @@ def _restart_problems(project: Project) -> list[Problem]:
                 problems.append(Problem(
                     "error", f"{case.name}: 'initial' restart needs run.initial_restart to be set"
                 ))
+            elif not Path(initial).is_absolute():
+                problems.append(_not_absolute(f"{case.name}: initial restart file", initial))
             elif not Path(initial).is_file():
                 problems.append(Problem("error", f"{case.name}: initial restart file not found: {initial}"))
         earlier.add(case.name)
@@ -130,6 +138,8 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
         problems.append(Problem("error", f"Template not found: {template}"))
     if not project.mesh.path:
         problems.append(Problem("error", "No mesh selected"))
+    elif not Path(project.mesh.path).is_absolute():
+        problems.append(_not_absolute("Mesh", project.mesh.path))
     elif not Path(project.mesh.path).is_file():
         problems.append(Problem("error", f"Mesh not found: {project.mesh.path}"))
     if not project.cases:

@@ -118,3 +118,33 @@ def test_configs_out_of_date_with_sweep_is_a_warning(ready_project, monkeypatch)
     project.cases = project.cases[:2]
     assert stale in _messages(preflight(project_dir, project, "run"), "warning")
     assert stale not in _messages(preflight(project_dir, project, "generate"), "warning")
+
+
+def test_relative_mesh_path_is_an_error(ready_project):
+    project_dir, project = ready_project
+    project.mesh.path = "wing.su2"
+    for action in ("generate", "run"):
+        errors = _messages(preflight(project_dir, project, action), "error")
+        assert "Mesh must be an absolute path (the sweep runs from the runs/ folder): wing.su2" in errors
+        assert not any("Mesh not found" in m for m in errors)
+
+
+def test_relative_custom_restart_is_an_error(ready_project):
+    project_dir, project = ready_project
+    project.cases[1].restart, project.cases[1].restart_ref = "custom", "restart.dat"
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert errors == [
+        "M0p8_a2_b0: restart file must be an absolute path (the sweep runs from the runs/ folder): restart.dat"
+    ]
+
+
+def test_relative_initial_restart_is_an_error(ready_project):
+    project_dir, project = ready_project
+    project.run.initial_restart = "solution.dat"
+    assert preflight(project_dir, project, "generate") == []  # not used by any case
+    project.cases[0].restart = "initial"
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert errors == [
+        "M0p8_a0_b0: initial restart file must be an absolute path "
+        "(the sweep runs from the runs/ folder): solution.dat"
+    ]
