@@ -58,15 +58,16 @@ aerosuite/
 ├── engine/                 pure Python, no UI imports
 │   ├── models.py           pydantic models (section 4)
 │   ├── project.py          create / open / save project folders; schema migration
-│   ├── atmosphere.py       ISA + y+           (from core/isa_calculator, core/yplus_calculator)
-│   ├── cfg.py              render_case, marker extraction, case naming (from core/su2_generator)
+│   ├── atmosphere/         isa.py + yplus.py  (moved from core/isa_calculator, core/yplus_calculator)
+│   ├── naming.py           case names <-> Mach/alpha/beta, value formatting, collision detection
+│   ├── cfg.py              render_case, marker extraction, case expansion, config generation
 │   ├── results.py          history reading, convergence, summary (from core/monitor, core/aerosummary)
 │   ├── preflight.py        pre-run validation returning a list of problems
 │   ├── errors.py           AeroSuiteError hierarchy
 │   └── jobs/
 │       ├── runner.py       Runner protocol + JobRecord
 │       ├── local.py        LocalRunner (runs aoa_sweep_v8.py)
-│       └── store.py        read/write jobs/<id>.json, project lock
+│       └── store.py        read/write jobs/<id>.json, project lock, process liveness / tree kill (psutil)
 ├── cli.py                  `aerosuite` command (Typer)
 ├── web/                    NiceGUI app; one module per page (section 7)
 ├── resources/              config_template.cfg, aoa_sweep_v8.py, presets/*.json
@@ -115,7 +116,7 @@ Project
       freestream: temperature_K, reynolds, reynolds_length
       reference:  origin_x, origin_y, origin_z, ref_length, ref_area
       numerics:   turb_model, cfl, iter, conv_method, muscl
-      markers:    dict[str, str]  # e.g. {"MARKER_FAR": "( FarField )"}; key absent = line removed
+      markers:    dict[str, str | None]  # {"MARKER_FAR": "( FarField )"}; None = line removed; key absent = template value kept
       overrides:  dict[str, str]  # any SU2 key; replaces "custom placeholders"
   sweep: SweepSpec
       mach: list[float], alpha: list[float], beta: list[float]
@@ -125,11 +126,12 @@ Project
       name: str                   # filename stem
       mach, alpha, beta: float
       restart: none | previous | initial | custom | from_case
-      restart_ref: str | None     # path (custom/initial) or case name (from_case)
+      restart_ref: str | None     # restart file path (custom) or earlier case name (from_case)
   run: RunSettings
       partitions: int
       sweep_script: str           # default: bundled resources/aoa_sweep_v8.py
       sweep_python: str           # interpreter able to import SU2; default: "python3" on PATH
+      initial_restart: str | None # restart file passed as -r; used by cases with restart = initial
 ```
 
 Numeric settings are stored as numbers, not strings; `Settings` fields left as `None` are not written, so the template value stands.
@@ -158,19 +160,19 @@ Numeric settings are stored as numbers, not strings; `Settings` fields left as `
 ### Runner protocol
 
 ```
-submit(project, cases, partitions) -> JobRecord
-refresh(job) -> JobRecord        # derives state from disk and the OS
-cancel(job) -> JobRecord
+submit(project_dir, project) -> JobRecord   # runs every case in configs/run_control.txt
+refresh(project_dir, job) -> JobRecord      # derives state from disk and the OS
+cancel(project_dir, job) -> JobRecord
 ```
 
 `JobRecord` (saved as `jobs/<id>.json`): `id`, `backend` (`"local"`), `backend_ref` (dict; `{"pid", "pgid"}` for local, later `{"slurm_id"}`), `cases`, `log_path`, `created`, `finished`, `state` (`QUEUED | RUNNING | DONE | FAILED | CANCELLED`), `case_status` (`{name: PENDING | RUNNING | CONVERGED | UNCONVERGED | FAILED | CANCELLED}`), `failure_tail` (`{name: last ~50 log lines}`).
 
 ### LocalRunner
 
-- Launches `sweep_python sweep_script -d . -c run_control.txt -n <partitions>` from `configs/`, detached (`start_new_session=True`), stdout/stderr to `jobs/<id>.log`. Answers the script's confirmation prompt on stdin as today.
-- Creates `.lock` on submit; `submit` refuses if a lock exists and its pid is alive; a stale lock (dead pid) is removed.
-- `refresh` never trusts memory: pid liveness (`os.kill(pid, 0)`), the log's `Running Case i/n: <cfg>` banners, and per case `runs/<case>/error.log` (→ FAILED) or `history.csv` + convergence check (→ CONVERGED/UNCONVERGED).
-- `cancel` sends SIGTERM to the process group, waits 5 s, then SIGKILL. On Windows it uses `taskkill /T /F /PID <pid>`.
+- Launches `sweep_python sweep_script -d <abs configs/> -c <abs configs/run_control.txt> -n <partitions> [-r <initial_restart>]` with the working directory set to `runs/`, so the script creates `runs/<case>/`. Detached (`start_new_session=True` on POSIX, `CREATE_NEW_PROCESS_GROUP` on Windows); stdout/stderr to `jobs/<id>.log`. Answers the script's confirmation prompt on stdin as today. `MESH_FILENAME` is written as an absolute path so SU2 finds the mesh from `runs/`.
+- Creates `.lock` (job id, pid, process start time) on submit; `submit` refuses if a lock exists and its process is alive; a stale lock is removed.
+- `refresh` never trusts memory: process liveness via `psutil` (pid plus process start time, so a reused pid is not mistaken for the job; zombies count as dead), the log's `Running Case i/n: <cfg>` banners, and per case `runs/<case>/error.log` (→ FAILED) or `history.csv` + convergence check (→ CONVERGED/UNCONVERGED). `os.kill(pid, 0)` is not used: on Windows it terminates the process.
+- `cancel` terminates the whole process tree (the script, `mpirun` and SU2 ranks) via `psutil`: terminate all, wait 5 s, kill survivors. Same code on Linux and Windows.
 - The convergence check is today's `AeroSummary.check_convergence` (std/mean of CL/CD/CMy over the last 10%), moved into `engine/results.py`.
 
 ### Monitoring
@@ -226,8 +228,8 @@ Typer app installed as the `aerosuite` command:
 - The sweep script keeps running under the existing Python 3.7.6 that already imports SU2's modules: `run.sweep_python` defaults to `python3` on `PATH`, not to AeroSuite's own interpreter. SU2's Python modules are never installed into the AeroSuite environment.
 - `aoa_sweep_v8.py` must stay compatible with Python 3.7 (no syntax newer than 3.7 in that file).
 - A launcher script `bin/su2aero` activates the AeroSuite environment and runs `aerosuite serve`; the existing `su2aero2` alias keeps launching the PyQt5 app until Phase 5.
-- Dependencies (pinned in `requirements.txt`): `nicegui`, `pydantic>=2`, `typer`, `pandas`, `plotly`; dev: `pytest`.
-- PyQt5, matplotlib and qtawesome stay in requirements until Phase 5.
+- Dependencies are declared in `pyproject.toml` and locked in `uv.lock`. Phases 0–1 need `pandas`, `pydantic>=2`, `psutil`; dev: `pytest`. `typer` is added in Phase 2 and `nicegui`, `plotly` in Phase 3.
+- The legacy PyQt5 app moves to the same Python 3.12 environment in Phase 0 (Phase 1 makes it import the engine). PyQt5, matplotlib and qtawesome stay as dependencies until Phase 5; the `su2aero2` alias is repointed to the new environment.
 
 ## 10. Testing
 
