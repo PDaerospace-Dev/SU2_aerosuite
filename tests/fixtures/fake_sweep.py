@@ -44,7 +44,7 @@ def main() -> int:
         return 0
 
     for i, cfg in enumerate(cfgs, 1):
-        print(f"=== Running Case {i}/{len(cfgs)}: {cfg} ===", flush=True)
+        print(f"=== Running Case {i}/{len(cfgs)}: {cfg} ===")
         name = cfg[:-4]
         folder = Path(name)
         if folder.is_dir():
@@ -57,10 +57,10 @@ def main() -> int:
         time.sleep(delay)
         if mode == "fail":
             (folder / "error.log").write_text(f"Failed to run {cfg}:\nboom\n")
-            print(f"ERROR: Simulation for {cfg} failed: boom", flush=True)
+            print(f"ERROR: Simulation for {cfg} failed: boom")
             continue
         write_history(folder, diverge=(mode == "diverge"))
-        print("--> Iterations completed: 50", flush=True)
+        print("--> Iterations completed: 50")
     return 0
 
 

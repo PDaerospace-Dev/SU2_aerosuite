@@ -6,6 +6,7 @@ fresh LocalRunner — e.g. after a server restart — reports the same state.
 """
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -88,11 +89,15 @@ class LocalRunner:
             detach = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         else:
             detach = {"start_new_session": True}  # closing AeroSuite must not kill SU2
+        # aoa_sweep_v8.py prints its "Running Case" banners without flushing, so with
+        # stdout redirected to a file the child block-buffers; force unbuffered output
+        # so the log (and therefore refresh()) reflects progress promptly.
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
         try:
             with open(project_dir / job.log_path, "wb") as log:
                 proc = subprocess.Popen(
                     cmd, cwd=runs, stdin=subprocess.PIPE, stdout=log,
-                    stderr=subprocess.STDOUT, **detach,
+                    stderr=subprocess.STDOUT, env=env, **detach,
                 )
         except OSError as exc:
             raise JobError(f"Cannot start the sweep script ({' '.join(cmd)}): {exc}") from exc
