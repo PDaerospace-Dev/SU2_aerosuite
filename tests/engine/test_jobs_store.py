@@ -123,3 +123,15 @@ def test_save_job_os_error_is_a_job_error(tmp_path):
     (tmp_path / "jobs").write_text("a file where the jobs folder should be")
     with pytest.raises(JobError, match="Cannot save job"):
         save_job(tmp_path, _job())
+
+
+def test_process_we_cannot_inspect_counts_as_alive(monkeypatch):
+    """A live job owned by another user must not have its lock cleared."""
+    from aerosuite.engine.jobs import store
+
+    class Denied:
+        def __init__(self, pid):
+            raise psutil.AccessDenied(pid)
+
+    monkeypatch.setattr(store.psutil, "Process", Denied)
+    assert process_alive(4242, 0.0)
