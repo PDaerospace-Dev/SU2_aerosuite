@@ -1,0 +1,94 @@
+import os
+
+import psutil
+
+from aerosuite.engine.cfg import generate_configs
+from aerosuite.engine.jobs.store import write_lock
+from aerosuite.engine.models import Case
+from aerosuite.engine.preflight import Problem, has_errors, preflight
+
+
+def _messages(problems, severity):
+    return [p.message for p in problems if p.severity == severity]
+
+
+def test_valid_project_has_no_generate_problems(ready_project):
+    project_dir, project = ready_project
+    assert preflight(project_dir, project, "generate") == []
+
+
+def test_missing_template_and_mesh(ready_project):
+    project_dir, project = ready_project
+    (project_dir / "template.cfg").unlink()
+    project.mesh.path = str(project_dir / "gone.su2")
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert any("Template not found" in m for m in errors)
+    assert any("Mesh not found" in m for m in errors)
+
+
+def test_no_mesh_and_no_cases(ready_project):
+    project_dir, project = ready_project
+    project.mesh.path = ""
+    project.cases = []
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert "No mesh selected" in errors
+    assert "The sweep has no cases" in errors
+
+
+def test_duplicate_case_names(ready_project):
+    project_dir, project = ready_project
+    project.cases.append(project.cases[0].model_copy())
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert any("M0p8_a0_b0" in m and "Duplicate" in m for m in errors)
+
+
+def test_unknown_marker_is_a_warning(ready_project):
+    project_dir, project = ready_project
+    project.settings.markers = {"MARKER_HEATFLUX": "( wall, fuselage, 0.0 )", "MARKER_PLOTTING": None}
+    problems = preflight(project_dir, project, "generate")
+    assert not has_errors(problems)
+    assert _messages(problems, "warning") == [
+        "MARKER_HEATFLUX refers to 'fuselage', which is not a marker in the mesh"
+    ]
+
+
+def test_restart_problems(ready_project, tmp_path):
+    project_dir, project = ready_project
+    a0, a2, a4 = project.cases
+    a0.restart = "previous"
+    a2.restart, a2.restart_ref = "from_case", "M0p8_a4_b0"  # later case: invalid
+    a4.restart, a4.restart_ref = "custom", str(tmp_path / "missing.dat")
+    project.cases.append(Case(name="extra", mach=0.8, alpha=6, beta=0, restart="initial"))
+    problems = preflight(project_dir, project, "generate")
+    assert any("first case" in m for m in _messages(problems, "warning"))
+    errors = _messages(problems, "error")
+    assert any("M0p8_a2_b0" in m and "earlier case" in m for m in errors)
+    assert any("M0p8_a4_b0" in m and "restart file not found" in m for m in errors)
+    assert any("extra" in m and "initial_restart" in m for m in errors)
+
+
+def test_run_checks(ready_project, monkeypatch):
+    project_dir, project = ready_project
+    monkeypatch.delenv("SU2_RUN", raising=False)
+    project.run.sweep_script = str(project_dir / "missing_script.py")
+    project.run.sweep_python = "definitely-not-a-python-xyz"
+    errors = _messages(preflight(project_dir, project, "run"), "error")
+    assert any("have not been generated" in m for m in errors)
+    assert any("SU2_RUN" in m for m in errors)
+    assert any("Sweep script not found" in m for m in errors)
+    assert any("Python for the sweep script not found" in m for m in errors)
+
+
+def test_run_ready_and_locked(ready_project, monkeypatch):
+    project_dir, project = ready_project
+    monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    generate_configs(project_dir, project)
+    assert preflight(project_dir, project, "run") == []
+    write_lock(project_dir, "j1", os.getpid(), psutil.Process().create_time())
+    errors = _messages(preflight(project_dir, project, "run"), "error")
+    assert errors == ["Job j1 is still running for this project"]
+
+
+def test_has_errors():
+    assert has_errors([Problem("warning", "w"), Problem("error", "e")])
+    assert not has_errors([Problem("warning", "w")])

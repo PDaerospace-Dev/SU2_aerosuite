@@ -1,0 +1,121 @@
+"""Checks run before generating configs or starting a job. Returns every problem at once."""
+from __future__ import annotations
+
+import os
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterable, Literal
+
+from .cfg import CONFIGS_DIR, RUN_CONTROL_FILE
+from .jobs.runner import sweep_script_path
+from .jobs.store import active_lock
+from .models import Project
+from .naming import find_collisions
+
+
+@dataclass(frozen=True)
+class Problem:
+    severity: Literal["error", "warning"]
+    message: str
+
+
+def has_errors(problems: Iterable[Problem]) -> bool:
+    return any(p.severity == "error" for p in problems)
+
+
+def _is_number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _marker_problems(project: Project) -> list[Problem]:
+    known = set(project.mesh.markers)
+    if not known:
+        return []
+    problems = []
+    for key, value in project.settings.markers.items():
+        if not value:
+            continue
+        names = [part.strip() for part in value.strip().strip("()").split(",") if part.strip()]
+        for name in names:
+            if not _is_number(name) and name not in known:
+                problems.append(Problem(
+                    "warning", f"{key} refers to '{name}', which is not a marker in the mesh"
+                ))
+    return problems
+
+
+def _restart_problems(project: Project) -> list[Problem]:
+    problems = []
+    earlier: set[str] = set()
+    for index, case in enumerate(project.cases):
+        if case.restart == "previous" and index == 0:
+            problems.append(Problem(
+                "warning", f"{case.name}: 'previous' restart on the first case will start from scratch"
+            ))
+        elif case.restart == "custom":
+            if not case.restart_ref:
+                problems.append(Problem("error", f"{case.name}: 'custom' restart needs a restart file"))
+            elif not Path(case.restart_ref).is_file():
+                problems.append(Problem("error", f"{case.name}: restart file not found: {case.restart_ref}"))
+        elif case.restart == "from_case" and case.restart_ref not in earlier:
+            problems.append(Problem(
+                "error",
+                f"{case.name}: 'from_case' must reference an earlier case (got {case.restart_ref!r})",
+            ))
+        elif case.restart == "initial":
+            initial = project.run.initial_restart
+            if not initial:
+                problems.append(Problem(
+                    "error", f"{case.name}: 'initial' restart needs run.initial_restart to be set"
+                ))
+            elif not Path(initial).is_file():
+                problems.append(Problem("error", f"{case.name}: initial restart file not found: {initial}"))
+        earlier.add(case.name)
+    return problems
+
+
+def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
+    problems = []
+    if not (project_dir / CONFIGS_DIR / RUN_CONTROL_FILE).is_file():
+        problems.append(Problem("error", "Configs have not been generated (configs/run_control.txt is missing)"))
+    if not os.environ.get("SU2_RUN"):
+        problems.append(Problem("error", "SU2_RUN is not set; the sweep script needs it to import SU2"))
+    script = sweep_script_path(project.run)
+    if not script.is_file():
+        problems.append(Problem("error", f"Sweep script not found: {script}"))
+    python = project.run.sweep_python
+    if shutil.which(python) is None and not Path(python).is_file():
+        problems.append(Problem("error", f"Python for the sweep script not found: {python}"))
+    lock = active_lock(project_dir)
+    if lock:
+        problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))
+    return problems
+
+
+def preflight(project_dir: Path, project: Project, action: Literal["generate", "run"]) -> list[Problem]:
+    project_dir = Path(project_dir)
+    problems: list[Problem] = []
+    template = project_dir / project.template
+    if not template.is_file():
+        problems.append(Problem("error", f"Template not found: {template}"))
+    if not project.mesh.path:
+        problems.append(Problem("error", "No mesh selected"))
+    elif not Path(project.mesh.path).is_file():
+        problems.append(Problem("error", f"Mesh not found: {project.mesh.path}"))
+    if not project.cases:
+        problems.append(Problem("error", "The sweep has no cases"))
+    duplicates = find_collisions(case.name for case in project.cases)
+    if duplicates:
+        problems.append(Problem(
+            "error", "Duplicate case names (files would overwrite each other): " + ", ".join(duplicates)
+        ))
+    problems += _marker_problems(project)
+    problems += _restart_problems(project)
+    if action == "run":
+        problems += _run_problems(project_dir, project)
+    return problems
