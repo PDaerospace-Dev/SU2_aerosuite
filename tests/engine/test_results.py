@@ -3,6 +3,7 @@ import math
 
 import pytest
 
+from aerosuite.engine.errors import ProjectError
 from aerosuite.engine.results import (
     HistoryReader,
     check_convergence,
@@ -73,6 +74,12 @@ def test_load_case_index(tmp_path):
     assert load_case_index(tmp_path) == {}
     (tmp_path / "cases.json").write_text(json.dumps({"x": {"mach": 0.8, "alpha": 1.0, "beta": 0.0}}))
     assert load_case_index(tmp_path)["x"]["alpha"] == 1.0
+
+
+def test_load_case_index_malformed_json(tmp_path):
+    (tmp_path / "cases.json").write_text("{not json")
+    with pytest.raises(ProjectError):
+        load_case_index(tmp_path)
 
 
 def test_summarize_uses_index_then_names_and_sorts(tmp_path, history_writer):

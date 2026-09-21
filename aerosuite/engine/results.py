@@ -8,6 +8,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 import pandas as pd
 
 from .cfg import CASE_INDEX_FILE
+from .errors import ProjectError
 from .naming import parse_case_name
 
 HISTORY_FILE = "history.csv"
@@ -94,7 +95,10 @@ def load_case_index(configs_dir: Path) -> dict[str, dict[str, float]]:
     path = Path(configs_dir) / CASE_INDEX_FILE
     if not path.is_file():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProjectError(f"Cannot read {path}: {exc}") from exc
 
 
 def summarize(
