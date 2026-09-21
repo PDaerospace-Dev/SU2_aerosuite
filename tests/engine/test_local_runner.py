@@ -185,3 +185,16 @@ def test_cancel_after_the_sweep_already_ended_reports_the_outcome(ready_project)
     }
     assert read_lock(project_dir) is None
     assert load_job(project_dir, job.id).state is JobState.FAILED
+
+
+def test_sweep_exits_mid_case(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A2: "exit"})
+    runner = LocalRunner()
+    job = _wait(runner, project_dir, runner.submit(project_dir, project), _finished)
+    assert job.state is JobState.FAILED
+    assert job.case_status == {
+        A0: CaseState.CONVERGED, A2: CaseState.FAILED, A4: CaseState.FAILED,
+    }
+    assert job.failure_tail[A2].startswith("No history.csv was written")
+    assert "exited before this case started" in job.failure_tail[A4]

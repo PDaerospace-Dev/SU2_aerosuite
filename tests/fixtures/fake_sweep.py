@@ -1,8 +1,8 @@
 """Test stand-in for aoa_sweep_v8.py: same CLI, banners and output layout, no SU2.
 
 Per-case behaviour comes from <cfg_dir>/fake_plan.json:
-    {"delay": 0.05, "cases": {"<case name>": "converge" | "diverge" | "fail" | "hang"}}
-Cases not listed converge.
+    {"delay": 0.05, "cases": {"<case name>": "converge" | "diverge" | "fail" | "hang" | "exit"}}
+Cases not listed converge. "exit" ends the whole script (exit code 1) right after that case's banner.
 """
 import argparse
 import json
@@ -51,6 +51,9 @@ def main() -> int:
             shutil.rmtree(folder)
         folder.mkdir()
         mode = behaviour.get(name, "converge")
+        if mode == "exit":
+            sys.stdout.flush()
+            sys.exit(1)
         if mode == "hang":
             while True:
                 time.sleep(0.1)
