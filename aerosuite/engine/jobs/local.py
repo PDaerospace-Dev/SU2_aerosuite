@@ -6,7 +6,6 @@ fresh LocalRunner — e.g. after a server restart — reports the same state.
 """
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import sys
@@ -19,7 +18,16 @@ from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE
 from ..errors import JobError
 from ..models import Project
 from ..results import HISTORY_FILE, check_convergence, read_history
-from .runner import FINAL_CASE_STATES, CaseState, JobRecord, JobState, new_job_id, sweep_script_path
+from .runner import (
+    FINAL_CASE_STATES,
+    CaseState,
+    JobRecord,
+    JobState,
+    new_job_id,
+    resolve_sweep_python,
+    sweep_environment,
+    sweep_script_path,
+)
 from .store import JOBS_DIR, active_lock, clear_lock, kill_tree, process_alive, save_job, write_lock
 
 RUNS_DIR = "runs"
@@ -80,7 +88,7 @@ class LocalRunner:
         runs.mkdir(exist_ok=True)
 
         cmd = [
-            project.run.sweep_python, str(sweep_script_path(project.run)),
+            resolve_sweep_python(project.run.sweep_python), str(sweep_script_path(project.run)),
             "-d", str(configs), "-c", str(control), "-n", str(project.run.partitions),
         ]
         if project.run.initial_restart:
@@ -92,7 +100,7 @@ class LocalRunner:
         # aoa_sweep_v8.py prints its "Running Case" banners without flushing, so with
         # stdout redirected to a file the child block-buffers; force unbuffered output
         # so the log (and therefore refresh()) reflects progress promptly.
-        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        env = {**sweep_environment(), "PYTHONUNBUFFERED": "1"}
         try:
             with open(project_dir / job.log_path, "wb") as log:
                 proc = subprocess.Popen(

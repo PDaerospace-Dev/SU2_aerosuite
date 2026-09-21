@@ -102,6 +102,13 @@ uv sync
 uv run python run_aerosuite.py
 ```
 
+The **Run** page launches the sweep script under the Python named by `AEROSUITE_SWEEP_PYTHON`
+(default: the first `python3` on `PATH` outside AeroSuite's own environment — normally the system
+Python that imports SU2). Set it when SU2 lives under a different interpreter:
+```bash
+export AEROSUITE_SWEEP_PYTHON=/usr/bin/python3
+```
+
 On the workstation, point the `su2aero2` alias at the new environment:
 ```bash
 alias su2aero2='uv run --project /path/to/SU2_aerosuite python /path/to/SU2_aerosuite/run_aerosuite.py'

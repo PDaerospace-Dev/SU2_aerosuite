@@ -1,4 +1,5 @@
 import os
+import sys
 
 import psutil
 
@@ -83,7 +84,7 @@ def test_run_ready_and_locked(ready_project, monkeypatch):
     project_dir, project = ready_project
     monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
     generate_configs(project_dir, project)
-    assert preflight(project_dir, project, "run") == []
+    assert _messages(preflight(project_dir, project, "run"), "error") == []
     write_lock(project_dir, "j1", os.getpid(), psutil.Process().create_time())
     errors = _messages(preflight(project_dir, project, "run"), "error")
     assert errors == ["Job j1 is still running for this project"]
@@ -92,3 +93,17 @@ def test_run_ready_and_locked(ready_project, monkeypatch):
 def test_has_errors():
     assert has_errors([Problem("warning", "w"), Problem("error", "e")])
     assert not has_errors([Problem("warning", "w")])
+
+
+def test_sweep_python_inside_aerosuite_env_is_a_warning(ready_project, monkeypatch):
+    project_dir, project = ready_project
+    monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    generate_configs(project_dir, project)
+    project.run.sweep_python = sys.executable
+    problems = preflight(project_dir, project, "run")
+    assert not has_errors(problems)
+    assert _messages(problems, "warning") == [
+        f"The sweep script would run under AeroSuite's own Python ({sys.executable}); "
+        "SU2 is normally importable only from the system Python "
+        "— set run.sweep_python to that interpreter"
+    ]

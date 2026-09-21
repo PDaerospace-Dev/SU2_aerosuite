@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from .cfg import CONFIGS_DIR, RUN_CONTROL_FILE
-from .jobs.runner import sweep_script_path
+from .jobs.runner import (
+    is_aerosuite_python,
+    resolve_sweep_python,
+    sweep_environment,
+    sweep_script_path,
+)
 from .jobs.store import active_lock
 from .models import Project
 from .naming import find_collisions
@@ -89,8 +94,17 @@ def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
     if not script.is_file():
         problems.append(Problem("error", f"Sweep script not found: {script}"))
     python = project.run.sweep_python
-    if shutil.which(python) is None and not Path(python).is_file():
+    resolved = resolve_sweep_python(python)
+    search_path = sweep_environment().get("PATH", "")
+    if shutil.which(resolved, path=search_path) is None and not Path(resolved).is_file():
         problems.append(Problem("error", f"Python for the sweep script not found: {python}"))
+    elif is_aerosuite_python(resolved):
+        problems.append(Problem(
+            "warning",
+            f"The sweep script would run under AeroSuite's own Python ({resolved}); "
+            "SU2 is normally importable only from the system Python "
+            "— set run.sweep_python to that interpreter",
+        ))
     lock = active_lock(project_dir)
     if lock:
         problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))

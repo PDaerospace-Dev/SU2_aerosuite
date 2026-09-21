@@ -14,12 +14,12 @@ AeroSuite owns the GUI wrapper: live status table and stop control.
 import os
 import re
 import subprocess
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
+from aerosuite.engine.jobs.runner import resolve_sweep_python, sweep_environment
 from aerosuite.engine.jobs.store import kill_tree
 from aerosuite.engine.results import HISTORY_FILE, check_convergence, read_history
 
@@ -141,8 +141,11 @@ class SweepRunner:
 
         Returns a list of result dicts (one per case in the control file).
         """
+        # The sweep script imports SU2, so it runs under the system Python, never
+        # AeroSuite's own environment. AEROSUITE_SWEEP_PYTHON overrides the choice.
+        interpreter = resolve_sweep_python(os.environ.get("AEROSUITE_SWEEP_PYTHON", "python3"))
         cmd = [
-            sys.executable,
+            interpreter,
             self.script_path,
             "-d", ".",
             "-c", self.control_file,
@@ -156,6 +159,7 @@ class SweepRunner:
             f"{'='*60}",
             f"  AeroSuite — Sweep Runner",
             f"  Started  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"  Python   : {interpreter}",
             f"  Script   : {self.script_path}",
             f"  Dir      : {self.cfg_dir}",
             f"  Log file : {self.log_path}",
@@ -190,6 +194,7 @@ class SweepRunner:
                     stdin=subprocess.PIPE,
                     stdout=log_fh,
                     stderr=log_fh,
+                    env=sweep_environment(),
                     start_new_session=True,     # detach — closing AeroSuite won't kill SU2
                 )
 
@@ -252,8 +257,9 @@ class SweepRunner:
 
         except FileNotFoundError:
             raise RuntimeError(
-                f"Script not found:\n  {self.script_path}\n"
-                "Check the path in the Sweep Runner tab."
+                f"Cannot start the sweep:\n  {interpreter} {self.script_path}\n"
+                "Check the script path in the Sweep Runner tab, and set "
+                "AEROSUITE_SWEEP_PYTHON if python3 is not the Python that imports SU2."
             )
 
         return self._build_results(run_list, case_iters)
