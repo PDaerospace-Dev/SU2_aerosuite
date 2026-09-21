@@ -35,7 +35,7 @@ def create_project(directory: Path, name: Optional[str] = None) -> Project:
 def migrate(data: dict) -> dict:
     try:
         version = int(data.get("schema_version", 1))
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         raise ProjectError(
             f"Invalid schema_version {data.get('schema_version')!r} in project file"
         ) from exc
@@ -44,12 +44,12 @@ def migrate(data: dict) -> dict:
             f"This project was saved by a newer AeroSuite (schema {version}); please upgrade AeroSuite"
         )
     while version < models.SCHEMA_VERSION:
-        try:
-            data = MIGRATIONS[version](data)
-        except KeyError as exc:
+        step = MIGRATIONS.get(version)
+        if step is None:
             raise ProjectError(
                 f"No migration registered from schema {version} to {version + 1}"
-            ) from exc
+            )
+        data = step(data)
         version += 1
         data["schema_version"] = version
     return data

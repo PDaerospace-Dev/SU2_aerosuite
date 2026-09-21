@@ -108,3 +108,27 @@ def test_migrate_rejects_missing_migration(tmp_path, monkeypatch):
     monkeypatch.setattr(project_mod, "MIGRATIONS", {})
     with pytest.raises(ProjectError, match="No migration"):
         open_project(tmp_path)
+
+
+def test_migrate_rejects_null_schema_version(tmp_path):
+    create_project(tmp_path)
+    data = json.loads((tmp_path / PROJECT_FILE).read_text())
+    data["schema_version"] = None
+    (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
+    with pytest.raises(ProjectError, match="Invalid schema_version"):
+        open_project(tmp_path)
+
+
+def test_migration_error_propagates(tmp_path, monkeypatch):
+    from aerosuite.engine.project import migrate
+
+    create_project(tmp_path)
+    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+
+    def broken_migration(data):
+        raise KeyError("boom")
+
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {1: broken_migration})
+    data = json.loads((tmp_path / PROJECT_FILE).read_text())
+    with pytest.raises(KeyError, match="boom"):
+        migrate(data)
