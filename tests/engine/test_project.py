@@ -91,3 +91,20 @@ def test_set_mesh_reads_markers(tmp_path):
     assert project.mesh.markers == ["farfield", "wall"]
     with pytest.raises(ProjectError):
         set_mesh(project, tmp_path / "missing.su2")
+
+
+def test_migrate_rejects_invalid_schema_version(tmp_path):
+    create_project(tmp_path)
+    data = json.loads((tmp_path / PROJECT_FILE).read_text())
+    data["schema_version"] = "abc"
+    (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
+    with pytest.raises(ProjectError, match="Invalid schema_version"):
+        open_project(tmp_path)
+
+
+def test_migrate_rejects_missing_migration(tmp_path, monkeypatch):
+    create_project(tmp_path)
+    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {})
+    with pytest.raises(ProjectError, match="No migration"):
+        open_project(tmp_path)
