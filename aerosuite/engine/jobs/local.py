@@ -239,7 +239,8 @@ class LocalRunner:
         if error_log.is_file():
             segment = _case_log_segment(_read_text(project_dir / job.log_path), name)
             job.case_status[name] = CaseState.FAILED
-            job.failure_tail[name] = _tail(_read_text(error_log) + "\n" + segment)
+            # error.log first, so SU2 output can never push the reason out of the tail
+            job.failure_tail[name] = _read_text(error_log).rstrip() + "\n" + _tail(segment)
             return
         history = folder / HISTORY_FILE
         df = read_history(history) if history.is_file() else None

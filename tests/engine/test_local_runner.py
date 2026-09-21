@@ -149,3 +149,22 @@ def test_submit_os_error_is_a_job_error(ready_project):
     (project_dir / RUNS_DIR).write_text("a file where the runs folder should be")
     with pytest.raises(JobError, match="Cannot create"):
         LocalRunner().submit(project_dir, project)
+
+
+def test_failure_tail_keeps_error_log_ahead_of_su2_output(tmp_path):
+    """Long SU2 output after the banner must not push the error.log text out of the tail."""
+    from aerosuite.engine.jobs.runner import JobRecord
+
+    (tmp_path / "jobs").mkdir()
+    noise = "".join(f"SU2 line {i}\n" for i in range(200))
+    (tmp_path / "jobs" / "j.log").write_text(f"=== Running Case 1/1: {A0}.cfg ===\n{noise}")
+    folder = tmp_path / RUNS_DIR / A0
+    folder.mkdir(parents=True)
+    (folder / "error.log").write_text("Failed to run: the real reason\n")
+    job = JobRecord(id="j", backend="local", cases=[A0], log_path="jobs/j.log",
+                    case_status={A0: CaseState.RUNNING})
+    LocalRunner()._evaluate_finished_case(tmp_path, job, folder, A0)
+    assert job.case_status[A0] is CaseState.FAILED
+    tail = job.failure_tail[A0]
+    assert tail.startswith("Failed to run: the real reason")
+    assert "SU2 line 199" in tail and "SU2 line 100" not in tail
