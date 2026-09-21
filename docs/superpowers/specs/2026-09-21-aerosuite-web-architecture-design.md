@@ -253,6 +253,7 @@ Each phase gets its own implementation plan; the app is usable at the end of eac
 
 **First implementation plan:** Phases 0–1.
 
-## 12. Open items requiring confirmation
+## 12. Resolved decisions
 
-- Whether the workstation can download packages (direct internet or via proxy). If not, Phase 0 adds an offline install path: build a wheelhouse and a `uv` Python on a connected machine and copy them across.
+- Workstation Python is 3.7.6 → AeroSuite uses its own Python 3.12 via `uv` (section 9).
+- The workstation has internet access → packages and Python are installed online; no offline install path is needed.
