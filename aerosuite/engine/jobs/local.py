@@ -56,6 +56,22 @@ def _case_log_segment(log_text: str, name: str) -> str:
     return rest[: following.start()] if following else rest
 
 
+def control_cases(control: Path) -> list[str]:
+    """Case names in run_control.txt order: first field of each line, ".cfg" stripped."""
+    try:
+        text = control.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise JobError(f"Cannot read {control}: {exc}") from exc
+    names = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name = line.split(",")[0].strip()
+        names.append(name[:-4] if name.endswith(".cfg") else name)
+    return names
+
+
 class LocalRunner:
     backend = "local"
 
@@ -75,13 +91,18 @@ class LocalRunner:
         if active_lock(project_dir):
             raise JobError("A job is already running for this project")
 
+        # The sweep script runs what run_control.txt lists (it may have been edited
+        # by hand), so the job tracks exactly those cases.
+        cases = control_cases(control)
+        if not cases:
+            raise JobError(f"{control} lists no cases")
         job_id = new_job_id()
         job = JobRecord(
             id=job_id,
             backend=self.backend,
-            cases=[case.name for case in project.cases],
+            cases=cases,
             log_path=f"{JOBS_DIR}/{job_id}.log",
-            case_status={case.name: CaseState.PENDING for case in project.cases},
+            case_status={name: CaseState.PENDING for name in cases},
         )
         (project_dir / JOBS_DIR).mkdir(exist_ok=True)
         runs = project_dir / RUNS_DIR

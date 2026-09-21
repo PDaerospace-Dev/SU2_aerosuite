@@ -127,3 +127,17 @@ def test_submit_with_missing_python(ready_project):
     with pytest.raises(JobError, match="Cannot start"):
         LocalRunner().submit(project_dir, project)
     assert read_lock(project_dir) is None
+
+
+def test_cases_come_from_run_control(ready_project):
+    """A hand-edited run_control.txt decides which cases the job tracks."""
+    project_dir, project = ready_project
+    _prepare(project_dir, project)
+    control = project_dir / CONFIGS_DIR / "run_control.txt"
+    control.write_text(f"# edited by hand\n{A0}.cfg, none\n\n{A4}.cfg, previous\n")
+    runner = LocalRunner()
+    job = runner.submit(project_dir, project)
+    assert job.cases == [A0, A4]
+    job = _wait(runner, project_dir, job, _finished)
+    assert job.state is JobState.DONE
+    assert job.case_status == {A0: CaseState.CONVERGED, A4: CaseState.CONVERGED}

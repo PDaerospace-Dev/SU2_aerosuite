@@ -1,13 +1,14 @@
 """Checks run before generating configs or starting a job. Returns every problem at once."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal
 
-from .cfg import CONFIGS_DIR, RUN_CONTROL_FILE
+from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE
 from .jobs.runner import (
     is_aerosuite_python,
     resolve_sweep_python,
@@ -88,6 +89,16 @@ def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
     problems = []
     if not (project_dir / CONFIGS_DIR / RUN_CONTROL_FILE).is_file():
         problems.append(Problem("error", "Configs have not been generated (configs/run_control.txt is missing)"))
+    index = project_dir / CONFIGS_DIR / CASE_INDEX_FILE
+    if index.is_file():
+        try:
+            generated = set(json.loads(index.read_text(encoding="utf-8")))
+        except (OSError, ValueError, TypeError):
+            generated = None
+        if generated != {case.name for case in project.cases}:
+            problems.append(Problem(
+                "warning", "Generated configs are out of date with the sweep; regenerate before running"
+            ))
     if not os.environ.get("SU2_RUN"):
         problems.append(Problem("error", "SU2_RUN is not set; the sweep script needs it to import SU2"))
     script = sweep_script_path(project.run)

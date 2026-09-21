@@ -107,3 +107,14 @@ def test_sweep_python_inside_aerosuite_env_is_a_warning(ready_project, monkeypat
         "SU2 is normally importable only from the system Python "
         "— set run.sweep_python to that interpreter"
     ]
+
+
+def test_configs_out_of_date_with_sweep_is_a_warning(ready_project, monkeypatch):
+    project_dir, project = ready_project
+    monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    generate_configs(project_dir, project)
+    stale = "Generated configs are out of date with the sweep; regenerate before running"
+    assert stale not in _messages(preflight(project_dir, project, "run"), "warning")
+    project.cases = project.cases[:2]
+    assert stale in _messages(preflight(project_dir, project, "run"), "warning")
+    assert stale not in _messages(preflight(project_dir, project, "generate"), "warning")
