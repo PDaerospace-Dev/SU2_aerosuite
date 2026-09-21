@@ -173,8 +173,11 @@ class LocalRunner:
         project_dir = Path(project_dir).resolve()
         alive = self._alive(job)
         self._update_cases(project_dir, job, alive)  # mark the case that is running now
-        if alive:
-            kill_tree(job.backend_ref["pid"])
+        if not alive:  # the sweep already ended: report its real outcome, as refresh() would
+            self._finish(project_dir, job)
+            save_job(project_dir, job)
+            return job
+        kill_tree(job.backend_ref["pid"])
         proc = self._procs.pop(job.id, None)
         if proc is not None:
             try:

@@ -168,3 +168,20 @@ def test_failure_tail_keeps_error_log_ahead_of_su2_output(tmp_path):
     tail = job.failure_tail[A0]
     assert tail.startswith("Failed to run: the real reason")
     assert "SU2 line 199" in tail and "SU2 line 100" not in tail
+
+
+def test_cancel_after_the_sweep_already_ended_reports_the_outcome(ready_project):
+    """Cancel on a job whose process has already exited behaves like refresh, not CANCELLED."""
+    import psutil
+
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A2: "fail"})
+    job = LocalRunner().submit(project_dir, project)
+    psutil.Process(job.backend_ref["pid"]).wait(timeout=20)
+    job = LocalRunner().cancel(project_dir, load_job(project_dir, job.id))
+    assert job.state is JobState.FAILED
+    assert job.case_status == {
+        A0: CaseState.CONVERGED, A2: CaseState.FAILED, A4: CaseState.CONVERGED,
+    }
+    assert read_lock(project_dir) is None
+    assert load_job(project_dir, job.id).state is JobState.FAILED
