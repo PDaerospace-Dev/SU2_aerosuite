@@ -96,26 +96,30 @@ aerosuite/
     └── file_handlers.py      JSON/text file read/write helpers
 ```
 ## Installation
-### Requirements
-- Python 3.7+
-- PyQt5
-- pandas
-- matplotlib
+AeroSuite runs on **Python 3.12** in its own environment, managed by [uv](https://docs.astral.sh/uv/).
+The system Python (3.7.6 on the workstation) is not touched; the sweep script keeps running under it,
+because that is the Python that can import SU2.
 
+One-time setup (no admin rights needed):
 ```bash
-pip install -r aerosuite/requirements.txt
+curl -LsSf https://astral.sh/uv/install.sh | sh
+cd /path/to/SU2_aerosuite
+uv sync
 ```
+
 ### Running
-Run the following python script in the terminal
 ```bash
-python run_aerosuite.py
+uv run python run_aerosuite.py
 ```
 
-**OR**
-
-The Aerosuite is added to source in the workstation. In the terminal:
+On the workstation, point the `su2aero2` alias at the new environment:
 ```bash
-su2aero2
+alias su2aero2='uv run --project /path/to/SU2_aerosuite python /path/to/SU2_aerosuite/run_aerosuite.py'
+```
+
+### Tests
+```bash
+uv run pytest
 ```
 
 ## Typical Workflow
