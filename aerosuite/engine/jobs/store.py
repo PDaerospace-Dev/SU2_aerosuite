@@ -23,10 +23,13 @@ def _job_file(project_dir: Path, job_id: str) -> Path:
 
 def save_job(project_dir: Path, job: JobRecord) -> None:
     path = _job_file(project_dir, job.id)
-    path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(job.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(job.model_dump_json(indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        raise JobError(f"Cannot save job record {path}: {exc}") from exc
 
 
 def load_job(project_dir: Path, job_id: str) -> JobRecord:

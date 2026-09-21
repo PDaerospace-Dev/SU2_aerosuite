@@ -104,9 +104,12 @@ class LocalRunner:
             log_path=f"{JOBS_DIR}/{job_id}.log",
             case_status={name: CaseState.PENDING for name in cases},
         )
-        (project_dir / JOBS_DIR).mkdir(exist_ok=True)
         runs = project_dir / RUNS_DIR
-        runs.mkdir(exist_ok=True)
+        for folder in (project_dir / JOBS_DIR, runs):
+            try:
+                folder.mkdir(exist_ok=True)
+            except OSError as exc:
+                raise JobError(f"Cannot create {folder}: {exc}") from exc
 
         cmd = [
             resolve_sweep_python(project.run.sweep_python), str(sweep_script_path(project.run)),

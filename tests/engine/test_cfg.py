@@ -164,3 +164,10 @@ def test_generate_configs_requires_restart_reference(tmp_path):
     project.cases[1].restart_ref = None
     with pytest.raises(GenerationError, match="M0p8_a0_b0.*M0p8_a2p5_b0"):
         generate_configs(tmp_path, project)
+
+
+def test_generate_configs_os_error_is_a_generation_error(tmp_path):
+    (tmp_path / "template.cfg").write_text(TEMPLATE)
+    (tmp_path / CONFIGS_DIR).write_text("a file where the configs folder should be")
+    with pytest.raises(GenerationError, match="Cannot write configs"):
+        generate_configs(tmp_path, _project())

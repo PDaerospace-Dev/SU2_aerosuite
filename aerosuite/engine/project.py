@@ -26,13 +26,18 @@ def create_project(directory: Path, name: Optional[str] = None) -> Project:
     directory = Path(directory)
     if (directory / PROJECT_FILE).exists():
         raise ProjectError(f"{directory} already contains a project")
-    directory.mkdir(parents=True, exist_ok=True)
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise ProjectError(f"Cannot create project folder {directory}: {exc}") from exc
     project = Project(name=name or directory.resolve().name)
     save_project(directory, project)
     return project
 
 
 def migrate(data: dict) -> dict:
+    if not isinstance(data, dict):
+        raise ProjectError("project.json must contain a JSON object")
     try:
         version = int(data.get("schema_version", 1))
     except (TypeError, ValueError) as exc:
@@ -74,8 +79,11 @@ def save_project(directory: Path, project: Project) -> None:
     project.modified = datetime.now()
     path = Path(directory) / PROJECT_FILE
     tmp = path.with_name(PROJECT_FILE + ".tmp")
-    tmp.write_text(project.model_dump_json(indent=2), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.write_text(project.model_dump_json(indent=2), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        raise ProjectError(f"Cannot save {path}: {exc}") from exc
 
 
 def set_template(directory: Path, project: Project, source: Path) -> None:
@@ -83,7 +91,11 @@ def set_template(directory: Path, project: Project, source: Path) -> None:
     source = Path(source)
     if not source.is_file():
         raise TemplateError(f"Template not found: {source}")
-    shutil.copyfile(source, Path(directory) / TEMPLATE_FILE)
+    target = Path(directory) / TEMPLATE_FILE
+    try:
+        shutil.copyfile(source, target)
+    except OSError as exc:
+        raise TemplateError(f"Cannot copy template {source} to {target}: {exc}") from exc
     project.template = TEMPLATE_FILE
 
 

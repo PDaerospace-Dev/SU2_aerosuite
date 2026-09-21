@@ -141,3 +141,11 @@ def test_cases_come_from_run_control(ready_project):
     job = _wait(runner, project_dir, job, _finished)
     assert job.state is JobState.DONE
     assert job.case_status == {A0: CaseState.CONVERGED, A4: CaseState.CONVERGED}
+
+
+def test_submit_os_error_is_a_job_error(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project)
+    (project_dir / RUNS_DIR).write_text("a file where the runs folder should be")
+    with pytest.raises(JobError, match="Cannot create"):
+        LocalRunner().submit(project_dir, project)

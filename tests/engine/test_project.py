@@ -132,3 +132,30 @@ def test_migration_error_propagates(tmp_path, monkeypatch):
     data = json.loads((tmp_path / PROJECT_FILE).read_text())
     with pytest.raises(KeyError, match="boom"):
         migrate(data)
+
+
+def test_save_project_os_error_is_a_project_error(tmp_path):
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("")
+    with pytest.raises(ProjectError, match="Cannot save"):
+        save_project(blocker / "study", models.Project(name="x"))
+
+
+def test_set_template_os_error_is_a_template_error(tmp_path):
+    source = tmp_path / "master.cfg"
+    source.write_text("AOA= 0\n")
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("")
+    with pytest.raises(TemplateError, match="Cannot copy"):
+        set_template(blocker, models.Project(name="x"), source)
+
+
+def test_migrate_rejects_non_object():
+    with pytest.raises(ProjectError, match="must contain a JSON object"):
+        project_mod.migrate([1, 2])
+
+
+def test_open_project_with_list_json(tmp_path):
+    (tmp_path / PROJECT_FILE).write_text("[]")
+    with pytest.raises(ProjectError, match="must contain a JSON object"):
+        open_project(tmp_path)

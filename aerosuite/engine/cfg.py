@@ -162,17 +162,20 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
         )
     template = read_template(project_dir, project)
     out_dir = Path(project_dir) / CONFIGS_DIR
-    out_dir.mkdir(parents=True, exist_ok=True)
-    for stale in out_dir.glob("*.cfg"):
-        stale.unlink()
-    written = []
-    for case in project.cases:
-        path = out_dir / f"{case.name}.cfg"
-        path.write_text(render_case(template, project, case), encoding="utf-8", newline="\n")
-        written.append(path)
-    (out_dir / RUN_CONTROL_FILE).write_text(
-        run_control_text(project.cases), encoding="utf-8", newline="\n"
-    )
     index = {c.name: {"mach": c.mach, "alpha": c.alpha, "beta": c.beta} for c in project.cases}
-    (out_dir / CASE_INDEX_FILE).write_text(json.dumps(index, indent=2), encoding="utf-8")
+    written = []
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for stale in out_dir.glob("*.cfg"):
+            stale.unlink()
+        for case in project.cases:
+            path = out_dir / f"{case.name}.cfg"
+            path.write_text(render_case(template, project, case), encoding="utf-8", newline="\n")
+            written.append(path)
+        (out_dir / RUN_CONTROL_FILE).write_text(
+            run_control_text(project.cases), encoding="utf-8", newline="\n"
+        )
+        (out_dir / CASE_INDEX_FILE).write_text(json.dumps(index, indent=2), encoding="utf-8")
+    except OSError as exc:
+        raise GenerationError(f"Cannot write configs to {out_dir}: {exc}") from exc
     return written

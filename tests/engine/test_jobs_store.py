@@ -117,3 +117,9 @@ def test_kill_tree_kills_children(tmp_path):
 
 def test_kill_tree_on_dead_pid_is_harmless():
     kill_tree(2**22 + 12345)
+
+
+def test_save_job_os_error_is_a_job_error(tmp_path):
+    (tmp_path / "jobs").write_text("a file where the jobs folder should be")
+    with pytest.raises(JobError, match="Cannot save job"):
+        save_job(tmp_path, _job())
