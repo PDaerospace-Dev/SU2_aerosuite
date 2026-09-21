@@ -85,6 +85,17 @@ def test_stale_lock_is_removed(tmp_path):
     assert read_lock(tmp_path) is None
 
 
+def test_corrupt_lock_is_removed(tmp_path):
+    (tmp_path / ".lock").write_text("garbage", encoding="utf-8")
+    assert active_lock(tmp_path) is None
+    assert read_lock(tmp_path) is None
+
+
+def test_process_alive_rejects_nonpositive_pid():
+    assert not process_alive(-1, 0.0)
+    assert not process_alive(0, 0.0)
+
+
 def test_kill_tree_kills_children(tmp_path):
     code = (
         "import subprocess, sys, time;"

@@ -48,12 +48,14 @@ def list_jobs(project_dir: Path) -> list[JobRecord]:
 
 def process_alive(pid: int, create_time: float) -> bool:
     """True if `pid` is running and is the same process (start time matches). Zombies count as dead."""
+    if pid <= 0:
+        return False
     try:
         proc = psutil.Process(pid)
         if abs(proc.create_time() - create_time) > 1.0:
             return False
         return proc.status() != psutil.STATUS_ZOMBIE
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
+    except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
         return False
 
 
