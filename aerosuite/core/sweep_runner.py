@@ -13,13 +13,27 @@ AeroSuite owns the GUI wrapper: live status table and stop control.
 
 import os
 import re
-import signal
 import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
+
+from aerosuite.engine.jobs.store import kill_tree
+from aerosuite.engine.results import HISTORY_FILE, check_convergence, read_history
+
+
+def _convergence_status(folder: str) -> Tuple[str, Optional[str]]:
+    """CONVERGED / UNCONVERGED from the case's history, or FAILED if there is none."""
+    history = os.path.join(folder, HISTORY_FILE)
+    if not os.path.isfile(history):
+        return "FAILED", "No history.csv was written"
+    df = read_history(history)
+    if df.empty:
+        return "FAILED", "history.csv is empty"
+    converged, message = check_convergence(df)
+    return ("CONVERGED", None) if converged else ("UNCONVERGED", message)
 
 
 def parse_control_file(path: str) -> Tuple[List[Dict], List[str]]:
@@ -116,16 +130,7 @@ class SweepRunner:
         """
         self._stopped = True
         if self._proc and self._proc.poll() is None:
-            try:
-                if hasattr(os, "killpg"):
-                    os.killpg(os.getpgid(self._proc.pid), signal.SIGKILL)
-                else:
-                    self._proc.kill()
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
+            kill_tree(self._proc.pid)  # script + mpirun + SU2 ranks, on every platform
 
     def run(self) -> List[Dict]:
         """
@@ -273,8 +278,7 @@ class SweepRunner:
                 with open(error_log) as fh:
                     error = fh.read().strip()
             elif os.path.isdir(folder):
-                status = "SUCCESS"
-                error  = None
+                status, error = _convergence_status(folder)
             elif self._stopped:
                 status = "STOPPED"
                 error  = None

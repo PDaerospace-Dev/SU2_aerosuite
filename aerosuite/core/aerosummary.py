@@ -5,17 +5,14 @@ Provides functionality for consolidating multiple SU2 history files and generati
 """
 
 import os
-import re
 from typing import List, Dict, Tuple, Optional, Callable
 from pathlib import Path
 
 import pandas as pd
 import matplotlib.pyplot as plt
 
-
-# Constants
-MIN_CONVERGENCE_ITERATIONS = 10
-CONVERGENCE_THRESHOLD = 1e-3
+from aerosuite.engine import results as engine_results
+from aerosuite.engine.naming import parse_case_name
 
 
 class AeroSummary:
@@ -23,76 +20,32 @@ class AeroSummary:
     
     @staticmethod
     def check_convergence(df: pd.DataFrame, columns: List[str]) -> Tuple[bool, str]:
-        """
-        Check if simulation has converged by examining last iterations.
-        
-        Args:
-            df: DataFrame containing history data
-            columns: Columns to check for convergence
-            
-        Returns:
-            Tuple of (is_converged, message)
-        """
-        if len(df) < MIN_CONVERGENCE_ITERATIONS:
-            return False, f"Insufficient iterations ({len(df)} < {MIN_CONVERGENCE_ITERATIONS})"
-        
-        # Check variance in last 10% of iterations for key columns
-        check_cols = [c for c in ['CD', 'CL', 'CMy'] if c in columns]
-        if not check_cols:
-            return True, "No convergence columns found, assuming converged"
-        
-        tail_fraction = max(10, int(len(df) * 0.1))
-        tail_data = df.tail(tail_fraction)
-        
-        for col in check_cols:
-            if col in tail_data.columns:
-                std = tail_data[col].std()
-                mean = abs(tail_data[col].mean())
-                if mean > 0 and (std / mean) > CONVERGENCE_THRESHOLD:
-                    return False, f"{col} not converged (std/mean = {std/mean:.2e})"
-        
-        return True, "Converged"
-    
+        """Convergence of whichever of CD/CL/CMy the user selected (engine rule)."""
+        return engine_results.check_convergence(df, [c for c in ('CD', 'CL', 'CMy') if c in columns])
+
     @staticmethod
     def extract_mach_from_case_name(case_name: str) -> float:
-        """Extract Mach number from case directory name."""
-        match = re.search(r'^M([\dp]+)', case_name, re.IGNORECASE)
-        return float(match.group(1).replace('p', '.')) if match else 999.0
-    
+        """Mach from a case directory name; 999.0 when absent."""
+        mach = parse_case_name(case_name).mach
+        return 999.0 if mach is None else mach
+
     @staticmethod
     def extract_alpha_from_case_name(case_name: str) -> float:
-        """
-        Extract angle of attack from case directory name.
-        
-        Supports formats:
-        - An10 or an20 (n=negative, case insensitive)
-        - A10m or A10p (m=minus, p=plus)
-        - A-10 or A10 (standard format)
-        """
-        # Format: An10 or an20 (n = negative, case insensitive)
-        match_n = re.search(r'_A[nN](\d+\.?\d*)', case_name, re.IGNORECASE)
-        if match_n:
-            num = float(match_n.group(1))
-            return -num  # 'n' means negative
-        
-        # Format: A5m or A5p (m=minus, p=plus)
-        match_pm = re.search(r'_A(\d+\.?\d*)([mp])', case_name, re.IGNORECASE)
-        if match_pm:
-            num = float(match_pm.group(1))
-            sign = match_pm.group(2).lower()
-            return -num if sign == 'm' else num
-        
-        # Standard format: A-5 or A5
-        match_std = re.search(r'_A(-?\d+\.?\d*)', case_name, re.IGNORECASE)
-        return float(match_std.group(1)) if match_std else 999.0
-    
+        """Angle of attack from a case directory name; 999.0 when absent."""
+        alpha = parse_case_name(case_name).alpha
+        return 999.0 if alpha is None else alpha
+
+    @staticmethod
+    def extract_beta_from_case_name(case_name: str) -> float:
+        """Sideslip from a case directory name; 0.0 when the name has no beta token."""
+        beta = parse_case_name(case_name).beta
+        return 0.0 if beta is None else beta
+
     @staticmethod
     def is_valid_case_name(case_name: str) -> bool:
-        """Check if case name matches expected pattern."""
-        has_mach = bool(re.search(r'^M', case_name, re.IGNORECASE))
-        has_alpha = bool(re.search(r'_A', case_name, re.IGNORECASE))
-        return has_mach and has_alpha
-    
+        """A case is usable when its name carries an angle of attack."""
+        return parse_case_name(case_name).alpha is not None
+
     @staticmethod
     def consolidate_results(
         root_directory: str,
@@ -159,9 +112,8 @@ class AeroSummary:
             try:
                 # Load history file
                 history_path = os.path.join(dirpath, 'history.csv')
-                df = pd.read_csv(history_path, sep=r'\s*,\s*|\s+', engine='python')
-                df.columns = df.columns.str.strip().str.replace('"', '')
-                
+                df = engine_results.read_history(history_path)
+
                 if df.empty:
                     log_callback(f"Empty file: {case_name}")
                     continue
@@ -205,8 +157,11 @@ class AeroSummary:
             AeroSummary.extract_alpha_from_case_name
         )
         
-        # Sort by Mach then Alpha
-        summary_df = summary_df.sort_values(by=['Mach', 'Alpha']).reset_index(drop=True)
+        # Sort by Mach, then Beta, then Alpha
+        summary_df['Beta'] = summary_df['Case'].apply(
+            AeroSummary.extract_beta_from_case_name
+        )
+        summary_df = summary_df.sort_values(by=['Mach', 'Beta', 'Alpha']).reset_index(drop=True)
         
         log_callback(f"\n✓ Consolidated {len(all_results)} cases")
         if warnings:
@@ -246,63 +201,57 @@ class AeroSummary:
         progress_callback: Optional[Callable[[int], None]] = None
     ) -> List[str]:
         """
-        Generate plots of results vs Alpha for each Mach number.
-        
-        Args:
-            summary_df: Summary dataframe
-            columns_to_plot: Columns to plot
-            plot_directory: Directory to save plots
-            progress_callback: Optional callback for progress updates (50-100)
-            
+        Plot each column vs Alpha, one figure per Mach (and per Beta when the
+        summary holds more than one Beta).
+
         Returns:
             List of generated plot file paths
         """
         os.makedirs(plot_directory, exist_ok=True)
         generated_files = []
-        unique_mach_numbers = summary_df['Mach'].unique()
-        
-        total_plots = len(unique_mach_numbers) * len(columns_to_plot)
+        split_beta = 'Beta' in summary_df.columns and summary_df['Beta'].nunique() > 1
+        group_keys = ['Mach', 'Beta'] if split_beta else ['Mach']
+        groups = list(summary_df.groupby(group_keys))
+
+        total_plots = max(1, len(groups) * len(columns_to_plot))
         current_plot = 0
-        
-        for mach in unique_mach_numbers:
-            mach_data = summary_df[summary_df['Mach'] == mach].sort_values(by='Alpha')
-            
+
+        for key, group in groups:
+            key = key if isinstance(key, tuple) else (key,)
+            mach = key[0]
+            beta = key[1] if split_beta else None
+            data = group.sort_values(by='Alpha')
+
             for col in columns_to_plot:
-                # Skip if column not present or non-numeric
-                if col not in mach_data.columns or mach_data[col].dtype == object:
+                if col not in data.columns or data[col].dtype == object:
                     continue
-                
-                # Create plot
+
                 plt.figure(figsize=(10, 6))
-                plt.plot(mach_data['Alpha'], mach_data[col], 
-                        'o-', linewidth=2, markersize=8)
-                plt.title(f'{col} vs. Alpha (Mach {mach})', fontweight='bold', fontsize=14)
+                plt.plot(data['Alpha'], data[col], 'o-', linewidth=2, markersize=8)
+                title = f'{col} vs. Alpha (Mach {mach}'
+                title += f', Beta {beta})' if split_beta else ')'
+                plt.title(title, fontweight='bold', fontsize=14)
                 plt.xlabel('Angle of Attack (deg)', fontsize=12)
                 plt.ylabel(col, fontsize=12)
                 plt.grid(True, linestyle='--', alpha=0.7)
-                
-                # Add minor gridlines
                 plt.minorticks_on()
                 plt.grid(which='minor', linestyle=':', alpha=0.4)
-                
-                # Save plot
-                mach_str = str(mach).replace('.', 'p')
-                filepath = os.path.join(
-                    plot_directory, 
-                    f"M{mach_str}_{col}_vs_Alpha.png"
-                )
+
+                name = f"M{str(mach).replace('.', 'p')}"
+                if split_beta:
+                    name += f"_B{str(float(beta)).replace('-', 'n').replace('.', 'p')}"
+                filepath = os.path.join(plot_directory, f"{name}_{col}_vs_Alpha.png")
                 plt.savefig(filepath, bbox_inches='tight', dpi=150)
                 plt.close()
-                
+
                 generated_files.append(filepath)
-                
+
                 current_plot += 1
                 if progress_callback:
-                    progress_val = 50 + int((current_plot / total_plots) * 50)
-                    progress_callback(progress_val)
-        
+                    progress_callback(50 + int((current_plot / total_plots) * 50))
+
         return generated_files
-    
+
     @staticmethod
     def get_available_columns(root_directory: str) -> List[str]:
         """Get available columns from first history file found."""
