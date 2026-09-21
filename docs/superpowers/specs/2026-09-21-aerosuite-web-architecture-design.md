@@ -129,7 +129,7 @@ Project
   run: RunSettings
       partitions: int
       sweep_script: str           # default: bundled resources/aoa_sweep_v8.py
-      sweep_python: str           # interpreter able to import SU2; default: current interpreter
+      sweep_python: str           # interpreter able to import SU2; default: "python3" on PATH
 ```
 
 Numeric settings are stored as numbers, not strings; `Settings` fields left as `None` are not written, so the template value stands.
@@ -222,7 +222,10 @@ Typer app installed as the `aerosuite` command:
 
 ## 9. Environment
 
-- Python ≥ 3.10 in a dedicated virtual environment (venv or conda) for AeroSuite; the workstation's system Python is not modified. The sweep script may run under a different interpreter via `run.sweep_python`, so SU2's Python modules need not be installed into the AeroSuite environment.
+- The workstation's Python is 3.7.6, which is below the minimum for NiceGUI, pydantic v2 and current pandas. AeroSuite therefore runs on **Python 3.12 in its own user-level environment**, created with `uv` (single binary, no root needed: `uv python install 3.12`, `uv venv`). Miniforge (conda) is the fallback if `uv` cannot be used. The system Python 3.7.6 is not modified.
+- The sweep script keeps running under the existing Python 3.7.6 that already imports SU2's modules: `run.sweep_python` defaults to `python3` on `PATH`, not to AeroSuite's own interpreter. SU2's Python modules are never installed into the AeroSuite environment.
+- `aoa_sweep_v8.py` must stay compatible with Python 3.7 (no syntax newer than 3.7 in that file).
+- A launcher script `bin/su2aero` activates the AeroSuite environment and runs `aerosuite serve`; the existing `su2aero2` alias keeps launching the PyQt5 app until Phase 5.
 - Dependencies (pinned in `requirements.txt`): `nicegui`, `pydantic>=2`, `typer`, `pandas`, `plotly`; dev: `pytest`.
 - PyQt5, matplotlib and qtawesome stay in requirements until Phase 5.
 
@@ -240,7 +243,7 @@ Each phase gets its own implementation plan; the app is usable at the end of eac
 
 | Phase | Delivers |
 |---|---|
-| 0. Housekeeping | `.gitignore`; remove committed `__pycache__`; commit `aoa_sweep_v8.py`; `tests/` scaffold with pytest; fix `test_imports.py` |
+| 0. Housekeeping | `.gitignore`; remove committed `__pycache__`; commit `aoa_sweep_v8.py`; `tests/` scaffold with pytest; fix `test_imports.py`; documented `uv` setup for the Python 3.12 environment |
 | 1. Engine | `engine/` models, project store, `render_case`, naming fixes, results fixes, preflight, LocalRunner + job store, full tests; `core/` becomes re-export shims; PyQt5 sweep and results pages call the engine for naming, value formatting and results parsing; the PyQt5 Run page keeps the existing `SweepRunner` until Phase 3 |
 | 2. CLI | Commands in section 8 (except `serve`) |
 | 3. Web core | `serve`; Projects, Setup, Settings, Sweep, Run, Monitor, Results pages |
@@ -252,4 +255,4 @@ Each phase gets its own implementation plan; the app is usable at the end of eac
 
 ## 12. Open items requiring confirmation
 
-- Workstation Python version: confirms whether a new environment must be created or an existing ≥ 3.10 interpreter can be used. Section 9 assumes a dedicated environment either way.
+- Whether the workstation can download packages (direct internet or via proxy). If not, Phase 0 adds an offline install path: build a wheelhouse and a `uv` Python on a connected machine and copy them across.
