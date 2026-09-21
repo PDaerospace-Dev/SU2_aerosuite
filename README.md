@@ -62,38 +62,28 @@ For `.su2` meshes, marker tags (e.g. `airfoil`, `farfield`) are auto-extracted a
 9. **Results** — Consolidates a batch run's history files into a summary CSV and auto-plots CL/CD/moment.
 ## Project Structure
 ```
-run_aerosuite.py             Entry point
-diagnose.py                  Startup diagnostics (see "Running" above)
+run_aerosuite.py             Entry point (legacy PyQt5 app)
+diagnose.py                  Startup diagnostics
+pyproject.toml, uv.lock      Environment (Python 3.12 via uv)
 aerosuite/
-├── main.py                  Main window: menu, toolbar, workflow tree, console
-├── requirements.txt
-├── resources/
-│   └── config_template.cfg  Bundled default reference config (CFG page)
-├── core/                    Calculation & generation logic (no Qt dependencies)
-│   ├── isa_calculator.py    ISA atmosphere model
-│   ├── yplus_calculator.py  y+ / first-cell-height calculation
-│   ├── su2_generator.py     Template substitution, marker extraction, filenames
-│   ├── sweep_runner.py      Subprocess wrapper for the sweep script
-│   ├── monitor.py           SU2 history-file reading for convergence plots
-│   └── aerosummary.py       Batch results consolidation (CL/CD/moment)
-├── ui/                      PyQt5 pages, one per workflow-tree node (roughly)
-│   ├── style.py              Shared font/color constants — import from here
-│   │                          rather than hardcoding new font sizes
-│   ├── isa_tab.py            Calculators: ISA + y+
-│   ├── directory_tab.py       Directory
-│   ├── mesh_tab.py            Mesh
-│   ├── cfg_tab.py             CFG: AircraftAeroPage, GeneralPage
-│   ├── reference_panel.py     Shared collapsible reference-config viewer
-│   ├── sweep_setup_tab.py     Sweep
-│   ├── control_file_tab.py    Control File
-│   ├── sweep_tab.py           Run
-│   ├── monitor_tab.py         Monitor
-│   ├── aerosummary_tab.py     Results
-│   └── su2_tab.py             Legacy combined generator tab — superseded,
-│                                kept for reference, not imported by main.py
-└── utils/
-    ├── validators.py         Input validation helpers
-    └── file_handlers.py      JSON/text file read/write helpers
+├── main.py                  Legacy main window
+├── engine/                  All logic, no UI imports — the future of AeroSuite
+│   ├── models.py            Project model (project.json)
+│   ├── project.py           Create / open / save project folders
+│   ├── naming.py            Case names <-> Mach/alpha/beta
+│   ├── cfg.py               Template rendering, config generation
+│   ├── results.py           History reading, convergence, summaries
+│   ├── preflight.py         Checks before generate / run
+│   ├── atmosphere/          ISA and y+ calculators
+│   └── jobs/                Job records, LocalRunner, lock
+├── core/                    Legacy API, now delegating to engine/
+├── ui/                      Legacy PyQt5 pages (retired in Phase 5)
+├── utils/                   Legacy file / validation helpers
+└── resources/
+    ├── config_template.cfg  Bundled default reference config
+    └── aoa_sweep_v8.py      Sweep script (runs under the system Python that imports SU2)
+tests/                       pytest suite; tests/fixtures/fake_sweep.py stands in for SU2
+docs/superpowers/            Design spec and implementation plans
 ```
 ## Installation
 AeroSuite runs on **Python 3.12** in its own environment, managed by [uv](https://docs.astral.sh/uv/).
