@@ -2,7 +2,7 @@ from typer.testing import CliRunner
 
 from aerosuite.cli import app, run_cmds
 from aerosuite.engine.jobs.runner import CaseState, JobState
-from aerosuite.engine.jobs.store import list_jobs, process_alive
+from aerosuite.engine.jobs.store import kill_tree, list_jobs, process_alive
 
 runner = CliRunner()
 A0, A2 = "M0p8_a0_b0", "M0p8_a2_b0"
@@ -64,13 +64,17 @@ def test_ctrl_c_stops_watching_not_the_job(ready_project, su2_env, fake_plan, wa
 def test_cancel_stops_the_running_job(ready_project, su2_env, fake_plan, wait_job):
     project_dir, _ = ready_project
     _start(project_dir, fake_plan, M0p8_a2_b0="hang")
-    job = wait_job(project_dir, until=lambda j: j.case_status[A2] is CaseState.RUNNING)
-    result = runner.invoke(app, ["cancel", str(project_dir)])
-    assert result.exit_code == 0, result.output
-    assert f"Cancelled job {job.id}." in result.output
-    final = list_jobs(project_dir)[0]
-    assert final.state is JobState.CANCELLED
-    assert not process_alive(job.backend_ref["pid"], job.backend_ref["create_time"])
+    try:
+        job = wait_job(project_dir, until=lambda j: j.case_status[A2] is CaseState.RUNNING)
+        result = runner.invoke(app, ["cancel", str(project_dir)])
+        assert result.exit_code == 0, result.output
+        assert f"Cancelled job {job.id}." in result.output
+        final = list_jobs(project_dir)[0]
+        assert final.state is JobState.CANCELLED
+        assert not process_alive(job.backend_ref["pid"], job.backend_ref["create_time"])
+    finally:
+        latest = list_jobs(project_dir)[0]
+        kill_tree(latest.backend_ref["pid"])
 
 
 def test_cancel_without_a_running_job(ready_project):
