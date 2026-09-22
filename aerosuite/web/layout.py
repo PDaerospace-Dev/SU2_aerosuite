@@ -84,7 +84,16 @@ class ProjectFrame:
                             link.classes("font-bold")
 
     def save(self, change: Change, then: Optional[Callable[[], None]] = None) -> Optional[str]:
-        """Apply and save a change; on success refresh the sidebar and call `then`."""
+        """Apply and save a change; on success refresh the sidebar and call `then`.
+
+        If the project changed on disk since it was last read, the in-memory copy is stale:
+        reload instead of saving over the outside change, and ask the user to redo their edit.
+        """
+        if self.session.changed_on_disk():
+            reload_error = self._reload_from_disk()
+            if reload_error is not None:
+                return reload_error
+            return "Project changed on disk and was reloaded; enter your change again"
         message = self.session.apply(change)
         if message is None:
             self.refresh()
@@ -95,11 +104,17 @@ class ProjectFrame:
     def _check_disk(self) -> None:
         if not self.session.changed_on_disk():
             return
+        self._reload_from_disk()
+
+    def _reload_from_disk(self) -> Optional[str]:
+        """Reload the session from disk and notify; returns None on success, else the error message."""
         try:
             self.session.reload()
         except AeroSuiteError as exc:
-            ui.notify(f"Could not reload the project: {exc}", type="negative")
-            return
+            message = f"Could not reload the project: {exc}"
+            ui.notify(message, type="negative")
+            return message
         ui.notify("Project changed on disk; reloaded", type="info")
         self.refresh()
         self._on_reload()
+        return None
