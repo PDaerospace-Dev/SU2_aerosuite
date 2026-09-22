@@ -1,11 +1,12 @@
 """Commands that create, inspect and change a project."""
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, List, Optional
 
 import typer
 
 from ..engine import project as engine_project
 from ..engine.cfg import settings_parameters
+from ..engine.editing import parse_key_value, parse_value_list, set_parameter, unset_parameter, update_sweep
 from ..engine.errors import ProjectError, TemplateError
 from ..engine.jobs.runner import BUNDLED_SWEEP_SCRIPT
 from ..engine.models import Project
@@ -81,3 +82,69 @@ def show(directory: ProjectDir) -> None:
     project = engine_project.open_project(directory)
     for line in describe(directory, project):
         typer.echo(line)
+
+
+ValuesOption = Annotated[
+    Optional[str], typer.Option(help="Comma/space-separated values; start:stop:step expands, e.g. -4:12:2")
+]
+
+
+@app.command("set")
+@engine_errors
+def set_(
+    directory: ProjectDir,
+    mach: ValuesOption = None,
+    alpha: ValuesOption = None,
+    beta: ValuesOption = None,
+    altitude: Annotated[Optional[str], typer.Option(help="Altitude label used in case names")] = None,
+    base_name: Annotated[Optional[str], typer.Option(help="Base name used in case names")] = None,
+    template: Annotated[Optional[Path], typer.Option(help="Replace the master template")] = None,
+    mesh: Annotated[Optional[Path], typer.Option(help="Replace the mesh")] = None,
+    partitions: Annotated[Optional[int], typer.Option(min=1, help="MPI partitions per case")] = None,
+    sweep_python: Annotated[Optional[str], typer.Option(help="Python that can import SU2")] = None,
+    key: Annotated[Optional[List[str]], typer.Option(
+        "--key", help="SU2 option KEY=VALUE (repeatable); MARKER_X=none removes that line")] = None,
+    unset: Annotated[Optional[List[str]], typer.Option(
+        "--unset", help="Forget an option so the template value applies again (repeatable)")] = None,
+) -> None:
+    """Change project settings; changing the sweep rebuilds the cases."""
+    project = engine_project.open_project(directory)
+    # Parse everything first so bad input changes nothing.
+    mach_values = parse_value_list(mach) if mach is not None else None
+    alpha_values = parse_value_list(alpha) if alpha is not None else None
+    beta_values = parse_value_list(beta) if beta is not None else None
+    pairs = [parse_key_value(item) for item in key or []]
+
+    changes: list[str] = []
+    for k, v in pairs:
+        set_parameter(project.settings, k, v)
+        changes.append(k)
+    for k in unset or []:
+        unset_parameter(project.settings, k)
+        changes.append(f"{k.strip().upper()} (unset)")
+    sweep_changed = update_sweep(
+        project, mach=mach_values, alpha=alpha_values, beta=beta_values,
+        altitude=altitude, base_name=base_name,
+    )
+    if sweep_changed:
+        changes.append("sweep")
+    if partitions is not None:
+        project.run.partitions = partitions
+        changes.append("partitions")
+    if sweep_python is not None:
+        project.run.sweep_python = sweep_python
+        changes.append("sweep python")
+    if mesh is not None:
+        engine_project.set_mesh(project, mesh)
+        changes.append("mesh")
+    if template is not None:  # last: it copies a file into the project
+        engine_project.set_template(directory, project, template)
+        changes.append("template")
+
+    if not changes:
+        typer.echo("Nothing to change; see `aerosuite set --help`.")
+        return
+    engine_project.save_project(directory, project)
+    typer.echo(f"Updated: {', '.join(changes)}.")
+    if sweep_changed:
+        typer.echo(f"The sweep now has {len(project.cases)} cases.")
