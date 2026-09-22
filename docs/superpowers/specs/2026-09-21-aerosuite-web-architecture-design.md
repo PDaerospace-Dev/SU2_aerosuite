@@ -68,7 +68,7 @@ aerosuite/
 │       ├── runner.py       Runner protocol + JobRecord
 │       ├── local.py        LocalRunner (runs aoa_sweep_v8.py)
 │       └── store.py        read/write jobs/<id>.json, project lock, process liveness / tree kill (psutil)
-├── cli.py                  `aerosuite` command (Typer)
+├── cli/                    `aerosuite` command (Typer): app.py, project_cmds.py, run_cmds.py
 ├── web/                    NiceGUI app; one module per page (section 7)
 ├── resources/              config_template.cfg, aoa_sweep_v8.py, presets/*.json
 └── ui/, main.py            legacy PyQt5 app — kept until Phase 5
@@ -76,7 +76,7 @@ aerosuite/
 
 Rules:
 
-- `web/` and `cli.py` never read/write project files or manage processes directly; they call engine functions.
+- `web/` and `cli/` never read/write project files or manage processes directly; they call engine functions.
 - A new feature = an engine function (tested) + a page or CLI command.
 - `aerosuite/core/` is moved into `engine/` in Phase 1; `core/` remains as thin re-export shims until the PyQt5 app is retired.
 
@@ -212,15 +212,24 @@ Launch: `aerosuite serve [--port 8080]`.
 
 ## 8. CLI
 
-Typer app installed as the `aerosuite` command:
+Typer app installed as the `aerosuite` command (also runnable as `python -m aerosuite.cli`). Commands only parse input, call engine functions and print; engine errors print as `Error: <message>` with exit code 1 and no traceback; preflight warnings print without blocking.
 
-- `aerosuite new <dir> --template <cfg> --mesh <su2>`
+- `aerosuite new <dir> [--template <cfg>] [--mesh <su2>] [--name N]` — create a project folder
+- `aerosuite show <dir>` — print template, mesh and markers, sweep, settings, run settings and the case list
+- `aerosuite set <dir> [--mach V] [--alpha V] [--beta V] [--altitude A] [--base-name B] [--template T] [--mesh M] [--partitions N] [--sweep-python P] [--key K=V ...] [--unset K ...]`
+  - value lists are comma- or space-separated; `start:stop:step` expands inclusively (`--alpha=-4:12:2`); values are rounded to 10 decimals
+  - changing the sweep rebuilds the cases (restart choices kept for cases whose name survives)
+  - `--key MARKER_X=V` sets a marker line, `--key MARKER_X=none` removes it; other keys become overrides; keys set per case by the sweep (`MACH_NUMBER`, `AOA`, `SIDESLIP_ANGLE`, `MESH_FILENAME`, `BREAKDOWN_FILENAME`) are refused
+  - `--unset K` removes a marker or override so the template value applies again
+- `aerosuite edit <dir>` — open a copy of project.json in `$VISUAL`/`$EDITOR` (default `nano`, `notepad` on Windows); on save it is validated; if invalid the errors are shown and the user may re-open or discard; project.json changes only when the edit is valid; a changed sweep rebuilds the cases. Per-case restart options are set here.
 - `aerosuite generate <dir>` — preflight + write configs
-- `aerosuite run <dir> [-n N]` — submit via LocalRunner
-- `aerosuite status <dir>` — refresh and print jobs and case states
-- `aerosuite cancel <dir> [job_id]`
-- `aerosuite summarize <dir> [--last N]`
-- `aerosuite serve [--port]`
+- `aerosuite run <dir> [-n N]` — preflight + submit via LocalRunner, then return immediately with the job id; the sweep survives closing the terminal or SSH session
+- `aerosuite status <dir> [--watch]` — refresh and print the latest job and its case states (with failure tails); `--watch` re-prints on change every 2 s until the job ends; Ctrl-C stops watching, not the job
+- `aerosuite cancel <dir> [job_id]` — cancel the given job, or the running one
+- `aerosuite summarize <dir> [--last N] [--columns CL,CD,CMy]` — write results/summary.csv and print it
+- `aerosuite serve [--port]` — Phase 3
+
+Value parsing, parameter editing, project-text validation and summary writing live in the engine (`engine/editing.py`, `engine/project.py`, `engine/results.py`) so the web UI reuses them.
 
 ## 9. Environment
 
