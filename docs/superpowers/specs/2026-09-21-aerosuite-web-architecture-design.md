@@ -208,7 +208,26 @@ Left sidebar in workflow order with status badges (✓ complete, ● needs atten
 
 Each page module targets ≤ ~200 lines and calls only engine functions.
 
-Launch: `aerosuite serve [--port 8080]`.
+Launch: `aerosuite serve [--root DIR] [--port 8080] [--host 127.0.0.1] [--i-understand-no-auth]`.
+
+### 7.1 Phase 3a design (setup side)
+
+Phase 3 is split: **3a** = serve, app shell, Projects, Setup, Settings, Sweep; **3b** = Run, Monitor, Results (sidebar shows them greyed until then). Calculators, presets and profile import stay in Phase 4.
+
+- **Package:** `aerosuite/web/` — `server.py` (start NiceGUI), `config.py` (picker root), `app.py` (registers pages), `session.py` (ProjectSession), `status.py` (sidebar badges), `recent.py` (recent projects), `files.py` (directory listings), `fields.py` (autosaving text field), `picker.py` (file/folder dialog), `layout.py` (header, sidebar, outside-change watcher), `pages/` (projects, setup, settings, sweep). `session.py`, `status.py`, `recent.py`, `files.py` do not import NiceGUI and are unit-tested.
+- **Which project:** the page URL carries it — `/<page>?project=<absolute folder>` — so tabs and bookmarks work and the server keeps no per-user state.
+- **Autosave:** text fields commit on blur or Enter (unchanged text is not re-saved); selects, checkboxes and switches commit on change. Every commit runs `ProjectSession.apply(change)`: apply to a deep copy, re-validate with pydantic, `save_project`, and only then replace the in-memory project. An invalid value shows the engine's message under the field and saves nothing.
+- **Outside changes:** a 2-second timer compares project.json's (mtime_ns, size); on change the page reloads the project, re-renders and notifies "Project changed on disk; reloaded".
+- **File choice:** a workstation-side picker dialog (starts at `--root`, default the home folder; folders first, project folders marked, files filtered by suffix) plus a paste box on every path field.
+- **Recent projects:** `$AEROSUITE_HOME/recent.json` (default `~/.aerosuite/recent.json`), most recent first, max 15, missing folders dropped; failures to write it never block opening a project.
+- **Pages:**
+  - Projects (`/`): recent list; open (picker or paste); new (parent folder + name → `create_project`; template and mesh are then set on Setup).
+  - Setup: mesh (path, markers), template (copied in), partitions, sweep Python (resolved interpreter shown, warning when it is AeroSuite's own), sweep script.
+  - Settings: freestream / reference / numerics fields (empty = template value); Markers table (value, "Remove line" switch, delete, add — keys must start with `MARKER_`); Overrides table (add/delete; per-case keys refused by the engine); mesh markers listed for reference; live preview of the selected case's `.cfg` via `render_case`.
+  - Sweep: Mach/α/β lists (`parse_value_list`), altitude, base name, include-in-name checkboxes, initial restart file, case table (restart option per case; `from_case` picks an earlier case, `custom` takes a file path; duplicate names highlighted), preflight problems for "generate", Generate button (disabled while there are errors).
+- **Badges** (`status.step_badges`): Setup ✓ template and mesh present, ● one set but missing/broken, ○ neither; Settings ✓ template present; Sweep ○ no Mach and no cases, ● any error from `preflight.sweep_problems`, ✓ otherwise; Configs ○ never generated, ● cases.json differs from the cases or is unreadable, ✓ matches; Run/Monitor/Results greyed.
+- **Engine additions:** `preflight.sweep_problems(project)` (empty Mach, no cases, duplicates, restart problems — reused by `preflight`); `editing.set_parameter` rejects an empty value.
+- **Testing:** unit tests for the non-NiceGUI modules; page tests with NiceGUI's simulated user (`nicegui.testing.user_plugin`, `pytest-asyncio`, `main_file = tests/web/main_app.py`); no real browser.
 
 ## 8. CLI
 
