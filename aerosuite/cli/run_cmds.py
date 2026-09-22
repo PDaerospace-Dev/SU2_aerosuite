@@ -6,8 +6,9 @@ from typing import Annotated, Optional
 import typer
 
 from ..engine import project as engine_project
+from ..engine import results as engine_results
 from ..engine.cfg import CONFIGS_DIR, generate_configs
-from ..engine.jobs.local import LocalRunner
+from ..engine.jobs.local import LocalRunner, RUNS_DIR
 from ..engine.jobs.runner import CaseState, JobRecord, JobState
 from ..engine.jobs.store import list_jobs, load_job
 from ..engine.preflight import has_errors, preflight
@@ -126,3 +127,26 @@ def cancel(
     else:
         typer.echo(f"Job {job.id} had already finished: {job.state.value}.")
     _echo_job(job)
+
+
+@app.command()
+@engine_errors
+def summarize(
+    directory: ProjectDir,
+    last: Annotated[int, typer.Option(min=1, help="Average the last N iterations of each case")] = 100,
+    columns: Annotated[str, typer.Option(help="Comma-separated history columns")] = "CL,CD,CMy",
+) -> None:
+    """Average each case's history into results/summary.csv and print it."""
+    project_dir = Path(directory)
+    engine_project.open_project(project_dir)  # fails clearly if this is not a project
+    wanted = [col.strip() for col in columns.split(",") if col.strip()]
+    index = engine_results.load_case_index(project_dir / CONFIGS_DIR)
+    summary, warnings = engine_results.summarize(project_dir / RUNS_DIR, wanted, last, index)
+    for warning in warnings:
+        typer.echo(f"Warning: {warning}")
+    if summary.empty:
+        typer.echo(f"Error: No results found in {project_dir / RUNS_DIR}", err=True)
+        raise typer.Exit(1)
+    path = engine_results.write_summary(project_dir, summary)
+    typer.echo(summary.to_string(index=False))
+    typer.echo(f"Saved {path}")

@@ -119,6 +119,24 @@ alias su2aero2='uv run --project /path/to/SU2_aerosuite python /path/to/SU2_aero
 uv run pytest
 ```
 
+## Command line
+The same workflow without the GUI — handy over SSH and for scripting (run inside the uv environment, or `uv run aerosuite ...`):
+
+```bash
+aerosuite new ./study --template master.cfg --mesh wing.su2
+aerosuite set ./study --mach 0.6,0.8,0.85 --alpha=-4:12:2 --beta 0 --partitions 64
+aerosuite set ./study --key CFL_NUMBER=5 --key MARKER_PLOTTING=none
+aerosuite show ./study
+aerosuite edit ./study          # anything else (restart per case, numerics) in $EDITOR
+aerosuite generate ./study
+aerosuite run ./study           # returns at once; the sweep keeps running after logout
+aerosuite status ./study --watch
+aerosuite cancel ./study
+aerosuite summarize ./study --last 100
+```
+
+`aerosuite <command> --help` lists every option. Set `run.sweep_python` (`aerosuite set ./study --sweep-python /path/to/python3`) if the Python that imports SU2 is not the first `python3` on your PATH.
+
 ## Typical Workflow
 *Calculator*
 1. **ISA and Y+ Calculator** — enter altitude and Mach, click Transfer → values land in SU2 tab.
