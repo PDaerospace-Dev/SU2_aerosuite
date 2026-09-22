@@ -93,6 +93,22 @@ def _restart_problems(project: Project) -> list[Problem]:
     return problems
 
 
+def sweep_problems(project: Project) -> list[Problem]:
+    """Problems with the sweep and its cases (the Sweep page shows these beside the case table)."""
+    problems: list[Problem] = []
+    if not project.sweep.mach:  # build_cases would silently fall back to Mach 0
+        problems.append(Problem("error", "No Mach numbers in the sweep"))
+    if not project.cases:
+        problems.append(Problem("error", "The sweep has no cases"))
+    duplicates = find_collisions(case.name for case in project.cases)
+    if duplicates:
+        problems.append(Problem(
+            "error", "Duplicate case names (files would overwrite each other): " + ", ".join(duplicates)
+        ))
+    problems += _restart_problems(project)
+    return problems
+
+
 def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
     problems = []
     if not (project_dir / CONFIGS_DIR / RUN_CONTROL_FILE).is_file():
@@ -139,17 +155,8 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
         problems.append(_not_absolute("Mesh", project.mesh.path))
     elif not Path(project.mesh.path).is_file():
         problems.append(Problem("error", f"Mesh not found: {project.mesh.path}"))
-    if not project.sweep.mach:  # build_cases would silently fall back to Mach 0
-        problems.append(Problem("error", "No Mach numbers in the sweep"))
-    if not project.cases:
-        problems.append(Problem("error", "The sweep has no cases"))
-    duplicates = find_collisions(case.name for case in project.cases)
-    if duplicates:
-        problems.append(Problem(
-            "error", "Duplicate case names (files would overwrite each other): " + ", ".join(duplicates)
-        ))
+    problems += sweep_problems(project)
     problems += _marker_problems(project)
-    problems += _restart_problems(project)
     lock = active_lock(project_dir)
     if lock:
         problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))

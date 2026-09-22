@@ -79,6 +79,8 @@ def set_parameter(settings: Settings, key: str, value: str) -> None:
     """MARKER_* keys set (or with value 'none' remove) a marker line; other keys become overrides."""
     key = _check_key(key)
     value = value.strip()
+    if not value:
+        raise ProjectError(f"{key} needs a value; use --unset {key} to go back to the template value")
     if key.startswith(MARKER_PREFIX):
         settings.markers[key] = None if value.lower() == REMOVE_WORD else value
     elif value.lower() == REMOVE_WORD:
