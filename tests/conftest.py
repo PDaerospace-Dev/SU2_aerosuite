@@ -9,6 +9,7 @@ import pytest
 matplotlib.use("Agg")
 
 from aerosuite.engine.cfg import build_cases  # noqa: E402
+from aerosuite.engine.jobs.store import kill_tree, list_jobs  # noqa: E402
 from aerosuite.engine.models import Project  # noqa: E402
 from aerosuite.engine.project import save_project, set_mesh  # noqa: E402
 
@@ -43,9 +44,32 @@ MESH_FILENAME= mesh.su2
 """
 
 
+def _kill_project_jobs(project_dir: Path) -> None:
+    """Kill the process tree of every job recorded in the project; never raises."""
+    try:
+        jobs = list_jobs(project_dir)
+    except Exception:
+        return
+    for job in jobs:
+        pid = job.backend_ref.get("pid")
+        if pid:
+            try:
+                kill_tree(int(pid))  # harmless for a pid that has already exited
+            except Exception:
+                pass
+
+
+@pytest.fixture
+def kill_project_jobs():
+    return _kill_project_jobs
+
+
 @pytest.fixture
 def ready_project(tmp_path):
-    """A saved project with template, mesh, three cases and the fake sweep script."""
+    """A saved project with template, mesh, three cases and the fake sweep script.
+
+    On teardown every job the test started is killed, so no fake sweep outlives its test.
+    """
     project_dir = tmp_path / "study"
     project_dir.mkdir()
     (project_dir / "template.cfg").write_text(TEMPLATE)
@@ -62,4 +86,5 @@ def ready_project(tmp_path):
     project.run.sweep_python = sys.executable
     project.run.sweep_script = str(FAKE_SWEEP)
     save_project(project_dir, project)
-    return project_dir, project
+    yield project_dir, project
+    _kill_project_jobs(project_dir)
