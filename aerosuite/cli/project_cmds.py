@@ -1,11 +1,16 @@
 """Commands that create, inspect and change a project."""
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import Annotated, List, Optional
 
 import typer
 
 from ..engine import project as engine_project
-from ..engine.cfg import settings_parameters
+from ..engine.cfg import build_cases, settings_parameters
 from ..engine.editing import parse_key_value, parse_value_list, set_parameter, unset_parameter, update_sweep
 from ..engine.errors import ProjectError, TemplateError
 from ..engine.jobs.runner import BUNDLED_SWEEP_SCRIPT
@@ -148,3 +153,53 @@ def set_(
     typer.echo(f"Updated: {', '.join(changes)}.")
     if sweep_changed:
         typer.echo(f"The sweep now has {len(project.cases)} cases.")
+
+
+def editor_command() -> list[str]:
+    """$VISUAL, then $EDITOR, else nano (notepad on Windows), split into argv."""
+    raw = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+    if not raw:
+        return ["notepad"] if sys.platform == "win32" else ["nano"]
+    if Path(raw).is_file():  # an unquoted path that contains spaces
+        return [raw]
+    return [part.strip('"') for part in shlex.split(raw, posix=sys.platform != "win32")]
+
+
+def _run_editor(path: Path) -> None:
+    cmd = editor_command() + [str(path)]
+    try:
+        subprocess.run(cmd, check=False)
+    except OSError as exc:
+        raise ProjectError(f"Cannot start editor {cmd[0]!r} ({exc}); set the EDITOR variable") from exc
+
+
+@app.command()
+@engine_errors
+def edit(directory: ProjectDir) -> None:
+    """Edit project.json in your editor; it is saved only if it is valid."""
+    original = engine_project.open_project(directory)
+    fd, tmp_name = tempfile.mkstemp(prefix="aerosuite-project-", suffix=".json")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        tmp.write_text(engine_project.read_project_text(directory), encoding="utf-8")
+        while True:
+            _run_editor(tmp)
+            try:
+                project = engine_project.parse_project(tmp.read_text(encoding="utf-8"))
+                break
+            except ProjectError as exc:
+                typer.echo(f"Error: {exc}", err=True)
+                if not typer.confirm("Re-open the editor to fix it?", default=True):
+                    typer.echo("Discarded your changes; project.json is unchanged.")
+                    raise typer.Exit(1)
+        if project == original:
+            typer.echo("No changes.")
+            return
+        if project.sweep != original.sweep:
+            project.cases = build_cases(project)
+            typer.echo(f"The sweep changed; cases rebuilt ({len(project.cases)}).")
+        engine_project.save_project(directory, project)
+        typer.echo("Saved project.json.")
+    finally:
+        tmp.unlink(missing_ok=True)
