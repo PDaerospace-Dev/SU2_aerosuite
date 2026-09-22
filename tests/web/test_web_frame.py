@@ -1,0 +1,35 @@
+import asyncio
+
+from nicegui.testing import User
+
+from aerosuite.engine.project import open_project, save_project
+from aerosuite.web import layout
+
+
+async def test_frame_shows_project_and_badges(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(layout.project_url("setup", project_dir))
+    await user.should_see("study")
+    await user.should_see(marker="badge-setup-done")
+    await user.should_see(marker="badge-sweep-done")
+    await user.should_see(marker="badge-configs-todo")
+    await user.should_see(marker="badge-run-later")
+
+
+async def test_missing_and_bad_project_parameter(user: User, tmp_path):
+    await user.open("/setup")
+    await user.should_see("No project selected.")
+    await user.open(layout.project_url("setup", tmp_path / "nowhere"))
+    await user.should_see("Error: No project found")
+
+
+async def test_outside_changes_reload_the_page(user: User, ready_project, monkeypatch):
+    monkeypatch.setattr(layout, "WATCH_SECONDS", 0.1)
+    project_dir, _ = ready_project
+    await user.open(layout.project_url("setup", project_dir))
+    other = open_project(project_dir)
+    other.name = "renamed-elsewhere"
+    save_project(project_dir, other)
+    await asyncio.sleep(0.5)
+    await user.should_see("Project changed on disk; reloaded")
+    await user.should_see("renamed-elsewhere")
