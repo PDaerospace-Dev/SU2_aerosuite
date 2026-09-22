@@ -1,4 +1,5 @@
 """Commands that generate configs, run sweeps and report on them."""
+import time
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -7,6 +8,8 @@ import typer
 from ..engine import project as engine_project
 from ..engine.cfg import CONFIGS_DIR, generate_configs
 from ..engine.jobs.local import LocalRunner
+from ..engine.jobs.runner import CaseState, JobRecord, JobState
+from ..engine.jobs.store import list_jobs, load_job
 from ..engine.preflight import has_errors, preflight
 from .app import ProjectDir, app, engine_errors, print_problems
 
@@ -42,3 +45,84 @@ def run(
     job = LocalRunner().submit(directory, project)
     typer.echo(f"Started job {job.id}: {len(job.cases)} cases, log {Path(directory) / job.log_path}")
     typer.echo(f"Follow it with: aerosuite status {directory} --watch")
+
+
+FAILURE_LINES = 10
+
+
+def job_lines(job: JobRecord) -> list[str]:
+    """The job header, one line per case, then the last log lines of failed cases."""
+    lines = [f"Job {job.id}  {job.state.value}  (started {job.created:%Y-%m-%d %H:%M:%S})"]
+    width = max((len(name) for name in job.cases), default=0)
+    for name in job.cases:
+        state = job.case_status.get(name, CaseState.PENDING)
+        lines.append(f"  {name.ljust(width)}  {state.value}")
+    for name, tail in job.failure_tail.items():
+        lines.append(f"  --- {name} (last log lines) ---")
+        lines += [f"    {line}" for line in tail.splitlines()[-FAILURE_LINES:]]
+    return lines
+
+
+def _echo_job(job: JobRecord) -> None:
+    for line in job_lines(job):
+        typer.echo(line)
+
+
+def _snapshot(job: JobRecord) -> tuple:
+    return job.state, dict(job.case_status)
+
+
+@app.command()
+@engine_errors
+def status(
+    directory: ProjectDir,
+    watch: Annotated[bool, typer.Option("--watch", help="Keep refreshing until the job ends")] = False,
+    interval: Annotated[float, typer.Option(hidden=True, min=0.0)] = 2.0,
+) -> None:
+    """Show the latest job and the state of each case."""
+    jobs = list_jobs(directory)
+    if not jobs:
+        typer.echo(f"No jobs yet. Start one with: aerosuite run {directory}")
+        return
+    runner = LocalRunner()
+    job = runner.refresh(directory, jobs[0])
+    _echo_job(job)
+    if len(jobs) > 1:
+        typer.echo(f"({len(jobs) - 1} earlier job(s) in {Path(directory) / 'jobs'})")
+    if not watch:
+        return
+    shown = _snapshot(job)
+    try:
+        while job.is_active:
+            time.sleep(interval)
+            job = runner.refresh(directory, job)
+            if _snapshot(job) != shown:
+                _echo_job(job)
+                shown = _snapshot(job)
+    except KeyboardInterrupt:
+        typer.echo("Stopped watching; the job keeps running.")
+        return
+    typer.echo(f"Job {job.id} finished: {job.state.value}")
+
+
+@app.command()
+@engine_errors
+def cancel(
+    directory: ProjectDir,
+    job_id: Annotated[Optional[str], typer.Argument(help="Job id (default: the running job)")] = None,
+) -> None:
+    """Stop a running job: the sweep script, mpirun and every SU2 process."""
+    if job_id is not None:
+        job = load_job(directory, job_id)
+    else:
+        active = [job for job in list_jobs(directory) if job.is_active]
+        if not active:
+            typer.echo("No running job to cancel.", err=True)
+            raise typer.Exit(1)
+        job = active[0]
+    job = LocalRunner().cancel(directory, job)
+    if job.state is JobState.CANCELLED:
+        typer.echo(f"Cancelled job {job.id}.")
+    else:
+        typer.echo(f"Job {job.id} had already finished: {job.state.value}.")
+    _echo_job(job)

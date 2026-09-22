@@ -1,9 +1,7 @@
 from typer.testing import CliRunner
 
 from aerosuite.cli import app
-from aerosuite.engine.jobs.local import LocalRunner
 from aerosuite.engine.jobs.runner import CaseState, JobState
-from aerosuite.engine.jobs.store import list_jobs
 from aerosuite.engine.project import open_project
 
 runner = CliRunner()
@@ -65,5 +63,5 @@ def test_run_refuses_a_second_job(ready_project, su2_env, fake_plan, wait_job):
         result = runner.invoke(app, ["run", str(project_dir)])
         assert result.exit_code == 1
         assert "still running" in result.output
-    finally:  # the `cancel` command arrives in Task 6; stop the hanging sweep through the engine
-        LocalRunner().cancel(project_dir, list_jobs(project_dir)[0])
+    finally:
+        runner.invoke(app, ["cancel", str(project_dir)])
