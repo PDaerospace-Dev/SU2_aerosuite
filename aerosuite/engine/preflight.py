@@ -139,6 +139,8 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
         problems.append(_not_absolute("Mesh", project.mesh.path))
     elif not Path(project.mesh.path).is_file():
         problems.append(Problem("error", f"Mesh not found: {project.mesh.path}"))
+    if not project.sweep.mach:  # build_cases would silently fall back to Mach 0
+        problems.append(Problem("error", "No Mach numbers in the sweep"))
     if not project.cases:
         problems.append(Problem("error", "The sweep has no cases"))
     duplicates = find_collisions(case.name for case in project.cases)

@@ -81,6 +81,7 @@ def status(
     interval: Annotated[float, typer.Option(hidden=True, min=0.0)] = 2.0,
 ) -> None:
     """Show the latest job and the state of each case."""
+    engine_project.open_project(directory)  # fails clearly if this is not a project
     jobs = list_jobs(directory)
     if not jobs:
         typer.echo(f"No jobs yet. Start one with: aerosuite run {directory}")
@@ -113,6 +114,7 @@ def cancel(
     job_id: Annotated[Optional[str], typer.Argument(help="Job id (default: the running job)")] = None,
 ) -> None:
     """Stop a running job: the sweep script, mpirun and every SU2 process."""
+    engine_project.open_project(directory)  # fails clearly if this is not a project
     if job_id is not None:
         job = load_job(directory, job_id)
     else:

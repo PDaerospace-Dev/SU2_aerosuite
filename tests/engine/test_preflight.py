@@ -155,3 +155,10 @@ def test_live_lock_blocks_generate(ready_project):
     write_lock(project_dir, "j1", os.getpid(), psutil.Process().create_time())
     errors = _messages(preflight(project_dir, project, "generate"), "error")
     assert errors == ["Job j1 is still running for this project"]
+
+
+def test_empty_mach_list_is_an_error(ready_project):
+    project_dir, project = ready_project
+    project.sweep.mach = []
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert "No Mach numbers in the sweep" in errors

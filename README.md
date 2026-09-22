@@ -137,6 +137,12 @@ aerosuite summarize ./study --last 100
 
 `aerosuite <command> --help` lists every option. Set `run.sweep_python` (`aerosuite set ./study --sweep-python /path/to/python3`) if the Python that imports SU2 is not the first `python3` on your PATH.
 
+### Over SSH
+- From any folder, run `uv run --project /path/to/SU2_aerosuite aerosuite ...`, or add an alias: `alias aerosuite='uv run --project /path/to/SU2_aerosuite aerosuite'`.
+- `SU2_RUN` must be set in the shell that runs `aerosuite run`; the sweep inherits it.
+- If the sweep dies when you log out, systemd is killing your processes (`KillUserProcesses`); run `loginctl enable-linger $USER` once.
+- `aerosuite edit` waits for the editor to exit, so a GUI editor needs its wait flag, e.g. `EDITOR="code --wait"`.
+
 ## Typical Workflow
 *Calculator*
 1. **ISA and Y+ Calculator** — enter altitude and Mach, click Transfer → values land in SU2 tab.

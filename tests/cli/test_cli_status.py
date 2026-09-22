@@ -89,3 +89,15 @@ def test_cancel_unknown_job_id(ready_project):
     result = runner.invoke(app, ["cancel", str(project_dir), "nope"])
     assert result.exit_code == 1
     assert "Error: No job nope" in result.output
+
+
+def test_status_outside_a_project(tmp_path):
+    result = runner.invoke(app, ["status", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "Error: No project found" in result.output
+
+
+def test_cancel_outside_a_project(tmp_path):
+    result = runner.invoke(app, ["cancel", str(tmp_path)])
+    assert result.exit_code == 1
+    assert "Error: No project found" in result.output
