@@ -3,7 +3,7 @@ import sys
 
 from typer.testing import CliRunner
 
-from aerosuite.cli import app
+from aerosuite.cli import app, project_cmds
 from aerosuite.engine.project import open_project
 
 runner = CliRunner()
@@ -74,3 +74,25 @@ def test_module_entry_point():
     )
     assert result.returncode == 0
     assert "generate" in result.stdout or "show" in result.stdout
+
+
+def test_show_reports_a_project_file_that_is_not_utf8(tmp_path):
+    runner.invoke(app, ["new", str(tmp_path / "p")])
+    (tmp_path / "p" / "project.json").write_bytes(b"\xff\xfe{}")
+    result = runner.invoke(app, ["show", str(tmp_path / "p")])
+    assert result.exit_code == 1
+    assert "not UTF-8" in result.output
+    assert "Traceback" not in result.output
+
+
+def test_os_errors_print_as_one_line(tmp_path, monkeypatch):
+    runner.invoke(app, ["new", str(tmp_path / "p")])
+
+    def denied(_directory):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(project_cmds.engine_project, "open_project", denied)
+    result = runner.invoke(app, ["show", str(tmp_path / "p")])
+    assert result.exit_code == 1
+    assert "Error: denied" in result.output
+    assert "Traceback" not in result.output

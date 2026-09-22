@@ -21,13 +21,13 @@ F = TypeVar("F", bound=Callable)
 
 
 def engine_errors(func: F) -> F:
-    """Print engine errors as one line and exit with code 1 instead of a traceback."""
+    """Print engine errors (and, as a backstop, OS errors) as one line and exit 1 instead of a traceback."""
 
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
-        except AeroSuiteError as exc:
+        except (AeroSuiteError, OSError) as exc:
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1) from None
 

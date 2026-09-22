@@ -65,6 +65,17 @@ def test_invalid_edit_can_be_discarded(edit_project):
     assert (folder / "project.json").read_text() == before
 
 
+def test_edit_that_is_not_utf8_can_be_discarded(edit_project):
+    folder = edit_project("latin1")
+    before = (folder / "project.json").read_bytes()
+    result = runner.invoke(app, ["edit", str(folder)], input="n\n")
+    assert result.exit_code == 1
+    assert "Error: the edited file is not UTF-8 text" in result.output
+    assert "Re-open the editor to fix it?" in result.output
+    assert "Traceback" not in result.output
+    assert (folder / "project.json").read_bytes() == before
+
+
 def test_invalid_edit_can_be_fixed_by_reopening(edit_project):
     folder = edit_project("partitions:0", "partitions:4")
     result = runner.invoke(app, ["edit", str(folder)], input="y\n")

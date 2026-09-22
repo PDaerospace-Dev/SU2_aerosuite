@@ -18,6 +18,10 @@ if action == "noop":
     pass
 elif action == "break":
     target.write_text("{not json")
+elif action == "latin1":
+    data = json.loads(target.read_text())
+    data["name"] = "caf\xe9"
+    target.write_bytes(json.dumps(data, ensure_ascii=False).encode("latin-1"))
 else:
     data = json.loads(target.read_text())
     kind, _, value = action.partition(":")

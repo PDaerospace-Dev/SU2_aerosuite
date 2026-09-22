@@ -67,6 +67,8 @@ def read_project_text(directory: Path) -> str:
         return path.read_text(encoding="utf-8")
     except FileNotFoundError:
         raise ProjectError(f"No project found in {directory}") from None
+    except UnicodeDecodeError as exc:
+        raise ProjectError(f"{path} is not UTF-8 text: {exc}") from exc
     except OSError as exc:
         raise ProjectError(f"Cannot read {path}: {exc}") from exc
 
@@ -74,7 +76,7 @@ def read_project_text(directory: Path) -> str:
 def parse_project(text: str, source: str = PROJECT_FILE) -> Project:
     """Validate project.json text (migrating old schemas) into a Project."""
     try:
-        data = json.loads(text)
+        data = json.loads(text.lstrip("﻿"))  # some editors write a UTF-8 BOM
     except json.JSONDecodeError as exc:
         raise ProjectError(f"{source} is not valid JSON: {exc}") from exc
     try:

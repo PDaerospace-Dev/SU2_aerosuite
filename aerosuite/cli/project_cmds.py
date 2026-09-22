@@ -186,10 +186,11 @@ def edit(directory: ProjectDir) -> None:
         while True:
             _run_editor(tmp)
             try:
-                project = engine_project.parse_project(tmp.read_text(encoding="utf-8"))
+                project = engine_project.parse_project(tmp.read_text(encoding="utf-8-sig"))
                 break
-            except ProjectError as exc:
-                typer.echo(f"Error: {exc}", err=True)
+            except (ProjectError, UnicodeDecodeError) as exc:
+                message = "the edited file is not UTF-8 text" if isinstance(exc, UnicodeDecodeError) else exc
+                typer.echo(f"Error: {message}", err=True)
                 if not typer.confirm("Re-open the editor to fix it?", default=True):
                     typer.echo("Discarded your changes; project.json is unchanged.")
                     raise typer.Exit(1)
