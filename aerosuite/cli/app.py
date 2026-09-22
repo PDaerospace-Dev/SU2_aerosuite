@@ -1,11 +1,12 @@
 """The Typer app and the helpers every command shares."""
 import functools
 from pathlib import Path
-from typing import Annotated, Callable, TypeVar
+from typing import Annotated, Callable, Iterable, TypeVar
 
 import typer
 
 from ..engine.errors import AeroSuiteError
+from ..engine.preflight import Problem
 
 app = typer.Typer(
     help="Prepare, run and post-process SU2 sweeps.",
@@ -31,6 +32,13 @@ def engine_errors(func: F) -> F:
             raise typer.Exit(1) from None
 
     return wrapper  # type: ignore[return-value]
+
+
+def print_problems(problems: Iterable[Problem]) -> None:
+    """Warnings to stdout, errors to stderr, one per line."""
+    for problem in problems:
+        is_error = problem.severity == "error"
+        typer.echo(f"{'Error' if is_error else 'Warning'}: {problem.message}", err=is_error)
 
 
 def main() -> None:
