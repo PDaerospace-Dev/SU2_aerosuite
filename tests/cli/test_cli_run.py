@@ -2,6 +2,7 @@ from typer.testing import CliRunner
 
 from aerosuite.cli import app
 from aerosuite.engine.jobs.runner import CaseState, JobState
+from aerosuite.engine.jobs.store import kill_tree, list_jobs
 from aerosuite.engine.project import open_project
 
 runner = CliRunner()
@@ -65,3 +66,22 @@ def test_run_refuses_a_second_job(ready_project, su2_env, fake_plan, wait_job):
         assert "still running" in result.output
     finally:
         runner.invoke(app, ["cancel", str(project_dir)])
+
+
+def test_generate_refuses_while_a_job_runs(ready_project, su2_env, fake_plan, wait_job):
+    project_dir, _ = ready_project
+    runner.invoke(app, ["generate", str(project_dir)])
+    fake_plan(project_dir, M0p8_a0_b0="hang")
+    result = runner.invoke(app, ["run", str(project_dir)])
+    assert result.exit_code == 0, result.output
+    try:
+        wait_job(project_dir, until=lambda j: j.case_status["M0p8_a0_b0"] is CaseState.RUNNING)
+        cfg = project_dir / "configs" / "M0p8_a2_b0.cfg"
+        before = cfg.read_bytes()
+        runner.invoke(app, ["set", str(project_dir), "--key", "CFL_NUMBER=9"])
+        result = runner.invoke(app, ["generate", str(project_dir)])
+        assert result.exit_code == 1
+        assert "still running" in result.output
+        assert cfg.read_bytes() == before
+    finally:
+        kill_tree(list_jobs(project_dir)[0].backend_ref["pid"])

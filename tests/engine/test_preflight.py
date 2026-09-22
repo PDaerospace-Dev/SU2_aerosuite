@@ -148,3 +148,10 @@ def test_relative_initial_restart_is_an_error(ready_project):
         "M0p8_a0_b0: initial restart file must be an absolute path "
         "(the sweep runs from the runs/ folder): solution.dat"
     ]
+
+
+def test_live_lock_blocks_generate(ready_project):
+    project_dir, project = ready_project
+    write_lock(project_dir, "j1", os.getpid(), psutil.Process().create_time())
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert errors == ["Job j1 is still running for this project"]

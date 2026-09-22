@@ -181,7 +181,7 @@ A single asyncio task in the web server refreshes active jobs every 2 s. History
 
 ### Preflight
 
-`preflight(project, action) -> list[Problem]` where `Problem` has `severity` (`error` / `warning`) and `message`. Checks: template exists; mesh exists; case-name collisions; markers referenced in `settings.markers` but absent from `mesh.markers` (warning); `SU2_RUN` set and `sweep_script` exists (run only); project lock held by a live job (run only); `custom`/`initial`/`from_case` restarts have a valid reference. Errors block the action; warnings are shown and can be acknowledged.
+`preflight(project, action) -> list[Problem]` where `Problem` has `severity` (`error` / `warning`) and `message`. Checks: template exists; mesh exists; case-name collisions; markers referenced in `settings.markers` but absent from `mesh.markers` (warning); `SU2_RUN` set and `sweep_script` exists (run only); project lock held by a live job (generate and run); `custom`/`initial`/`from_case` restarts have a valid reference. Errors block the action; warnings are shown and can be acknowledged.
 
 ### Errors
 

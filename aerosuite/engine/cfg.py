@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from .errors import GenerationError, ProjectError, TemplateError
+from .jobs.store import active_lock
 from .models import Case, Project, Settings
 from .naming import case_name, find_collisions, format_value
 
@@ -146,6 +147,13 @@ def run_control_text(cases: Sequence[Case]) -> str:
 
 def generate_configs(project_dir: Path, project: Project) -> list[Path]:
     """Write configs/<case>.cfg for every case, plus run_control.txt and cases.json."""
+    lock = active_lock(project_dir)
+    if lock:
+        # The running sweep reads each cfg only when its case starts.
+        raise GenerationError(
+            f"Job {lock['job_id']} is still running for this project; "
+            "wait for it or cancel it before regenerating configs"
+        )
     if not project.cases:
         raise GenerationError("The sweep has no cases; build the cases first")
     duplicates = find_collisions(case.name for case in project.cases)

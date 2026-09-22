@@ -1,5 +1,7 @@
 import json
+import os
 
+import psutil
 import pytest
 
 from aerosuite.engine.cfg import (
@@ -15,6 +17,7 @@ from aerosuite.engine.cfg import (
     settings_parameters,
 )
 from aerosuite.engine.errors import GenerationError, ProjectError, TemplateError
+from aerosuite.engine.jobs.store import write_lock
 from aerosuite.engine.models import Case, Project
 
 TEMPLATE = """\
@@ -171,3 +174,11 @@ def test_generate_configs_os_error_is_a_generation_error(tmp_path):
     (tmp_path / CONFIGS_DIR).write_text("a file where the configs folder should be")
     with pytest.raises(GenerationError, match="Cannot write configs"):
         generate_configs(tmp_path, _project())
+
+
+def test_generate_configs_refuses_while_a_job_runs(tmp_path):
+    (tmp_path / "template.cfg").write_text(TEMPLATE)
+    write_lock(tmp_path, "j1", os.getpid(), psutil.Process().create_time())
+    with pytest.raises(GenerationError, match="Job j1 is still running for this project; wait for it or cancel it"):
+        generate_configs(tmp_path, _project())
+    assert not (tmp_path / CONFIGS_DIR).exists()

@@ -124,9 +124,6 @@ def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
             "SU2 is normally importable only from the system Python "
             "— set run.sweep_python to that interpreter",
         ))
-    lock = active_lock(project_dir)
-    if lock:
-        problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))
     return problems
 
 
@@ -151,6 +148,9 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
         ))
     problems += _marker_problems(project)
     problems += _restart_problems(project)
+    lock = active_lock(project_dir)
+    if lock:
+        problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))
     if action == "run":
         problems += _run_problems(project_dir, project)
     return problems
