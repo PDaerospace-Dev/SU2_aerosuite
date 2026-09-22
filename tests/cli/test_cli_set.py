@@ -73,6 +73,16 @@ def test_set_errors_change_nothing(tmp_path):
     assert (folder / "project.json").read_text() == before
 
 
+def test_set_key_without_a_value_is_refused(tmp_path):
+    folder, _ = _project(tmp_path)
+    runner.invoke(app, ["set", str(folder), "--key", "CFL_NUMBER=5"])
+    before = (folder / "project.json").read_text()
+    result = runner.invoke(app, ["set", str(folder), "--key", "CFL_NUMBER="])
+    assert result.exit_code == 1
+    assert "has no value; use --unset CFL_NUMBER" in result.output
+    assert (folder / "project.json").read_text() == before
+
+
 def test_set_partitions_must_be_positive(tmp_path):
     folder, _ = _project(tmp_path)
     result = runner.invoke(app, ["set", str(folder), "--partitions", "0"])

@@ -48,6 +48,11 @@ def test_parse_key_value():
         parse_key_value("=5")
 
 
+def test_parse_key_value_rejects_an_empty_value():
+    with pytest.raises(ProjectError, match="has no value; use --unset CFL_NUMBER to go back to the template value"):
+        parse_key_value("cfl_number= ")
+
+
 def test_set_parameter_routes_markers_and_overrides():
     settings = Settings()
     set_parameter(settings, "CFL_NUMBER", "5")

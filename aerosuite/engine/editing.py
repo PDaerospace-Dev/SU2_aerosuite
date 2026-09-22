@@ -60,7 +60,10 @@ def parse_key_value(text: str) -> tuple[str, str]:
     key = key.strip().upper()
     if not sep or not key:
         raise ProjectError(f"{text!r} must look like KEY=VALUE")
-    return key, value.strip()
+    value = value.strip()
+    if not value:
+        raise ProjectError(f"{text!r} has no value; use --unset {key} to go back to the template value")
+    return key, value
 
 
 def _check_key(key: str) -> str:
