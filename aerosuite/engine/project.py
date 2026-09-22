@@ -60,18 +60,32 @@ def migrate(data: dict) -> dict:
     return data
 
 
-def open_project(directory: Path) -> Project:
+def read_project_text(directory: Path) -> str:
+    """The raw text of project.json (for editing)."""
     path = Path(directory) / PROJECT_FILE
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        return path.read_text(encoding="utf-8")
     except FileNotFoundError:
         raise ProjectError(f"No project found in {directory}") from None
-    except (OSError, json.JSONDecodeError) as exc:
+    except OSError as exc:
         raise ProjectError(f"Cannot read {path}: {exc}") from exc
+
+
+def parse_project(text: str, source: str = PROJECT_FILE) -> Project:
+    """Validate project.json text (migrating old schemas) into a Project."""
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ProjectError(f"{source} is not valid JSON: {exc}") from exc
     try:
         return Project.model_validate(migrate(data))
     except ValidationError as exc:
-        raise ProjectError(f"{path} is not a valid project:\n{exc}") from exc
+        raise ProjectError(f"{source} is not a valid project:\n{exc}") from exc
+
+
+def open_project(directory: Path) -> Project:
+    path = Path(directory) / PROJECT_FILE
+    return parse_project(read_project_text(directory), str(path))
 
 
 def save_project(directory: Path, project: Project) -> None:

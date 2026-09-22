@@ -17,6 +17,8 @@ MIN_CONVERGENCE_ITERATIONS = 10
 CONVERGENCE_THRESHOLD = 1e-3
 ABSOLUTE_TOLERANCE = 1e-6  # a column this steady is converged whatever its mean
 SUMMARY_KEY_COLUMNS = ["Case", "Mach", "Alpha", "Beta", "Converged"]
+RESULTS_DIR = "results"
+SUMMARY_FILE = "summary.csv"
 
 
 def _fields(line: str) -> list[str]:
@@ -149,3 +151,14 @@ def summarize(
     summary = pd.DataFrame(rows)
     summary = summary.sort_values(["Mach", "Beta", "Alpha"], na_position="last").reset_index(drop=True)
     return summary, warnings
+
+
+def write_summary(project_dir: Path, summary: pd.DataFrame) -> Path:
+    """Save a summary table to results/summary.csv and return its path."""
+    path = Path(project_dir) / RESULTS_DIR / SUMMARY_FILE
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        summary.to_csv(path, index=False)
+    except OSError as exc:
+        raise ProjectError(f"Cannot write {path}: {exc}") from exc
+    return path
