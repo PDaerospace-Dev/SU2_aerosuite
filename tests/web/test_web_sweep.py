@@ -1,7 +1,9 @@
+import asyncio
+
 from nicegui.testing import User
 
 from aerosuite.engine.editing import set_parameter
-from aerosuite.engine.project import open_project, save_project
+from aerosuite.engine.project import PROJECT_FILE, open_project, save_project
 from aerosuite.web.layout import project_url
 
 
@@ -90,7 +92,36 @@ async def test_generate_refuses_a_stale_project(user: User, ready_project):
     user.find(marker="generate").click()
     await user.should_see("generate again")
     assert not (project_dir / "configs").exists()
+    # Generate's own message is the only toast: no plain reload toast, no "enter it again".
+    assert not user.notify.contains("Project changed on disk; reloaded")
+    assert not user.notify.contains("your last change was not saved")
 
     user.find(marker="generate").click()
     await user.should_see("Wrote 3 configs")
     assert "CFL_NUMBER= 9" in (project_dir / "configs" / "M0p8_a4_b0.cfg").read_text()
+
+
+async def test_generate_refuses_while_project_json_is_invalid(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    (project_dir / PROJECT_FILE).write_text('{"name": "half-typed", ')
+    user.find(marker="generate").click()
+    await user.should_see("project.json on disk is invalid")
+    assert not user.notify.contains("generate again")
+    assert not (project_dir / "configs").exists()
+
+
+async def test_a_stale_mach_edit_tells_the_user_to_enter_it_again(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    project = open_project(project_dir)
+    set_parameter(project.settings, "CFL_NUMBER", "9")
+    save_project(project_dir, project)
+
+    user.find(marker="sweep-mach").clear().type("0.6, 0.8").trigger("blur")
+    await asyncio.sleep(0.2)  # the page rebuilds after the reload, dropping the field's error label
+    await user.should_see("your last change was not saved")
+    assert not user.notify.contains("Project changed on disk; reloaded")
+    project = open_project(project_dir)
+    assert project.settings.overrides == {"CFL_NUMBER": "9"}
+    assert project.sweep.mach == [0.8]

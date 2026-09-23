@@ -18,6 +18,8 @@ BADGE_ICONS = {
     "later": ("schedule", "grey-4"),
 }
 PAGE_OF_STEP = {"setup": "setup", "settings": "settings", "sweep": "sweep", "configs": "sweep"}
+RELOADED_MESSAGE = "Project changed on disk; reloaded"
+STALE_MESSAGE = "Project changed on disk and was reloaded — your last change was not saved; enter it again"
 
 
 def project_url(page: str, directory) -> str:
@@ -83,21 +85,25 @@ class ProjectFrame:
                         if key == self.active:
                             link.classes("font-bold")
 
-    def ensure_current(self) -> Optional[str]:
+    def ensure_current(self, notify: bool = True) -> Optional[str]:
         """Reload from disk if the project changed there since it was last read.
 
+        Returns None when the in-memory copy is current, else why the caller must not proceed.
         Callers that write to the project outside of `save` (e.g. Generate, which writes
         configs rather than project.json) must call this first and not proceed on a message:
         the in-memory copy would otherwise be stale, for example after an override was changed
         by the CLI or another tab inside the disk-watch window.
+
+        A reload rebuilds the page on the next tick, which deletes whatever label would show the
+        returned message, so the reload is announced by a toast that carries the instruction.
+        With `notify=False` no toast is shown: the caller reports the returned message itself.
         """
         if not self.session.changed_on_disk():
             # A failed reload left project.json invalid: refuse (the watcher reloads once it is fixed).
             return self.session.refusal()
-        reload_error = self._reload_from_disk()
-        if reload_error is not None:
-            return reload_error
-        return "Project changed on disk and was reloaded; enter your change again"
+        if not self._reload_from_disk(STALE_MESSAGE if notify else None, "warning", notify_failure=notify):
+            return self.session.refusal()
+        return STALE_MESSAGE
 
     def save(self, change: Change, then: Optional[Callable[[], None]] = None) -> Optional[str]:
         """Apply and save a change; on success refresh the sidebar and call `then`.
@@ -118,17 +124,18 @@ class ProjectFrame:
     def _check_disk(self) -> None:
         if not self.session.changed_on_disk():
             return
-        self._reload_from_disk()
+        self._reload_from_disk(RELOADED_MESSAGE, "info")
 
-    def _reload_from_disk(self) -> Optional[str]:
-        """Reload the session from disk and notify; returns None on success, else the error message."""
+    def _reload_from_disk(self, toast: Optional[str], toast_type: str, *, notify_failure: bool = True) -> bool:
+        """Reload the session from disk, notify `toast` (if any) and rebuild; False if the file is invalid."""
         try:
             self.session.reload()
         except AeroSuiteError as exc:
-            message = f"Could not reload the project: {exc}"
-            ui.notify(message, type="negative")
-            return message
-        ui.notify("Project changed on disk; reloaded", type="info")
+            if notify_failure:
+                ui.notify(f"Could not reload the project: {exc}", type="negative")
+            return False
+        if toast is not None:
+            ui.notify(toast, type=toast_type)
         self.refresh()
         self._on_reload()
-        return None
+        return True

@@ -1,6 +1,9 @@
+import asyncio
+
 from nicegui.testing import User
 
-from aerosuite.engine.project import open_project
+from aerosuite.engine.editing import set_parameter
+from aerosuite.engine.project import open_project, save_project
 from aerosuite.web.layout import project_url
 
 
@@ -112,3 +115,19 @@ async def test_preview_follows_the_selected_case(user: User, ready_project):
     with user:
         select.set_value("M0p8_a4_b0")
     assert "AOA= 4" in _preview(user)
+
+
+async def test_a_stale_save_tells_the_user_to_enter_it_again(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    project = open_project(project_dir)  # an outside change, as the CLI or another tab would make
+    set_parameter(project.settings, "CFL_NUMBER", "9")
+    save_project(project_dir, project)
+
+    user.find(marker="freestream-temperature_K").type("250").trigger("blur")
+    await asyncio.sleep(0.2)  # the page rebuilds after the reload, dropping the field's error label
+    await user.should_see("your last change was not saved")
+    assert not user.notify.contains("Project changed on disk; reloaded")  # one toast, not two
+    settings = open_project(project_dir).settings
+    assert settings.overrides == {"CFL_NUMBER": "9"}
+    assert settings.freestream.temperature_K is None

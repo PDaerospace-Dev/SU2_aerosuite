@@ -181,9 +181,12 @@ def _problems(frame: ProjectFrame, refresh: Callable[[], None]) -> None:
         ui.label(f"{prefix}: {problem.message}").classes(style).mark(f"problem-{problem.severity}")
 
     def generate() -> None:
-        stale = frame.ensure_current()
+        stale = frame.ensure_current(notify=False)  # one toast, worded for Generate, not two
         if stale is not None:
-            ui.notify("Project changed on disk and was reloaded; generate again", type="warning")
+            if frame.session.load_error is not None:  # project.json on disk is invalid
+                ui.notify(stale, type="negative")
+            else:
+                ui.notify("Project changed on disk and was reloaded; generate again", type="warning")
             return
         try:
             written = generate_configs(frame.session.directory, frame.session.project)

@@ -77,7 +77,7 @@ async def test_stale_save_is_refused(user: User, ready_project):
     field = user.find(marker="t-partitions")
     field.clear().type("5")
     field.trigger("blur")
-    await user.should_see("enter your change again")
+    await user.should_see("your last change was not saved; enter it again")
     # the outside change (9) survives on disk; the user's own "5" was never written
     assert open_project(project_dir).run.partitions == 9
 
