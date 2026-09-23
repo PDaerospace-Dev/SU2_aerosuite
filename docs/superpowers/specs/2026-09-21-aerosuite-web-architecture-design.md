@@ -191,6 +191,10 @@ Engine functions raise `AeroSuiteError` subclasses (`ProjectError`, `TemplateErr
 
 The server binds to `127.0.0.1:8080` by default. Remote use is via `ssh -L 8080:localhost:8080 <workstation>`. There is no authentication; binding to a non-local address requires adding authentication first, and the server refuses a non-local bind unless `--i-understand-no-auth` is passed.
 
+The server also rejects any request whose `Host` header is not a local name (`localhost`, `127.0.0.1`, `[::1]`, plus the explicit `--host` address; the port is not checked, so a tunnel on any local port works). This defends against DNS rebinding, where a web page in the user's browser re-points its own domain at 127.0.0.1 to drive the UI. A wildcard bind (`0.0.0.0`, `::`) with `--i-understand-no-auth` accepts any `Host`.
+
+On a multi-user workstation, binding to 127.0.0.1 is not a boundary between local users: any account on the machine can connect to the port. A startup token (Jupyter-style: printed in the launch URL and required by the server) must be decided before Phase 3b adds job execution.
+
 ## 7. Web UI
 
 Left sidebar in workflow order with status badges (✓ complete, ● needs attention, ○ not started); header shows the open project and a switcher.
