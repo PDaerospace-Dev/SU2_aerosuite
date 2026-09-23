@@ -1,8 +1,10 @@
+import sys
 from pathlib import Path
 
+import pytest
 from nicegui.testing import User
 
-from aerosuite.engine.project import open_project
+from aerosuite.engine.project import PROJECT_FILE, open_project
 from aerosuite.web.recent import load_recent
 
 
@@ -65,8 +67,31 @@ async def test_new_project_checks_its_inputs(user: User, tmp_path):
     user.find(marker="new-parent").type(str(tmp_path))
     user.find(marker="new-name").type("a/b")
     user.find(marker="new-create").click()
-    await user.should_see("must not contain")
+    await user.should_see("Choose a plain folder name")
     user.find(marker="new-parent").clear().type(str(tmp_path / "missing"))
     user.find(marker="new-name").clear().type("ok")
     user.find(marker="new-create").click()
     await user.should_see("Parent folder not found")
+
+
+NOT_PLAIN_NAMES = [
+    ".",
+    "..",
+    "a/b",
+    "a\\b",
+    pytest.param("C:x", marks=pytest.mark.skipif(sys.platform != "win32", reason="drive-relative names are Windows-only")),
+]
+
+
+@pytest.mark.parametrize("name", NOT_PLAIN_NAMES)
+async def test_new_project_name_must_stay_inside_the_parent(user: User, tmp_path, name):
+    parent = tmp_path / "parent"
+    parent.mkdir()
+    before = sorted(tmp_path.rglob("*"))
+    await user.open("/")
+    user.find(marker="new-parent").type(str(parent))
+    user.find(marker="new-name").type(name)
+    user.find(marker="new-create").click()
+    await user.should_see("Choose a plain folder name (no '.', '..', drive or separators)")
+    assert sorted(tmp_path.rglob("*")) == before
+    assert not (parent / name / PROJECT_FILE).exists()

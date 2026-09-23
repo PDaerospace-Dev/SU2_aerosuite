@@ -65,6 +65,13 @@ def _open_form() -> None:
         _go_to(Path(text))
 
 
+def _is_plain_name(name: str) -> bool:
+    """True when `parent / name` is a folder directly inside `parent` (not ., .., a drive or a path)."""
+    if name in {".", ".."} or any(sep in name for sep in "/\\"):
+        return False
+    return Path(name).name == name and not Path(name).anchor  # anchor catches "C:x" on Windows
+
+
 def _new_form() -> None:
     ui.label("New project").classes("text-lg")
     with ui.row().classes("w-full items-center no-wrap"):
@@ -86,8 +93,8 @@ def _new_form() -> None:
         if not parent_text or not name_text:
             error.text = "Choose a parent folder and a name"
             return
-        if any(sep in name_text for sep in "/\\"):
-            error.text = "The name must not contain / or \\"
+        if not _is_plain_name(name_text):
+            error.text = "Choose a plain folder name (no '.', '..', drive or separators)"
             return
         if not Path(parent_text).is_dir():
             error.text = f"Parent folder not found: {parent_text}"
