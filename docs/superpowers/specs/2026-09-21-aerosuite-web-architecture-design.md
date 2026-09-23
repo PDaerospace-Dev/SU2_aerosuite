@@ -189,7 +189,7 @@ Engine functions raise `AeroSuiteError` subclasses (`ProjectError`, `TemplateErr
 
 ### Access and security
 
-The server binds to `127.0.0.1:8080` by default. Remote use is via `ssh -L 8080:localhost:8080 <workstation>`. There is no authentication; binding to a non-local address requires adding authentication first, and the server refuses a non-local bind unless `--i-understand-no-auth` is passed.
+The server binds to `127.0.0.1:8080` by default. Remote use is via `ssh -L 8080:127.0.0.1:8080 <workstation>`. There is no authentication; binding to a non-local address requires adding authentication first, and the server refuses a non-local bind unless `--i-understand-no-auth` is passed.
 
 The server also rejects any request whose `Host` header is not a local name (`localhost`, `127.0.0.1`, `[::1]`, plus the explicit `--host` address; the port is not checked, so a tunnel on any local port works). This defends against DNS rebinding, where a web page in the user's browser re-points its own domain at 127.0.0.1 to drive the UI. A wildcard bind (`0.0.0.0`, `::`) with `--i-understand-no-auth` accepts any `Host`.
 
@@ -250,7 +250,7 @@ Typer app installed as the `aerosuite` command (also runnable as `python -m aero
 - `aerosuite status <dir> [--watch]` — refresh and print the latest job and its case states (with failure tails); `--watch` re-prints on change every 2 s until the job ends; Ctrl-C stops watching, not the job
 - `aerosuite cancel <dir> [job_id]` — cancel the given job, or the running one
 - `aerosuite summarize <dir> [--last N] [--columns CL,CD,CMy]` — write results/summary.csv and print it
-- `aerosuite serve [--port]` — Phase 3
+- `aerosuite serve [--root DIR] [--host 127.0.0.1] [--port 8080] [--i-understand-no-auth]` — start the web UI; `--root` is where the file picker starts (default: home); a `--host` other than `127.0.0.1`, `localhost` or `::1` is refused unless `--i-understand-no-auth` is passed
 
 Value parsing, parameter editing, project-text validation and summary writing live in the engine (`engine/editing.py`, `engine/project.py`, `engine/results.py`) so the web UI reuses them.
 

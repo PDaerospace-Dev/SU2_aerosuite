@@ -188,6 +188,13 @@ def _problems(frame: ProjectFrame, refresh: Callable[[], None]) -> None:
             else:
                 ui.notify("Project changed on disk and was reloaded; generate again", type="warning")
             return
+        # Check again: files may have gone (e.g. the mesh deleted) since these checks were drawn.
+        errors = [p for p in preflight(frame.session.directory, frame.session.project, "generate")
+                  if p.severity == "error"]
+        if errors:
+            ui.notify(errors[0].message, type="negative")
+            refresh()
+            return
         try:
             written = generate_configs(frame.session.directory, frame.session.project)
         except AeroSuiteError as exc:

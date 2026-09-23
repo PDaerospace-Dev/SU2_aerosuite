@@ -40,3 +40,11 @@ def test_serve_needs_an_existing_root(tmp_path, monkeypatch):
     assert result.exit_code == 1
     assert "is not a folder" in result.output
     assert calls == []
+
+
+def test_serve_prints_an_ipv6_address_in_brackets(tmp_path, monkeypatch):
+    calls = _capture(monkeypatch)
+    result = runner.invoke(app, ["serve", "--host", "::1", "--root", str(tmp_path), "--port", "9000"])
+    assert result.exit_code == 0, result.output
+    assert calls == [(tmp_path, "::1", 9000)]
+    assert "http://[::1]:9000" in result.output

@@ -18,7 +18,7 @@ def serve(
     i_understand_no_auth: Annotated[bool, typer.Option(
         "--i-understand-no-auth", help="Allow a non-local --host (the web UI has no login)")] = False,
 ) -> None:
-    """Start the web UI. Over SSH, tunnel it: ssh -L 8080:localhost:8080 you@workstation."""
+    """Start the web UI. Over SSH, tunnel it: ssh -L 8080:127.0.0.1:8080 you@workstation."""
     if host not in LOCAL_HOSTS and not i_understand_no_auth:
         typer.echo(
             f"Error: refusing to listen on {host}: the web UI has no login. "
@@ -32,5 +32,6 @@ def serve(
         raise typer.Exit(1)
     from ..web import server  # imported here so the other commands start without loading NiceGUI
 
-    typer.echo(f"AeroSuite web UI on http://{host}:{port}  (Ctrl-C to stop)")
+    shown = f"[{host}]" if ":" in host else host  # an IPv6 address goes in brackets in a URL
+    typer.echo(f"AeroSuite web UI on http://{shown}:{port}  (Ctrl-C to stop)")
     server.run_server(root_dir, host, port)

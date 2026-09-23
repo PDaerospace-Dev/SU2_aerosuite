@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 from nicegui.testing import User
 
@@ -125,3 +126,15 @@ async def test_a_stale_mach_edit_tells_the_user_to_enter_it_again(user: User, re
     project = open_project(project_dir)
     assert project.settings.overrides == {"CFL_NUMBER": "9"}
     assert project.sweep.mach == [0.8]
+
+
+async def test_generate_rechecks_files_deleted_while_the_page_was_open(user: User, ready_project):
+    project_dir, project = ready_project
+    await _open(user, project_dir)
+    await user.should_see(marker="problems-none")
+    Path(project.mesh.path).unlink()  # deleted on disk after the page drew its checks
+    user.find(marker="generate").click()
+    await user.should_see(f"Mesh not found: {project.mesh.path}")
+    assert not (project_dir / "configs").exists()
+    await user.should_see(marker="problem-error")  # the checks were redrawn
+    assert not _element(user, "generate").enabled

@@ -124,10 +124,11 @@ Start it on the workstation (inside the uv environment):
 
 ```bash
 aerosuite serve --root ~/cfd        # file picker starts in ~/cfd; listens on 127.0.0.1:8080
+aerosuite serve --port 8765         # another port, e.g. when 8080 is taken
 ```
 
 - At the workstation: open http://localhost:8080
-- From your own PC: `ssh -L 8080:localhost:8080 you@workstation`, then open http://localhost:8080
+- From your own PC: `ssh -L 8080:127.0.0.1:8080 you@workstation`, then open http://localhost:8080 (with `--port`, use that port on the workstation side of `-L`)
 
 Pages so far: **Projects** (recent / open / new), **Setup** (mesh, template, run settings), **Settings** (freestream, reference, numerics, markers, overrides, with a live `.cfg` preview) and **Sweep** (Mach/α/β ranges, naming, restarts, checks, Generate). Every field saves as soon as you leave it; invalid values are shown in red and not saved. Run, Monitor and Results arrive in phase 3b — meanwhile use `aerosuite run / status / summarize`.
 
