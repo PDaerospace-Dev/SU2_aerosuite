@@ -6,7 +6,8 @@ from . import config
 
 def register_pages(root: Path) -> None:
     config.set_root(root)
-    from .pages import projects, setup
+    from .pages import projects, settings, setup
 
     projects.register()
     setup.register()
+    settings.register()
