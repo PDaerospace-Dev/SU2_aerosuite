@@ -92,8 +92,8 @@ Project
 
 **Config** (every project):
 - Left: the template as editable monospace text. Saves on blur through `set_template_text`; warnings listed under the editor. A **Preview** toggle shows the rendered config of a selected case. When the sweep is off: the checks panel and **Generate config** live here.
-- Right: the **reference panel** — search box; results list (default line, description, section) with **Insert**, or an "In config" badge; **Show full file** (read-only view with Find next and highlight, as in the app); **Load another reference…** (picker, `.cfg`).
-- Insert on Config: when the key is already in the text, the editor scrolls to and highlights that line instead of adding a duplicate; otherwise the option's default line is appended at the end under `% --- added from reference ---` (the heading is added once).
+- Right: the **reference panel** — search box; results list (default line, description, section) with **Insert**, or an "In config" badge; **Show full file** with **Find** / **Find next**: shows "Match 2 of 5 — line 1083" and a window of the file around the match with the matching line highlighted (the whole file is not rendered as one element); **Load another reference…** (picker, `.cfg`).
+- Insert on Config: when the key is already in the text, a note says which line sets it ("MARKER_EULER is already set on line 42") instead of adding a duplicate; otherwise the option's default line is appended at the end under `% --- added from reference ---` (the heading is added once).
 
 **Aircraft** (only with a profile) — replaces 3a's Settings page:
 - Left, laid out like the app's Aircraft Aero form: Freestream (temperature, Reynolds number, Reynolds length); Physical & reference (reference length, area, moment origin x/y/z); Numerics (Convective: ROE/JST/AUSM; MUSCL: YES/NO; Turbulence: SST/SA; CFL; iterations); Markers (HEATFLUX, FAR, PLOTTING, MONITORING — each with an include tick and a value; unticked = line removed, as in the app); Placeholders (key/value rows = `settings.overrides`, add/delete). Empty fields show the profile's value or hint as grey text.
