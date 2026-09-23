@@ -49,7 +49,10 @@ def test_parse_key_value():
 
 
 def test_parse_key_value_rejects_an_empty_value():
-    with pytest.raises(ProjectError, match="has no value; use --unset CFL_NUMBER to go back to the template value"):
+    with pytest.raises(
+        ProjectError,
+        match=r"has no value; remove the setting to go back to the template value \(CLI: --unset CFL_NUMBER\)$",
+    ):
         parse_key_value("cfl_number= ")
 
 
@@ -68,7 +71,11 @@ def test_set_parameter_refuses_case_keys_invalid_names_and_removing_non_markers(
         set_parameter(settings, "AOA", "3")
     with pytest.raises(ProjectError, match="not a valid SU2 option"):
         set_parameter(settings, "1BAD KEY", "3")
-    with pytest.raises(ProjectError, match="--unset"):
+    with pytest.raises(
+        ProjectError,
+        match=r"^Only MARKER_ lines can be removed; remove the setting to go back to the template value "
+        r"\(CLI: --unset CFL_NUMBER\)$",
+    ):
         set_parameter(settings, "CFL_NUMBER", "none")
 
 

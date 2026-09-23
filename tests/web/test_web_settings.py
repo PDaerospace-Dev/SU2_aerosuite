@@ -131,3 +131,14 @@ async def test_a_stale_save_tells_the_user_to_enter_it_again(user: User, ready_p
     settings = open_project(project_dir).settings
     assert settings.overrides == {"CFL_NUMBER": "9"}
     assert settings.freestream.temperature_K is None
+
+
+async def test_clearing_an_override_explains_how_to_go_back_to_the_template(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="override-new-key").type("CFL_NUMBER")
+    user.find(marker="override-new-value").type("5")
+    user.find(marker="override-add").click()
+    user.find(marker="override-CFL_NUMBER-value").clear().trigger("blur")
+    await user.should_see("CFL_NUMBER needs a value; remove the setting to go back to the template value")
+    assert open_project(project_dir).settings.overrides == {"CFL_NUMBER": "5"}

@@ -54,6 +54,11 @@ def parse_value_list(text: str) -> list[float]:
     return values
 
 
+def _back_to_template(key: str) -> str:
+    """How to return to the template's value; worded for the web UI and the CLI alike."""
+    return f"remove the setting to go back to the template value (CLI: --unset {key})"
+
+
 def parse_key_value(text: str) -> tuple[str, str]:
     """'cfl_number=5' -> ('CFL_NUMBER', '5')."""
     key, sep, value = text.partition("=")
@@ -62,7 +67,7 @@ def parse_key_value(text: str) -> tuple[str, str]:
         raise ProjectError(f"{text!r} must look like KEY=VALUE")
     value = value.strip()
     if not value:
-        raise ProjectError(f"{text!r} has no value; use --unset {key} to go back to the template value")
+        raise ProjectError(f"{text!r} has no value; {_back_to_template(key)}")
     return key, value
 
 
@@ -80,13 +85,11 @@ def set_parameter(settings: Settings, key: str, value: str) -> None:
     key = _check_key(key)
     value = value.strip()
     if not value:
-        raise ProjectError(f"{key} needs a value; use --unset {key} to go back to the template value")
+        raise ProjectError(f"{key} needs a value; {_back_to_template(key)}")
     if key.startswith(MARKER_PREFIX):
         settings.markers[key] = None if value.lower() == REMOVE_WORD else value
     elif value.lower() == REMOVE_WORD:
-        raise ProjectError(
-            f"Only MARKER_ lines can be removed; use --unset {key} to go back to the template value"
-        )
+        raise ProjectError(f"Only MARKER_ lines can be removed; {_back_to_template(key)}")
     else:
         settings.overrides[key] = value
 

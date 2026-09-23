@@ -79,7 +79,7 @@ def test_set_key_without_a_value_is_refused(tmp_path):
     before = (folder / "project.json").read_text()
     result = runner.invoke(app, ["set", str(folder), "--key", "CFL_NUMBER="])
     assert result.exit_code == 1
-    assert "has no value; use --unset CFL_NUMBER" in result.output
+    assert "has no value; remove the setting to go back to the template value (CLI: --unset CFL_NUMBER)" in result.output
     assert (folder / "project.json").read_text() == before
 
 
