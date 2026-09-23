@@ -137,9 +137,13 @@ def _markers_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
                 with ui.row().classes("w-full items-center no-wrap"):
                     ui.label(key).classes("w-48")
                     if value is not None:
+                        # `then=both`, not `after`: typing "none" here removes the MARKER_ line
+                        # (set_parameter stores None), which changes whether this row shows a
+                        # value field or a "Remove line" switch on — the table must rebuild too,
+                        # not just the preview.
                         text_field("Value", value,
                                    lambda text, k=key: frame.save(
-                                       lambda p: set_parameter(p.settings, k, text), then=after),
+                                       lambda p: set_parameter(p.settings, k, text), then=both),
                                    mark=f"marker-{key}-value")
                     ui.switch("Remove line", value=value is None,
                               on_change=lambda e, k=key: toggle(k, e.value)).mark(f"marker-{key}-remove")

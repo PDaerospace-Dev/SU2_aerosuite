@@ -57,6 +57,22 @@ async def test_markers_add_remove_and_delete(user: User, ready_project):
     assert "MARKER_FAR= ( farfield )" in _preview(user)
 
 
+async def test_editing_a_marker_value_to_none_rebuilds_the_row(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="marker-new-key").type("MARKER_FAR")
+    user.find(marker="marker-new-value").type("( farfield )")
+    user.find(marker="marker-add").click()
+    assert open_project(project_dir).settings.markers == {"MARKER_FAR": "( farfield )"}
+
+    user.find(marker="marker-MARKER_FAR-value").clear().type("none").trigger("blur")
+    assert open_project(project_dir).settings.markers == {"MARKER_FAR": None}
+    switch = _element(user, "marker-MARKER_FAR-remove")
+    assert switch.value is True
+    await user.should_not_see(marker="marker-MARKER_FAR-value")
+    assert "MARKER_FAR=" not in _preview(user)
+
+
 async def test_marker_keys_must_start_with_marker(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
