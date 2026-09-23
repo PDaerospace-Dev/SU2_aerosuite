@@ -119,6 +119,20 @@ alias su2aero2='uv run --project /path/to/SU2_aerosuite python /path/to/SU2_aero
 uv run pytest
 ```
 
+## Web UI
+Start it on the workstation (inside the uv environment):
+
+```bash
+aerosuite serve --root ~/cfd        # file picker starts in ~/cfd; listens on 127.0.0.1:8080
+```
+
+- At the workstation: open http://localhost:8080
+- From your own PC: `ssh -L 8080:localhost:8080 you@workstation`, then open http://localhost:8080
+
+Pages so far: **Projects** (recent / open / new), **Setup** (mesh, template, run settings), **Settings** (freestream, reference, numerics, markers, overrides, with a live `.cfg` preview) and **Sweep** (Mach/α/β ranges, naming, restarts, checks, Generate). Every field saves as soon as you leave it; invalid values are shown in red and not saved. Run, Monitor and Results arrive in phase 3b — meanwhile use `aerosuite run / status / summarize`.
+
+The web UI has no login, so it only listens on the workstation itself unless you pass `--host` together with `--i-understand-no-auth`.
+
 ## Command line
 The same workflow without the GUI — handy over SSH and for scripting (run inside the uv environment, or `uv run aerosuite ...`):
 
