@@ -92,7 +92,8 @@ class ProjectFrame:
         by the CLI or another tab inside the disk-watch window.
         """
         if not self.session.changed_on_disk():
-            return None
+            # A failed reload left project.json invalid: refuse (the watcher reloads once it is fixed).
+            return self.session.refusal()
         reload_error = self._reload_from_disk()
         if reload_error is not None:
             return reload_error

@@ -34,9 +34,24 @@ class ProjectSession:
         self.directory = Path(directory).resolve()
         self.project: Project = engine_project.open_project(self.directory)
         self._seen = _stamp(self.directory)
+        # Why the last reload failed, while project.json on disk stays invalid. Saving is refused
+        # meanwhile: the in-memory copy is older than the hand edit and would overwrite it.
+        self.load_error: Optional[str] = None
+
+    def refusal(self) -> Optional[str]:
+        """The reason saving is refused (project.json on disk is invalid), or None."""
+        if self.load_error is None:
+            return None
+        return (
+            f"project.json on disk is invalid ({self.load_error}); "
+            "fix the file — the page reloads automatically once it is valid"
+        )
 
     def apply(self, change: Change) -> Optional[str]:
         """Run `change` on a copy of the project; save it if valid. Returns None, or the error message."""
+        refused = self.refusal()
+        if refused is not None:
+            return refused
         candidate = self.project.model_copy(deep=True)
         try:
             change(candidate)
@@ -54,9 +69,17 @@ class ProjectSession:
         return _stamp(self.directory) != self._seen
 
     def reload(self) -> None:
-        """Re-read project.json. The change is acknowledged first, so a broken file is reported only once."""
+        """Re-read project.json. The change is acknowledged first, so a broken file is reported only once.
+
+        A broken file sets `load_error` (and saving is refused) until a later reload succeeds.
+        """
         self._seen = _stamp(self.directory)
-        self.project = engine_project.open_project(self.directory)
+        try:
+            self.project = engine_project.open_project(self.directory)
+        except AeroSuiteError as exc:
+            self.load_error = str(exc)
+            raise
+        self.load_error = None
 
 
 def parse_optional_number(text: Optional[str], what: str) -> Optional[float]:

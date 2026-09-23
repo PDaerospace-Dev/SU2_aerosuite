@@ -59,6 +59,29 @@ def test_failed_reload_is_acknowledged(ready_project):
     assert not session.changed_on_disk()
 
 
+def test_failed_reload_blocks_saving_until_the_file_is_valid(ready_project):
+    project_dir, project = ready_project
+    session = ProjectSession(project_dir)
+    hand_edit = '{"name": "half-typed", '
+    (project_dir / PROJECT_FILE).write_text(hand_edit)
+    with pytest.raises(ProjectError):
+        session.reload()
+    assert session.load_error is not None
+
+    message = session.apply(lambda p: setattr(p.run, "partitions", 64))
+    assert message is not None and "invalid" in message
+    assert "fix the file" in message
+    assert (project_dir / PROJECT_FILE).read_text() == hand_edit
+
+    project.name = "fixed-by-hand"
+    save_project(project_dir, project)
+    session.reload()
+    assert session.load_error is None
+    assert session.project.name == "fixed-by-hand"
+    assert session.apply(lambda p: setattr(p.run, "partitions", 64)) is None
+    assert open_project(project_dir).run.partitions == 64
+
+
 def test_parsers():
     assert parse_optional_number(" 2.5 ", "CFL") == 2.5
     assert parse_optional_number("", "CFL") is None
