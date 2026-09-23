@@ -83,17 +83,30 @@ class ProjectFrame:
                         if key == self.active:
                             link.classes("font-bold")
 
+    def ensure_current(self) -> Optional[str]:
+        """Reload from disk if the project changed there since it was last read.
+
+        Callers that write to the project outside of `save` (e.g. Generate, which writes
+        configs rather than project.json) must call this first and not proceed on a message:
+        the in-memory copy would otherwise be stale, for example after an override was changed
+        by the CLI or another tab inside the disk-watch window.
+        """
+        if not self.session.changed_on_disk():
+            return None
+        reload_error = self._reload_from_disk()
+        if reload_error is not None:
+            return reload_error
+        return "Project changed on disk and was reloaded; enter your change again"
+
     def save(self, change: Change, then: Optional[Callable[[], None]] = None) -> Optional[str]:
         """Apply and save a change; on success refresh the sidebar and call `then`.
 
         If the project changed on disk since it was last read, the in-memory copy is stale:
         reload instead of saving over the outside change, and ask the user to redo their edit.
         """
-        if self.session.changed_on_disk():
-            reload_error = self._reload_from_disk()
-            if reload_error is not None:
-                return reload_error
-            return "Project changed on disk and was reloaded; enter your change again"
+        stale = self.ensure_current()
+        if stale is not None:
+            return stale
         message = self.session.apply(change)
         if message is None:
             self.refresh()

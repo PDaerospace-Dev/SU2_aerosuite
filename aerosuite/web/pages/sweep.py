@@ -181,6 +181,10 @@ def _problems(frame: ProjectFrame, refresh: Callable[[], None]) -> None:
         ui.label(f"{prefix}: {problem.message}").classes(style).mark(f"problem-{problem.severity}")
 
     def generate() -> None:
+        stale = frame.ensure_current()
+        if stale is not None:
+            ui.notify("Project changed on disk and was reloaded; generate again", type="warning")
+            return
         try:
             written = generate_configs(frame.session.directory, frame.session.project)
         except AeroSuiteError as exc:

@@ -1,6 +1,7 @@
 from nicegui.testing import User
 
-from aerosuite.engine.project import open_project
+from aerosuite.engine.editing import set_parameter
+from aerosuite.engine.project import open_project, save_project
 from aerosuite.web.layout import project_url
 
 
@@ -75,3 +76,21 @@ async def test_generate_writes_configs_and_updates_the_badge(user: User, ready_p
     await user.should_see("Wrote 3 configs")
     assert (project_dir / "configs" / "M0p8_a4_b0.cfg").is_file()
     await user.should_see(marker="badge-configs-done")
+
+
+async def test_generate_refuses_a_stale_project(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+
+    # Change project.json through the engine, as the CLI or another tab would.
+    project = open_project(project_dir)
+    set_parameter(project.settings, "CFL_NUMBER", "9")
+    save_project(project_dir, project)
+
+    user.find(marker="generate").click()
+    await user.should_see("generate again")
+    assert not (project_dir / "configs").exists()
+
+    user.find(marker="generate").click()
+    await user.should_see("Wrote 3 configs")
+    assert "CFL_NUMBER= 9" in (project_dir / "configs" / "M0p8_a4_b0.cfg").read_text()
