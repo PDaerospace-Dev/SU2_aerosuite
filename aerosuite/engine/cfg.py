@@ -53,6 +53,24 @@ def _number(value) -> Optional[str]:
     return None if value is None else format_value(value)
 
 
+def single_case_name(project: Project) -> str:
+    """The one case of a sweep-off project: the project name as a safe file stem."""
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", project.name).strip("._")
+    return stem or "case"
+
+
+def template_case_values(template: str) -> tuple[float, float, float]:
+    """MACH_NUMBER, AOA and SIDESLIP_ANGLE as written in a template (0.0 if missing or not a number)."""
+    values = []
+    for key in ("MACH_NUMBER", "AOA", "SIDESLIP_ANGLE"):
+        match = re.search(rf"^{key}\s*=\s*([^\s%]+)", template, re.MULTILINE)
+        try:
+            values.append(float(match.group(1)) if match else 0.0)
+        except ValueError:
+            values.append(0.0)
+    return values[0], values[1], values[2]
+
+
 def settings_parameters(settings: Settings) -> dict[str, Optional[str]]:
     """Project-wide parameters; unset fields are omitted so the template value stands."""
     fs, ref, num = settings.freestream, settings.reference, settings.numerics
@@ -78,12 +96,14 @@ def settings_parameters(settings: Settings) -> dict[str, Optional[str]]:
 
 
 def case_parameters(project: Project, case: Case) -> dict[str, str]:
-    params = {
-        "MACH_NUMBER": format_value(case.mach),
-        "AOA": format_value(case.alpha),
-        "SIDESLIP_ANGLE": format_value(case.beta),
-        "BREAKDOWN_FILENAME": f"{case.name}_FB.dat",
-    }
+    params: dict[str, str] = {}
+    if project.sweep.enabled:
+        params.update({
+            "MACH_NUMBER": format_value(case.mach),
+            "AOA": format_value(case.alpha),
+            "SIDESLIP_ANGLE": format_value(case.beta),
+            "BREAKDOWN_FILENAME": f"{case.name}_FB.dat",
+        })
     if project.mesh.path:
         # Absolute, because the sweep runs from runs/ rather than from the cfg folder.
         params["MESH_FILENAME"] = str(Path(project.mesh.path).resolve())
@@ -109,6 +129,14 @@ def build_cases(project: Project) -> list[Case]:
     """Expand the sweep into cases, keeping restart choices of cases that still exist."""
     sweep, naming = project.sweep, project.sweep.naming
     previous = {case.name: case for case in project.cases}
+    if not sweep.enabled:
+        name = single_case_name(project)
+        old = previous.get(name)
+        return [Case(
+            name=name, mach=0.0, alpha=0.0, beta=0.0,
+            restart=old.restart if old else "none",
+            restart_ref=old.restart_ref if old else None,
+        )]
     cases = []
     for mach in sweep.mach or [0.0]:
         for alpha in sweep.alpha or [0.0]:
@@ -170,7 +198,11 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
         )
     template = read_template(project_dir, project)
     out_dir = Path(project_dir) / CONFIGS_DIR
-    index = {c.name: {"mach": c.mach, "alpha": c.alpha, "beta": c.beta} for c in project.cases}
+    if project.sweep.enabled:
+        index = {c.name: {"mach": c.mach, "alpha": c.alpha, "beta": c.beta} for c in project.cases}
+    else:
+        mach, alpha, beta = template_case_values(template)
+        index = {c.name: {"mach": mach, "alpha": alpha, "beta": beta} for c in project.cases}
     written = []
     try:
         out_dir.mkdir(parents=True, exist_ok=True)

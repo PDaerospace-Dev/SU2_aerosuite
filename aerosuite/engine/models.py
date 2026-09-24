@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Mesh(BaseModel):
@@ -57,6 +57,7 @@ class Naming(BaseModel):
 
 
 class SweepSpec(BaseModel):
+    enabled: bool = True  # False: the project is a single case
     mach: list[float] = Field(default_factory=list)
     alpha: list[float] = Field(default_factory=list)
     beta: list[float] = Field(default_factory=list)
@@ -92,6 +93,7 @@ class Project(BaseModel):
     mesh: Mesh = Field(default_factory=Mesh)
     template: str = "template.cfg"
     preset: Optional[str] = None
+    profile: Optional[str] = None  # aircraft profile id; None = general project
     settings: Settings = Field(default_factory=Settings)
     sweep: SweepSpec = Field(default_factory=SweepSpec)
     cases: list[Case] = Field(default_factory=list)

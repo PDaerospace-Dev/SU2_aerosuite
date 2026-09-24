@@ -59,16 +59,16 @@ def test_newer_schema_is_refused(tmp_path):
 
 def test_migrations_run_in_order(tmp_path, monkeypatch):
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(models, "SCHEMA_VERSION", 3)
 
     def v1_to_v2(data):
         data["name"] = data["name"] + "-migrated"
         return data
 
-    monkeypatch.setattr(project_mod, "MIGRATIONS", {1: v1_to_v2})
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {2: v1_to_v2})
     opened = open_project(tmp_path)
     assert opened.name.endswith("-migrated")
-    assert opened.schema_version == 2
+    assert opened.schema_version == 3
 
 
 def test_set_template_copies_into_project(tmp_path):
@@ -104,7 +104,7 @@ def test_migrate_rejects_invalid_schema_version(tmp_path):
 
 def test_migrate_rejects_missing_migration(tmp_path, monkeypatch):
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(models, "SCHEMA_VERSION", 3)
     monkeypatch.setattr(project_mod, "MIGRATIONS", {})
     with pytest.raises(ProjectError, match="No migration"):
         open_project(tmp_path)
@@ -123,12 +123,12 @@ def test_migration_error_propagates(tmp_path, monkeypatch):
     from aerosuite.engine.project import migrate
 
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(models, "SCHEMA_VERSION", 3)
 
     def broken_migration(data):
         raise KeyError("boom")
 
-    monkeypatch.setattr(project_mod, "MIGRATIONS", {1: broken_migration})
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {2: broken_migration})
     data = json.loads((tmp_path / PROJECT_FILE).read_text())
     with pytest.raises(KeyError, match="boom"):
         migrate(data)

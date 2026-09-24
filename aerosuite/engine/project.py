@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -11,15 +12,25 @@ from typing import Callable, Optional
 from pydantic import ValidationError
 
 from . import models
-from .cfg import extract_markers
+from .cfg import extract_markers, read_template
 from .errors import ProjectError, TemplateError
 from .models import Mesh, Project
 
 PROJECT_FILE = "project.json"
 TEMPLATE_FILE = "template.cfg"
 
+
+def _v1_to_v2(data: dict) -> dict:
+    """Schema 2 adds aircraft profiles and a sweep on/off switch; old projects keep their sweep."""
+    data.setdefault("profile", None)
+    sweep = data.setdefault("sweep", {})
+    if isinstance(sweep, dict):
+        sweep.setdefault("enabled", True)
+    return data
+
+
 # {from_version: function(data) -> data at from_version + 1}
-MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
+MIGRATIONS: dict[int, Callable[[dict], dict]] = {1: _v1_to_v2}
 
 
 def create_project(directory: Path, name: Optional[str] = None) -> Project:
@@ -121,3 +132,45 @@ def set_mesh(project: Project, mesh_path: Path) -> None:
         raise ProjectError(f"Mesh not found: {mesh_path}")
     markers = extract_markers(mesh_path) if mesh_path.suffix.lower() == ".su2" else []
     project.mesh = Mesh(path=str(mesh_path), markers=markers)
+
+
+_OPTION_LINE_RE = re.compile(r"^([A-Z][A-Z0-9_]*)\s*=")
+
+
+def template_warnings(text: str) -> list[str]:
+    """Lines that are not options or comments, and options set more than once."""
+    warnings: list[str] = []
+    seen: dict[str, list[int]] = {}
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("%"):
+            continue
+        match = _OPTION_LINE_RE.match(line)
+        if match is None:
+            shown = line if len(line) <= 60 else line[:57] + "..."
+            warnings.append(f'Line {number} is not an option or a comment: "{shown}"')
+            continue
+        seen.setdefault(match.group(1), []).append(number)
+    for key, lines in seen.items():
+        if len(lines) > 1:
+            where = ", ".join(str(n) for n in lines[:-1]) + f" and {lines[-1]}"
+            together = "both" if len(lines) == 2 else "all"
+            warnings.append(f"{key} is set on lines {where}; {together} will be changed together")
+    return warnings
+
+
+def read_template_text(project_dir: Path, project: Project) -> str:
+    return read_template(project_dir, project)
+
+
+def set_template_text(project_dir: Path, project: Project, text: str) -> list[str]:
+    """Save edited template text as the project's template.cfg; returns warnings (never blocks)."""
+    path = Path(project_dir) / TEMPLATE_FILE
+    tmp = path.with_name(TEMPLATE_FILE + ".tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8", newline="\n")
+        os.replace(tmp, path)
+    except OSError as exc:
+        raise TemplateError(f"Cannot write {path}: {exc}") from exc
+    project.template = TEMPLATE_FILE
+    return template_warnings(text)

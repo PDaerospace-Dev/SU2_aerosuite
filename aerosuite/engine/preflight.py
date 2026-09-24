@@ -18,6 +18,7 @@ from .jobs.runner import (
 from .jobs.store import active_lock
 from .models import Project
 from .naming import find_collisions
+from .project import template_warnings
 
 
 @dataclass(frozen=True)
@@ -96,7 +97,7 @@ def _restart_problems(project: Project) -> list[Problem]:
 def sweep_problems(project: Project) -> list[Problem]:
     """Problems with the sweep and its cases (the Sweep page shows these beside the case table)."""
     problems: list[Problem] = []
-    if not project.sweep.mach:  # build_cases would silently fall back to Mach 0
+    if project.sweep.enabled and not project.sweep.mach:  # build_cases would silently fall back to Mach 0
         problems.append(Problem("error", "No Mach numbers in the sweep"))
     if not project.cases:
         problems.append(Problem("error", "The sweep has no cases"))
@@ -149,6 +150,13 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
     template = project_dir / project.template
     if not template.is_file():
         problems.append(Problem("error", f"Template not found: {template}"))
+    else:
+        try:
+            text = template.read_text(encoding="utf-8")
+        except OSError as exc:
+            problems.append(Problem("error", f"Cannot read template {template}: {exc}"))
+        else:
+            problems += [Problem("warning", warning) for warning in template_warnings(text)]
     if not project.mesh.path:
         problems.append(Problem("error", "No mesh selected"))
     elif not Path(project.mesh.path).is_absolute():
