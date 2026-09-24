@@ -1,7 +1,9 @@
 from nicegui.testing import User
 
-from aerosuite.engine.profiles import PROFILE_FILE, user_profiles_dir
-from aerosuite.engine.project import open_project
+from aerosuite.engine.errors import ProjectError
+from aerosuite.engine.profiles import PROFILE_FILE, save_profile, user_profiles_dir
+from aerosuite.engine.project import TEMPLATE_FILE, open_project
+from aerosuite.web import session as web_session
 from aerosuite.web.layout import project_url
 
 
@@ -40,6 +42,49 @@ async def test_apply_profile_defaults_asks_first(user: User, ready_project):
     user.find(marker="confirm-apply").click()
     await user.should_see("Applied X07 defaults")
     assert open_project(project_dir).settings.reference.ref_area == 16.213
+
+
+async def test_apply_profile_defaults_dialog_warns_about_the_template_when_the_profile_has_one(
+        user: User, ready_project):
+    project_dir, project = ready_project
+    save_profile(project_dir, project, "acft", "Acft")  # ready_project's template.cfg -> the profile's template
+    await _open(user, project_dir)
+    with user:
+        _element(user, "setup-profile").set_value("acft")
+    user.find(marker="setup-apply-profile").click()
+    await user.should_see("template.cfg will be replaced by the profile's template")
+    user.find(marker="confirm-cancel").click()
+
+    # x07 has no template: the warning is not shown for it.
+    with user:
+        _element(user, "setup-profile").set_value("x07")
+    user.find(marker="setup-apply-profile").click()
+    await user.should_see(marker="confirm-apply")
+    await user.should_not_see("template.cfg will be replaced")
+    user.find(marker="confirm-cancel").click()
+
+
+async def test_apply_profile_template_is_copied_only_after_the_project_save_succeeds(
+        user: User, ready_project, monkeypatch):
+    project_dir, project = ready_project
+    saved = save_profile(project_dir, project, "acft", "Acft")
+    (user_profiles_dir() / "acft" / TEMPLATE_FILE).write_text("ACFT_TEMPLATE= true\n")
+    assert saved.template is not None
+    original = (project_dir / TEMPLATE_FILE).read_text()
+
+    await _open(user, project_dir)
+    with user:
+        _element(user, "setup-profile").set_value("acft")
+    user.find(marker="setup-apply-profile").click()
+    await user.should_see(marker="confirm-apply")
+
+    def boom(directory, proj):
+        raise ProjectError("boom: cannot save project.json")
+
+    monkeypatch.setattr(web_session.engine_project, "save_project", boom)
+    user.find(marker="confirm-apply").click()
+    await user.should_see("boom: cannot save project.json")
+    assert (project_dir / TEMPLATE_FILE).read_text() == original  # not overwritten by the failed apply
 
 
 async def test_save_as_profile(user: User, ready_project):

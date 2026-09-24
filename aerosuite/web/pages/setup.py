@@ -83,8 +83,11 @@ def _study_section(frame: ProjectFrame) -> None:
         except ProjectError as exc:
             ui.notify(str(exc), type="negative")
             return
+        text = f"Overwrite the settings {profile.name} defines with its defaults?"
+        if profile.template is not None:
+            text += " template.cfg will be replaced by the profile's template."
         with ui.dialog() as dialog, ui.card():
-            ui.label(f"Overwrite the settings {profile.name} defines with its defaults?")
+            ui.label(text)
             with ui.row():
                 ui.button("Apply", on_click=lambda: dialog.submit(True)).mark("confirm-apply")
                 ui.button("Cancel", on_click=lambda: dialog.submit(False)).props("flat").mark("confirm-cancel")
@@ -92,7 +95,12 @@ def _study_section(frame: ProjectFrame) -> None:
         dialog.delete()
         if not confirmed:
             return
-        message = frame.save(lambda p: apply_profile(frame.session.directory, p, profile))
+        # Copy the profile's template only once the settings/naming change has actually been
+        # saved: apply_profile's file copy must not be a side effect of a change that might yet
+        # be refused (a stale project.json) or fail validation.
+        message = frame.save(lambda p: apply_profile(frame.session.directory, p, profile, copy_template=False))
+        if message is None and profile.template is not None:
+            engine_project.set_template(frame.session.directory, frame.session.project, profile.template)
         ui.notify(message or f"Applied {profile.name} defaults", type="negative" if message else "positive")
 
     async def save_as() -> None:

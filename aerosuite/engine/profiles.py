@@ -139,11 +139,16 @@ def load_profile(profile_id: str) -> Profile:
     raise ProjectError(f"Unknown profile {profile_id!r}")
 
 
-def apply_profile(project_dir: Path, project: Project, profile: Profile) -> None:
-    """Use `profile` for this project: its settings, naming and template overwrite what it defines."""
+def apply_profile(project_dir: Path, project: Project, profile: Profile, *, copy_template: bool = True) -> None:
+    """Use `profile` for this project: its settings, naming and (by default) template overwrite what it defines.
+
+    `copy_template=False` skips copying the profile's template file, so a caller that must not let
+    a file write happen before the project is known to save successfully can copy it separately,
+    once that save has succeeded.
+    """
     project.settings = _merged_settings(project.settings, profile.data.settings)
     project.sweep.naming = _merged_naming(project.sweep.naming, profile.data.naming)
-    if profile.template is not None:
+    if copy_template and profile.template is not None:
         set_template(project_dir, project, profile.template)
     project.profile = profile.id
 

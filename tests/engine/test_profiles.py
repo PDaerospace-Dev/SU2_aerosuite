@@ -11,6 +11,7 @@ from aerosuite.engine.profiles import (
     save_profile,
     user_profiles_dir,
 )
+from aerosuite.engine.models import Project
 from aerosuite.engine.project import TEMPLATE_FILE
 
 
@@ -60,6 +61,21 @@ def test_user_profile_overrides_bundled_and_broken_ones_are_reported():
     assert any("broken" in m for m in problems) and any("ref_areaa" in m for m in problems)
     with pytest.raises(ProjectError, match="Unknown profile"):
         load_profile("nope")
+
+
+def test_apply_profile_can_skip_the_template_copy(ready_project, tmp_path):
+    project_dir, project = ready_project
+    saved = save_profile(project_dir, project, "acft", "Acft")
+    assert saved.template is not None
+    other_dir = tmp_path / "other"
+    other_dir.mkdir()
+    (other_dir / TEMPLATE_FILE).write_text("ORIGINAL\n")
+    other = Project(name="other")
+    apply_profile(other_dir, other, saved, copy_template=False)
+    assert other.profile == "acft"
+    assert (other_dir / TEMPLATE_FILE).read_text() == "ORIGINAL\n"  # not copied
+    apply_profile(other_dir, other, saved)  # default: copies it
+    assert (other_dir / TEMPLATE_FILE).read_text() != "ORIGINAL\n"
 
 
 def test_save_profile(ready_project):
