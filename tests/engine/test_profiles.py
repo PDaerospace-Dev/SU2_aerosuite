@@ -63,6 +63,17 @@ def test_user_profile_overrides_bundled_and_broken_ones_are_reported():
         load_profile("nope")
 
 
+def test_load_profile_falls_back_to_the_bundled_copy_when_the_users_own_is_broken():
+    folder = user_profiles_dir() / "x07"
+    folder.mkdir(parents=True)
+    (folder / PROFILE_FILE).write_text("{not valid json")
+    profiles, problems = list_profiles()
+    assert "x07" in [p.id for p in profiles]  # the bundled one is still offered
+    assert any("x07" in m for m in problems)
+    profile = load_profile("x07")  # must not raise: falls back to the bundled copy
+    assert profile.bundled is True and profile.name == "X07"
+
+
 def test_apply_profile_can_skip_the_template_copy(ready_project, tmp_path):
     project_dir, project = ready_project
     saved = save_profile(project_dir, project, "acft", "Acft")

@@ -132,10 +132,18 @@ def list_profiles() -> tuple[list[Profile], list[str]]:
 
 
 def load_profile(profile_id: str) -> Profile:
+    last_error: Optional[ProjectError] = None
     for base, bundled in ((user_profiles_dir(), False), (BUNDLED_PROFILES, True)):
         folder = base / profile_id
         if (folder / PROFILE_FILE).is_file():
-            return _read(folder, bundled)
+            try:
+                return _read(folder, bundled)
+            except ProjectError as exc:
+                # A broken user copy falls back to the bundled one, consistent with list_profiles
+                # (which keeps offering the bundled profile when the user's own fails to load).
+                last_error = exc
+    if last_error is not None:
+        raise last_error
     raise ProjectError(f"Unknown profile {profile_id!r}")
 
 

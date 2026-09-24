@@ -87,6 +87,22 @@ async def test_apply_profile_template_is_copied_only_after_the_project_save_succ
     assert (project_dir / TEMPLATE_FILE).read_text() == original  # not overwritten by the failed apply
 
 
+async def test_broken_user_profile_shows_a_warning_but_the_bundled_one_still_works(user: User, ready_project):
+    project_dir, _ = ready_project
+    folder = user_profiles_dir() / "x07"
+    folder.mkdir(parents=True)
+    (folder / PROFILE_FILE).write_text("{not valid json")
+    await _open(user, project_dir)
+    await user.should_see(marker="setup-profile-problem")
+    with user:
+        _element(user, "setup-profile").set_value("x07")
+    user.find(marker="setup-apply-profile").click()
+    await user.should_see(marker="confirm-apply")
+    user.find(marker="confirm-apply").click()
+    await user.should_see("Applied X07 defaults")
+    assert open_project(project_dir).settings.reference.ref_area == 16.213
+
+
 async def test_save_as_profile(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
