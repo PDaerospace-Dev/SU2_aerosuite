@@ -32,15 +32,19 @@ def register() -> None:
             body()
 
 
-def _initial_text(frame: ProjectFrame) -> str:
+def _initial_text(frame: ProjectFrame) -> tuple[str, Optional[str]]:
+    """The template text, and — when it exists but cannot be read — the engine's error message."""
+    path = frame.session.directory / frame.session.project.template
+    if not path.is_file():
+        return "", None
     try:
-        return read_template_text(frame.session.directory, frame.session.project)
-    except AeroSuiteError:
-        return ""
+        return read_template_text(frame.session.directory, frame.session.project), None
+    except AeroSuiteError as exc:
+        return "", str(exc)
 
 
 def _build(frame: ProjectFrame) -> None:
-    initial = _initial_text(frame)
+    initial, load_error = _initial_text(frame)
     last = {"text": initial}
     holders: dict = {}
 
@@ -77,12 +81,16 @@ def _build(frame: ProjectFrame) -> None:
         return message
 
     def commit() -> None:
+        if load_error:
+            return
         text = holders["editor"].value or ""
         if text == last["text"] and not holders["error"].text:
             return
         holders["error"].text = save_text(text) or ""
 
     def insert(option: RefOption) -> Optional[str]:
+        if load_error:
+            return "The template cannot be read; fix it on disk first (see the error above)"
         text = holders["editor"].value or ""
         for number, line in enumerate(text.splitlines(), 1):
             if re.match(rf"^\s*{re.escape(option.key)}\s*=", line):
@@ -100,8 +108,11 @@ def _build(frame: ProjectFrame) -> None:
         with ui.column().classes("w-1/2 gap-2"):
             editor = ui.textarea("Template (template.cfg)", value=initial).props(
                 "outlined autogrow input-class=font-mono").classes("w-full").mark("config-text")
+            if load_error:
+                editor.props("readonly")
             holders["editor"] = editor
-            holders["error"] = ui.label("").classes("text-negative text-xs").mark("config-text-error")
+            holders["error"] = ui.label(load_error or "").classes("text-negative text-xs").mark(
+                "config-text-error")
             holders["warnings"] = ui.column().classes("gap-0")
             editor.on("blur", commit)
             holders["preview"] = preview_section(frame)

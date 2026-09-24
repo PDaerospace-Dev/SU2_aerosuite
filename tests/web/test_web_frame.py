@@ -16,6 +16,14 @@ async def test_frame_shows_project_and_badges(user: User, ready_project):
     await user.should_see(marker="badge-run-later")
 
 
+async def test_non_utf8_template_does_not_lock_the_project_pages_out(user: User, ready_project):
+    project_dir, _ = ready_project
+    (project_dir / "template.cfg").write_bytes(b"% Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    await user.open(layout.project_url("setup", project_dir))
+    await user.should_see("study")
+    await user.should_see(marker="badge-config-attention")
+
+
 async def test_missing_and_bad_project_parameter(user: User, tmp_path):
     await user.open("/setup")
     await user.should_see("No project selected.")

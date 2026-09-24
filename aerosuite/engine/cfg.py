@@ -114,6 +114,8 @@ def read_template(project_dir: Path, project: Project) -> str:
     path = Path(project_dir) / project.template
     try:
         return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise TemplateError(f"{path} is not UTF-8 text: {exc}") from exc
     except OSError as exc:
         raise TemplateError(f"Cannot read template {path}: {exc}") from exc
 

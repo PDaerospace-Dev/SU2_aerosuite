@@ -153,6 +153,8 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
     else:
         try:
             text = template.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            problems.append(Problem("error", f"{template} is not UTF-8 text: {exc}"))
         except OSError as exc:
             problems.append(Problem("error", f"Cannot read template {template}: {exc}"))
         else:

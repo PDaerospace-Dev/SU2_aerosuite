@@ -12,6 +12,7 @@ from aerosuite.engine.cfg import (
     build_cases,
     extract_markers,
     generate_configs,
+    read_template,
     render_case,
     run_control_text,
     settings_parameters,
@@ -129,6 +130,13 @@ def test_run_control_text():
         "c4.cfg, from_case, c1.cfg\n"
         "c5.cfg, initial\n"
     )
+
+
+def test_read_template_reports_non_utf8_bytes_as_a_template_error(tmp_path):
+    (tmp_path / "template.cfg").write_bytes(b"% Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    project = Project(name="t")
+    with pytest.raises(TemplateError, match="not UTF-8 text"):
+        read_template(tmp_path, project)
 
 
 def test_generate_configs_writes_cfgs_control_and_index(tmp_path):

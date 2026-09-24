@@ -75,6 +75,19 @@ async def test_preview_of_a_sweep_case(user: User, ready_project):
     await user.should_not_see(marker="config-checks")  # sweep on: Generate lives on the Sweep page
 
 
+async def test_non_utf8_template_shows_an_error_and_a_read_only_editor(user: User, ready_project):
+    project_dir, _ = ready_project
+    (project_dir / TEMPLATE_FILE).write_bytes(b"% Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    await _open(user, project_dir)
+    await user.should_see("not UTF-8 text")
+    editor = _element(user, "config-text")
+    assert editor.value == ""
+    assert editor.props.get("readonly") is True
+    before = (project_dir / TEMPLATE_FILE).read_bytes()
+    user.find(marker="config-text").type("MACH_NUMBER= 0.5\n").trigger("blur")
+    assert (project_dir / TEMPLATE_FILE).read_bytes() == before  # the real content is not overwritten
+
+
 async def test_single_case_preview_checks_and_generate(user: User, ready_project):
     project_dir, _ = ready_project
     _single(project_dir)

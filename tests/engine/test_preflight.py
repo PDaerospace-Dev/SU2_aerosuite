@@ -162,3 +162,10 @@ def test_empty_mach_list_is_an_error(ready_project):
     project.sweep.mach = []
     errors = _messages(preflight(project_dir, project, "generate"), "error")
     assert "No Mach numbers in the sweep" in errors
+
+
+def test_non_utf8_template_is_a_problem_not_a_crash(ready_project):
+    project_dir, project = ready_project
+    (project_dir / "template.cfg").write_bytes(b"% comment with a Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert any("not UTF-8 text" in m for m in errors)

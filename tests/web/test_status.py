@@ -48,6 +48,13 @@ def test_broken_setup_and_duplicate_cases(ready_project, tmp_path):
     assert badges["sweep"] == "attention"
 
 
+def test_non_utf8_template_does_not_crash_step_badges(ready_project):
+    project_dir, project = ready_project
+    (project_dir / TEMPLATE_FILE).write_bytes(b"% Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    badges = step_badges(project_dir, project)
+    assert badges["config"] == "attention"
+
+
 def test_configs_badge_follows_the_sweep(ready_project):
     project_dir, project = ready_project
     generate_configs(project_dir, project)
