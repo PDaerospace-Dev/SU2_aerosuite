@@ -97,6 +97,18 @@ async def test_placeholders(user: User, ready_project):
     assert open_project(project_dir).settings.overrides == {}
 
 
+async def test_clearing_a_placeholder_explains_how_to_go_back(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    user.find(marker="override-new-key").type("conv_field")
+    user.find(marker="override-new-value").type("LIFT")
+    user.find(marker="override-add").click()
+    user.find(marker="override-CONV_FIELD-value").clear().trigger("blur")
+    await user.should_see("CONV_FIELD needs a value; remove the setting to go back to the template value")
+    assert open_project(project_dir).settings.overrides == {"CONV_FIELD": "LIFT"}
+
+
 async def test_insert_from_the_reference(user: User, ready_project):
     project_dir, _ = ready_project
     _with_x07(project_dir)
