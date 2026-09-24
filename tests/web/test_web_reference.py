@@ -9,6 +9,7 @@ async def test_search_and_insert(user: User):
     await user.open("/_test/reference")
     user.find(marker="ref-search").type("marker_euler")
     await user.should_see(marker="ref-result-MARKER_EULER")
+    assert _element(user, "ref-section-MARKER_EULER").text == "BOUNDARY CONDITION DEFINITION"
     user.find(marker="ref-insert-MARKER_EULER").click()
     assert _element(user, "t-inserted").text == "MARKER_EULER"
     await user.should_see("Inserted MARKER_EULER")

@@ -51,6 +51,9 @@ def reference_panel(
                     with ui.column().classes("grow gap-0"):
                         ui.label(option.line).classes("font-mono text-xs").mark(f"ref-result-{option.key}")
                         ui.label(option.description or "(no description)").classes("text-xs text-grey-8")
+                        if option.section:
+                            ui.label(option.section).classes("text-xs text-grey-6").mark(
+                                f"ref-section-{option.key}")
                     if option.key in present:
                         ui.label("In config").classes("text-positive text-xs").mark(f"ref-in-config-{option.key}")
                     else:
