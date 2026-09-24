@@ -1,4 +1,4 @@
-# AeroSuite Pro V2
+# AeroSuite Pro V3
 
 AeroSuite Pro is a desktop application for preparing, running, and reviewing SU2 CFD studies. From mesh loading through config (CFG) generation, parametric sweeps, execution, convergence monitoring, and results analysis.
 
