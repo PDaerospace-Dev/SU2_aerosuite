@@ -5,6 +5,8 @@ from nicegui import ui
 
 from ...engine import project as engine_project
 from ...engine.errors import AeroSuiteError
+from ...engine.profiles import list_profiles
+from ...engine.study import create_study
 from ..layout import header, project_url
 from ..picker import pick_path
 from ..recent import add_recent, load_recent
@@ -72,20 +74,61 @@ def _is_plain_name(name: str) -> bool:
     return Path(name).name == name and not Path(name).anchor  # anchor catches "C:x" on Windows
 
 
-def _new_form() -> None:
-    ui.label("New project").classes("text-lg")
+def _kind_card(title: str, text: str, mark: str, on_choose) -> ui.card:
+    card = ui.card().classes("w-72 cursor-pointer").mark(mark)
+    card.on("click", lambda _: on_choose())
+    with card:
+        ui.label(title).classes("text-base font-medium")
+        ui.label(text).classes("text-xs text-grey-8")
+    return card
+
+
+def _path_row(label: str, mark: str, title: str, mode: str, suffixes=()) -> ui.input:
     with ui.row().classes("w-full items-center no-wrap"):
-        parent = ui.input("Parent folder").classes("grow").mark("new-parent")
+        box = ui.input(label).classes("grow").mark(mark)
 
         async def browse() -> None:
-            chosen = await pick_path("Choose the parent folder", mode="folder")
+            chosen = await pick_path(title, mode=mode, suffixes=suffixes)
             if chosen is not None:
-                parent.value = str(chosen)
+                box.value = str(chosen)
 
-        ui.button("Browse", on_click=browse).props("flat").mark("new-browse")
+        ui.button("Browse", on_click=browse).props("flat").mark(
+            "new-browse" if mark == "new-parent" else f"{mark}-browse")
+    return box
+
+
+def _new_form() -> None:
+    ui.label("New project").classes("text-lg")
+    profiles, problems = list_profiles()
+    for problem in problems:
+        ui.label(f"Profile skipped: {problem}").classes("text-warning text-xs").mark("profile-problem")
+    state = {"kind": "general"}
+
+    def choose(kind: str) -> None:
+        state["kind"] = kind
+        general.classes(add="border-2 border-primary" if kind == "general" else "",
+                        remove="border-2 border-primary" if kind != "general" else "")
+        aircraft.classes(add="border-2 border-primary" if kind == "aircraft" else "",
+                         remove="border-2 border-primary" if kind != "aircraft" else "")
+        profile.set_visibility(kind == "aircraft")
+        use_reference.set_visibility(kind == "general")
+
+    with ui.row().classes("gap-4"):
+        general = _kind_card("General case", "One config from a template, edited as text with SU2's "
+                             "reference beside it. One case.", "new-kind-general", lambda: choose("general"))
+        aircraft = _kind_card("Aircraft study", "Aircraft Aero form with profile defaults, "
+                              "placeholders and a Mach/alpha/beta sweep.", "new-kind-aircraft",
+                              lambda: choose("aircraft"))
+    profile = ui.select({p.id: p.name for p in profiles}, label="Aircraft profile",
+                        value=profiles[0].id if profiles else None).classes("w-64").mark("new-profile")
+    parent = _path_row("Parent folder", "new-parent", "Choose the parent folder", "folder")
     name = ui.input("Project name").classes("w-full").mark("new-name")
+    template = _path_row("Template (.cfg)", "new-template", "Choose the template", "file", (".cfg",))
+    use_reference = ui.checkbox("Start from SU2's config_template.cfg").mark("new-use-reference")
+    mesh = _path_row("Mesh (.su2, optional)", "new-mesh", "Choose the mesh", "file", (".su2", ".cgns"))
     ui.button("Create", on_click=lambda: create()).mark("new-create")
     error = ui.label("").classes("text-negative text-sm").mark("new-error")
+    choose("general")
 
     def create() -> None:
         parent_text = (parent.value or "").strip()
@@ -99,9 +142,21 @@ def _new_form() -> None:
         if not Path(parent_text).is_dir():
             error.text = f"Parent folder not found: {parent_text}"
             return
+        aircraft_study = state["kind"] == "aircraft"
+        if aircraft_study and not profile.value:
+            error.text = "Choose an aircraft profile"
+            return
+        template_text = (template.value or "").strip()
+        mesh_text = (mesh.value or "").strip()
         target = Path(parent_text) / name_text
         try:
-            engine_project.create_project(target)
+            create_study(
+                target,
+                profile_id=profile.value if aircraft_study else None,
+                template=Path(template_text) if template_text else None,
+                use_reference_template=bool(use_reference.value) and not aircraft_study,
+                mesh=Path(mesh_text) if mesh_text else None,
+            )
         except AeroSuiteError as exc:
             error.text = str(exc)
             return

@@ -57,6 +57,8 @@ async def test_create_a_new_project(user: User, tmp_path):
     await user.open("/")
     user.find(marker="new-parent").type(str(tmp_path))
     user.find(marker="new-name").type("fresh")
+    with user:
+        next(iter(user.find(marker="new-use-reference").elements)).set_value(True)
     user.find(marker="new-create").click()
     await user.should_see(marker="project-name")
     assert open_project(tmp_path / "fresh").name == "fresh"

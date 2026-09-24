@@ -130,7 +130,16 @@ aerosuite serve --port 8765         # another port, e.g. when 8080 is taken
 - At the workstation: open http://localhost:8080
 - From your own PC: `ssh -L 8080:127.0.0.1:8080 you@workstation`, then open http://localhost:8080 (with `--port`, use that port on the workstation side of `-L`)
 
-Pages so far: **Projects** (recent / open / new), **Setup** (mesh, template, run settings), **Settings** (freestream, reference, numerics, markers, overrides, with a live `.cfg` preview) and **Sweep** (Mach/α/β ranges, naming, restarts, checks, Generate). Every field saves as soon as you leave it; invalid values are shown in red and not saved. Run, Monitor and Results arrive in phase 3b — meanwhile use `aerosuite run / status / summarize`.
+Pages:
+- **Projects**: recent, open, and **new project**. First choose a *General case* (one config, no sweep) or an *Aircraft study* (pick a profile such as X07; sweep on).
+- **Setup**: mesh, template, run settings. The **aircraft profile** is chosen here, with *Apply profile defaults* and *Save as profile…* (this saves your template and settings for the next study of that aircraft). The **sweep on/off** switch is here too.
+- **Config**: your config as text, with a live preview. **SU2's reference** is beside it: search any option, then click *Insert*, or use *Find* in the full file. With the sweep off, *Generate config* is here.
+- **Aircraft** (with a profile): the Aircraft Aero form (dropdowns for scheme, MUSCL and turbulence; the four marker lines; placeholders), with the same reference panel.
+- **Sweep** (sweep on): Mach/α/β ranges, naming, restarts, checks, Generate.
+
+Every field saves as soon as you leave it; invalid values are shown in red and not saved. Run, Monitor and Results arrive in phase 3b; until then use `aerosuite run / status / summarize`.
+
+The bundled X07 profile has the desktop app's form defaults but no template. On the workstation, create an X07 study with your template, then use *Save as profile…* with the id `x07` to keep it.
 
 The web UI has no login, so it only listens on the workstation itself unless you pass `--host` together with `--i-understand-no-auth`.
 
