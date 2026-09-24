@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: aerosuite
+Version: 8.0.0.dev0
+Summary: Prepare, run and post-process SU2 CFD sweeps
+Requires-Python: >=3.10
+Requires-Dist: pandas>=2.1
+Requires-Dist: pydantic>=2.6
+Requires-Dist: psutil>=5.9
+Requires-Dist: typer>=0.12
+Requires-Dist: nicegui>=3.17
+Requires-Dist: PyQt5>=5.15.10
+Requires-Dist: PyQt5-Qt5==5.15.2; sys_platform == "win32"
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: qtawesome>=1.3
