@@ -49,6 +49,8 @@ _STATUS_DISPLAY = {
     "QUEUED":   ("⏳  In Queue",   QColor("#f5f5f5"),  QColor("#757575")),
     "RUNNING":  ("🔄  Running…",   QColor("#e3f2fd"),  QColor("#1565c0")),
     "SUCCESS":  ("✓   SUCCESS",    QColor("#e8f5e9"),  QColor("#2e7d32")),
+    "CONVERGED":   ("✓   Converged",   QColor("#e8f5e9"), QColor("#2e7d32")),
+    "UNCONVERGED": ("⚠   Unconverged", QColor("#fffde7"), QColor("#f57f17")),
     "FAILED":   ("✗   FAILED",     QColor("#ffebee"),  QColor("#c62828")),
     "STOPPED":  ("⊘   Stopped",    QColor("#fff3e0"),  QColor("#e65100")),
     "NOT RUN":  ("–   Not Run",    QColor("#fafafa"),  QColor("#9e9e9e")),
@@ -516,33 +518,32 @@ class SweepTab(QWidget):
         self._unlock_ui()
         log_path = getattr(self._worker.runner, "log_path", None)
         self._populate_final_status(results, log_path)
-        n_ok     = sum(1 for r in results if r["status"] == "SUCCESS")
+        n_ok     = sum(1 for r in results if r["status"] in ("CONVERGED", "SUCCESS"))
+        n_unconv = sum(1 for r in results if r["status"] == "UNCONVERGED")
         n_fail   = sum(1 for r in results if r["status"] == "FAILED")
         n_stop   = sum(1 for r in results if r["status"] == "STOPPED")
+        summary = f"{n_ok} converged, {n_unconv} unconverged, {n_fail} failed"
         if n_stop:
-            self.status_message.emit(
-                f"Sweep stopped — {n_ok} done, {n_fail} failed, {n_stop} not run"
-            )
+            self.status_message.emit(f"Sweep stopped — {summary}, {n_stop} not run")
         else:
-            self.status_message.emit(
-                f"Sweep finished — {n_ok} succeeded, {n_fail} failed"
-            )
+            self.status_message.emit(f"Sweep finished — {summary}")
         log_note = f"\n\nLog: {log_path}" if log_path else ""
-        if n_fail:
+        if n_fail or n_unconv:
             QMessageBox.warning(
                 self, "Sweep Finished",
-                f"{n_ok} case(s) succeeded, {n_fail} case(s) failed.\n"
-                f"Check error.log inside each failed case folder.{log_note}"
+                f"{summary}.\n"
+                "Failed cases have an error.log in their folder; unconverged cases "
+                f"should be checked on the Monitor page.{log_note}"
             )
         elif n_stop:
             QMessageBox.information(
                 self, "Sweep Stopped",
-                f"Stopped by user. {n_ok} case(s) completed before stop.{log_note}"
+                f"Stopped by user. {n_ok} case(s) converged before stop.{log_note}"
             )
         else:
             QMessageBox.information(
                 self, "Sweep Finished",
-                f"All {n_ok} case(s) completed successfully.{log_note}"
+                f"All {n_ok} case(s) converged.{log_note}"
             )
 
     def _on_error(self, message: str):
