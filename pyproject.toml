@@ -30,7 +30,7 @@ build-backend = "setuptools.build_meta"
 include = ["aerosuite*"]
 
 [tool.setuptools.package-data]
-aerosuite = ["resources/*"]
+aerosuite = ["resources/*", "resources/profiles/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
