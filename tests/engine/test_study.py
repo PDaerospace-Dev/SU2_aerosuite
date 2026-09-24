@@ -58,3 +58,10 @@ def test_bad_inputs_create_nothing(tmp_path, inputs):
 def test_sweep_can_be_chosen_explicitly(tmp_path, inputs):
     template, _ = inputs
     assert create_study(tmp_path / "f", template=template, sweep=True).sweep.enabled is True
+
+
+def test_a_new_sweep_on_study_starts_with_no_cases(tmp_path, inputs):
+    template, mesh = inputs
+    project = create_study(tmp_path / "g", profile_id="x07", template=template, mesh=mesh)
+    assert project.sweep.enabled is True
+    assert project.cases == []

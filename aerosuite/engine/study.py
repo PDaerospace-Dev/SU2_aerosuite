@@ -43,6 +43,9 @@ def create_study(
     if mesh is not None:
         set_mesh(project, mesh)
     project.sweep.enabled = (profile is not None) if sweep is None else sweep
-    project.cases = build_cases(project)
+    if not project.sweep.enabled:
+        # With the sweep on, an empty Mach list would build_cases into a fake Mach-0 case
+        # instead of the empty, todo state a new study should start in.
+        project.cases = build_cases(project)
     save_project(directory, project)
     return project

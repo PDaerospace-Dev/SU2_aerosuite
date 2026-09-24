@@ -1,6 +1,7 @@
 from aerosuite.engine.cfg import CASE_INDEX_FILE, CONFIGS_DIR, build_cases, generate_configs
 from aerosuite.engine.editing import update_sweep
 from aerosuite.engine.project import TEMPLATE_FILE, create_project
+from aerosuite.engine.study import create_study
 from aerosuite.web.status import STEPS, step_badges, visible_steps
 
 
@@ -31,6 +32,12 @@ def test_new_project(tmp_path):
     project = create_project(tmp_path / "p")
     badges = step_badges(tmp_path / "p", project)
     assert (badges["setup"], badges["config"], badges["sweep"], badges["configs"]) == ("todo", "todo", "todo", "todo")
+
+
+def test_new_aircraft_study_gets_a_todo_sweep_badge_not_a_fake_case(tmp_path):
+    project = create_study(tmp_path / "q", profile_id="x07", use_reference_template=True)
+    assert project.cases == []
+    assert step_badges(tmp_path / "q", project)["sweep"] == "todo"
 
 
 def test_config_badge_flags_template_warnings(ready_project):
