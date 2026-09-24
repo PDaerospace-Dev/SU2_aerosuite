@@ -1,9 +1,11 @@
+import asyncio
 import json
 
 from nicegui.testing import User
 
 from aerosuite.engine.cfg import build_cases
 from aerosuite.engine.project import TEMPLATE_FILE, open_project, save_project
+from aerosuite.web import layout
 from aerosuite.web.layout import project_url
 
 
@@ -73,6 +75,28 @@ async def test_preview_of_a_sweep_case(user: User, ready_project):
         toggle.set_value(True)
     assert "MACH_NUMBER= 0.8" in _element(user, "preview").content
     await user.should_not_see(marker="config-checks")  # sweep on: Generate lives on the Sweep page
+
+
+async def test_an_outside_project_json_change_does_not_drop_unsaved_editor_text(
+        user: User, ready_project, monkeypatch):
+    monkeypatch.setattr(layout, "WATCH_SECONDS", 0.1)
+    project_dir, project = ready_project
+    await _open(user, project_dir)
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n")  # not yet blurred
+
+    other = open_project(project_dir)
+    other.name = "renamed-elsewhere"
+    save_project(project_dir, other)
+    await asyncio.sleep(0.5)  # the watcher notices and reloads project.json
+    await user.should_see("Project changed on disk; reloaded")
+
+    editor = _element(user, "config-text")
+    assert editor.value.endswith("CFL_NUMBER= 5\n")  # the typed text survived the reload
+    assert "CFL_NUMBER= 5" not in (project_dir / TEMPLATE_FILE).read_text()  # not yet saved
+
+    user.find(marker="config-text").trigger("blur")
+    assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
+    assert _element(user, "config-text").value.endswith("CFL_NUMBER= 5\n")
 
 
 async def test_non_utf8_template_shows_an_error_and_a_read_only_editor(user: User, ready_project):

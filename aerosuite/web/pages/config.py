@@ -5,7 +5,7 @@ from typing import Optional
 from nicegui import ui
 
 from ...engine.errors import AeroSuiteError
-from ...engine.project import read_template_text, set_template_text, template_warnings
+from ...engine.project import TEMPLATE_FILE, read_template_text, set_template_text, template_warnings
 from ...engine.reference import RefOption, keys_in
 from ..checks import render_checks
 from ..layout import ProjectFrame, open_session
@@ -21,11 +21,24 @@ def register() -> None:
         session = open_session(project)
         if session is None:
             return
-        frame = ProjectFrame(session, "config", on_reload=lambda: body.refresh())
+        # Survives body.refresh(): lets a reload triggered by an unrelated project.json change
+        # (e.g. the disk watcher, or frame.save's own stale check) carry forward text the user
+        # typed but has not blurred yet, instead of overwriting it with what is on disk.
+        state: dict = {"editor": None, "saved_text": None}
+
+        def reload_body() -> None:
+            editor = state["editor"]
+            if editor is not None and state["saved_text"] is not None:
+                current = editor.value or ""
+                if current != state["saved_text"]:
+                    state["pending"] = current
+            body.refresh()
+
+        frame = ProjectFrame(session, "config", on_reload=reload_body)
 
         @ui.refreshable
         def body() -> None:
-            _build(frame)
+            _build(frame, state)
 
         with frame.content:
             ui.label("Config").classes("text-2xl")
@@ -43,9 +56,11 @@ def _initial_text(frame: ProjectFrame) -> tuple[str, Optional[str]]:
         return "", str(exc)
 
 
-def _build(frame: ProjectFrame) -> None:
-    initial, load_error = _initial_text(frame)
-    last = {"text": initial}
+def _build(frame: ProjectFrame, state: dict) -> None:
+    disk_text, load_error = _initial_text(frame)
+    pending = state.pop("pending", None)
+    initial = pending if (pending is not None and not load_error) else disk_text
+    state["saved_text"] = disk_text
     holders: dict = {}
 
     def show_warnings(warnings: list[str]) -> None:
@@ -69,22 +84,30 @@ def _build(frame: ProjectFrame) -> None:
         holders["reference"]()
 
     def save_text(text: str) -> Optional[str]:
-        found: list[str] = []
-
-        def change(p) -> None:
-            found.extend(set_template_text(frame.session.directory, p, text))
-
-        message = frame.save(change, then=after_save)
-        if message is None:
-            last["text"] = text
-            show_warnings(found)
-        return message
+        # template.cfg is independent of project.json: write it directly (an engine function,
+        # not a raw filesystem write) instead of through frame.save, so an unrelated outside
+        # change to project.json cannot refuse this save or force a reload that drops the text.
+        needs_field_update = frame.session.project.template != TEMPLATE_FILE
+        try:
+            warnings = set_template_text(frame.session.directory, frame.session.project, text)
+        except AeroSuiteError as exc:
+            return str(exc)
+        if needs_field_update:
+            message = frame.save(lambda p: setattr(p, "template", TEMPLATE_FILE))
+            if message is not None:
+                return message
+        else:
+            frame.refresh()
+        state["saved_text"] = text
+        show_warnings(warnings)
+        after_save()
+        return None
 
     def commit() -> None:
         if load_error:
             return
         text = holders["editor"].value or ""
-        if text == last["text"] and not holders["error"].text:
+        if text == state["saved_text"] and not holders["error"].text:
             return
         holders["error"].text = save_text(text) or ""
 
@@ -111,6 +134,7 @@ def _build(frame: ProjectFrame) -> None:
             if load_error:
                 editor.props("readonly")
             holders["editor"] = editor
+            state["editor"] = editor
             holders["error"] = ui.label(load_error or "").classes("text-negative text-xs").mark(
                 "config-text-error")
             holders["warnings"] = ui.column().classes("gap-0")
