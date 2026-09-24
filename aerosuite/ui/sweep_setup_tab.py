@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from ..core.su2_generator import SU2Generator, GenerationConfig
+from ..engine.naming import format_value
 from ..utils.file_handlers import read_template_file, write_config_file, ensure_directory
 from .style import section_label, PRIMARY_BUTTON_STYLE
 
@@ -219,9 +220,9 @@ class SweepSetupTab(QWidget):
                     break
                 fname = filenames[i]
                 parameters = {
-                    "MACH_NUMBER":            f"{m:.1f}",
-                    "AOA":                    f"{a:.1f}",
-                    "SIDESLIP_ANGLE":         f"{b:.1f}",
+                    "MACH_NUMBER":            format_value(m),
+                    "AOA":                    format_value(a),
+                    "SIDESLIP_ANGLE":         format_value(b),
                     "FREESTREAM_TEMPERATURE": f"{float(self.temp_edit.text()):.2f}" if self.temp_edit.text().strip() else "288.15",
                     "REYNOLDS_NUMBER":        f"{float(self.reynolds_edit.text()):.0f}" if self.reynolds_edit.text().strip() else "1000000",
                     "BREAKDOWN_FILENAME":     f"{Path(fname).stem}_FB.dat",

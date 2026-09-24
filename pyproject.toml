@@ -1,0 +1,31 @@
+[project]
+name = "aerosuite"
+version = "8.0.0.dev0"
+description = "Prepare, run and post-process SU2 CFD sweeps"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.1",
+    "pydantic>=2.6",
+    "psutil>=5.9",
+    # Legacy PyQt5 app — removed in Phase 5
+    "PyQt5>=5.15.10",
+    "PyQt5-Qt5==5.15.2; sys_platform == 'win32'",  # newer Qt5 builds ship no Windows wheels
+    "matplotlib>=3.8",
+    "qtawesome>=1.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["aerosuite*"]
+
+[tool.setuptools.package-data]
+aerosuite = ["resources/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

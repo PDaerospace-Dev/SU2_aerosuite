@@ -13,13 +13,27 @@ AeroSuite owns the GUI wrapper: live status table and stop control.
 
 import os
 import re
-import signal
 import subprocess
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
+
+from aerosuite.engine.jobs.runner import resolve_sweep_python, sweep_environment
+from aerosuite.engine.jobs.store import kill_tree
+from aerosuite.engine.results import HISTORY_FILE, check_convergence, read_history
+
+
+def _convergence_status(folder: str) -> Tuple[str, Optional[str]]:
+    """CONVERGED / UNCONVERGED from the case's history, or FAILED if there is none."""
+    history = os.path.join(folder, HISTORY_FILE)
+    if not os.path.isfile(history):
+        return "FAILED", "No history.csv was written"
+    df = read_history(history)
+    if df.empty:
+        return "FAILED", "history.csv is empty"
+    converged, message = check_convergence(df)
+    return ("CONVERGED", None) if converged else ("UNCONVERGED", message)
 
 
 def parse_control_file(path: str) -> Tuple[List[Dict], List[str]]:
@@ -116,16 +130,7 @@ class SweepRunner:
         """
         self._stopped = True
         if self._proc and self._proc.poll() is None:
-            try:
-                if hasattr(os, "killpg"):
-                    os.killpg(os.getpgid(self._proc.pid), signal.SIGKILL)
-                else:
-                    self._proc.kill()
-            except Exception:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
+            kill_tree(self._proc.pid)  # script + mpirun + SU2 ranks, on every platform
 
     def run(self) -> List[Dict]:
         """
@@ -136,8 +141,11 @@ class SweepRunner:
 
         Returns a list of result dicts (one per case in the control file).
         """
+        # The sweep script imports SU2, so it runs under the system Python, never
+        # AeroSuite's own environment. AEROSUITE_SWEEP_PYTHON overrides the choice.
+        interpreter = resolve_sweep_python(os.environ.get("AEROSUITE_SWEEP_PYTHON", "python3"))
         cmd = [
-            sys.executable,
+            interpreter,
             self.script_path,
             "-d", ".",
             "-c", self.control_file,
@@ -151,6 +159,7 @@ class SweepRunner:
             f"{'='*60}",
             f"  AeroSuite — Sweep Runner",
             f"  Started  : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"  Python   : {interpreter}",
             f"  Script   : {self.script_path}",
             f"  Dir      : {self.cfg_dir}",
             f"  Log file : {self.log_path}",
@@ -185,6 +194,7 @@ class SweepRunner:
                     stdin=subprocess.PIPE,
                     stdout=log_fh,
                     stderr=log_fh,
+                    env=sweep_environment(),
                     start_new_session=True,     # detach — closing AeroSuite won't kill SU2
                 )
 
@@ -247,8 +257,9 @@ class SweepRunner:
 
         except FileNotFoundError:
             raise RuntimeError(
-                f"Script not found:\n  {self.script_path}\n"
-                "Check the path in the Sweep Runner tab."
+                f"Cannot start the sweep:\n  {interpreter} {self.script_path}\n"
+                "Check the script path in the Sweep Runner tab, and set "
+                "AEROSUITE_SWEEP_PYTHON if python3 is not the Python that imports SU2."
             )
 
         return self._build_results(run_list, case_iters)
@@ -273,8 +284,7 @@ class SweepRunner:
                 with open(error_log) as fh:
                     error = fh.read().strip()
             elif os.path.isdir(folder):
-                status = "SUCCESS"
-                error  = None
+                status, error = _convergence_status(folder)
             elif self._stopped:
                 status = "STOPPED"
                 error  = None
