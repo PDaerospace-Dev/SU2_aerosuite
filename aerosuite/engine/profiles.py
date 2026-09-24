@@ -132,6 +132,8 @@ def list_profiles() -> tuple[list[Profile], list[str]]:
 
 
 def load_profile(profile_id: str) -> Profile:
+    if not _ID_RE.fullmatch(profile_id or ""):
+        raise ProjectError(f"Invalid profile id {profile_id!r}")
     last_error: Optional[ProjectError] = None
     for base, bundled in ((user_profiles_dir(), False), (BUNDLED_PROFILES, True)):
         folder = base / profile_id
@@ -164,7 +166,7 @@ def apply_profile(project_dir: Path, project: Project, profile: Profile, *, copy
 def save_profile(project_dir: Path, project: Project, profile_id: str, name: str,
                  description: str = "", overwrite: bool = False) -> Profile:
     """Save this project's template, settings and naming as a user profile (never mesh or sweep)."""
-    if not _ID_RE.match(profile_id or ""):
+    if not _ID_RE.fullmatch(profile_id or ""):
         raise ProjectError("Profile ids use letters, digits, '-' and '_' only")
     if not name.strip():
         raise ProjectError("Give the profile a name")

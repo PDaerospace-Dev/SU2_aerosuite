@@ -3,7 +3,9 @@ import json
 import pytest
 
 from aerosuite.engine.errors import ProjectError
+from aerosuite.engine.models import Project
 from aerosuite.engine.profiles import (
+    BUNDLED_PROFILES,
     PROFILE_FILE,
     apply_profile,
     list_profiles,
@@ -11,7 +13,6 @@ from aerosuite.engine.profiles import (
     save_profile,
     user_profiles_dir,
 )
-from aerosuite.engine.models import Project
 from aerosuite.engine.project import TEMPLATE_FILE
 
 
@@ -61,6 +62,21 @@ def test_user_profile_overrides_bundled_and_broken_ones_are_reported():
     assert any("broken" in m for m in problems) and any("ref_areaa" in m for m in problems)
     with pytest.raises(ProjectError, match="Unknown profile"):
         load_profile("nope")
+
+
+def test_load_profile_rejects_ids_outside_the_profile_folders():
+    with pytest.raises(ProjectError, match="Invalid profile id"):
+        load_profile("../x")
+    with pytest.raises(ProjectError, match="Invalid profile id"):
+        load_profile("x07\n")  # _ID_RE's trailing $ alone would accept a trailing newline
+    with pytest.raises(ProjectError, match="Invalid profile id"):
+        load_profile(str(BUNDLED_PROFILES / "x07"))  # an absolute path
+
+
+def test_save_profile_rejects_a_trailing_newline_in_the_id(ready_project):
+    project_dir, project = ready_project
+    with pytest.raises(ProjectError, match="letters, digits"):
+        save_profile(project_dir, project, "ok_id\n", "Name")
 
 
 def test_load_profile_falls_back_to_the_bundled_copy_when_the_users_own_is_broken():
