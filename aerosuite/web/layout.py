@@ -8,7 +8,7 @@ from nicegui import ui
 from ..engine.errors import AeroSuiteError
 from .recent import add_recent
 from .session import Change, ProjectSession
-from .status import STEPS, step_badges
+from .status import step_badges, visible_steps
 
 WATCH_SECONDS = 2.0
 BADGE_ICONS = {
@@ -17,7 +17,15 @@ BADGE_ICONS = {
     "todo": ("radio_button_unchecked", "grey-6"),
     "later": ("schedule", "grey-4"),
 }
-PAGE_OF_STEP = {"setup": "setup", "settings": "settings", "sweep": "sweep", "configs": "sweep"}
+PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep"}
+PAGE_CSS = "body { background-color: #f7f7f7; color: #1f1f1f; }"
+
+
+def apply_theme() -> None:
+    """Paint our own background so text stays readable in browsers that use a dark canvas."""
+    ui.add_css(PAGE_CSS)
+
+
 RELOADED_MESSAGE = "Project changed on disk; reloaded"
 STALE_MESSAGE = "Project changed on disk and was reloaded — your last change was not saved; enter it again"
 
@@ -27,6 +35,7 @@ def project_url(page: str, directory) -> str:
 
 
 def header() -> None:
+    apply_theme()
     with ui.header().classes("items-center gap-4"):
         ui.link("AeroSuite", "/").classes("text-white text-xl no-underline")
 
@@ -56,6 +65,7 @@ class ProjectFrame:
         self.session = session
         self.active = active
         self._on_reload = on_reload
+        apply_theme()
         with ui.header().classes("items-center gap-4"):
             ui.link("AeroSuite", "/").classes("text-white text-xl no-underline")
             self._name = ui.label("").classes("text-lg").mark("project-name")
@@ -72,12 +82,14 @@ class ProjectFrame:
         badges = step_badges(self.session.directory, self.session.project)
         self._sidebar.clear()
         with self._sidebar:
-            for key, label in STEPS:
+            for key, label in visible_steps(self.session.project):
                 badge = badges[key]
                 icon, color = BADGE_ICONS[badge]
                 with ui.row().classes("items-center gap-2 no-wrap"):
                     ui.icon(icon, color=color).mark(f"badge-{key}-{badge}")
                     page = PAGE_OF_STEP.get(key)
+                    if key == "configs":
+                        page = "sweep" if self.session.project.sweep.enabled else "config"
                     if page is None:
                         ui.label(label).classes("text-grey-5")
                     else:

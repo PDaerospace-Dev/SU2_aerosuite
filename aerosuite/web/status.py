@@ -4,23 +4,34 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from ..engine.cfg import CASE_INDEX_FILE, CONFIGS_DIR
-from ..engine.errors import ProjectError
+from ..engine.cfg import CASE_INDEX_FILE, CONFIGS_DIR, read_template
+from ..engine.errors import AeroSuiteError, ProjectError
 from ..engine.models import Project
 from ..engine.preflight import sweep_problems
+from ..engine.project import template_warnings
 from ..engine.results import load_case_index
 
 Badge = Literal["done", "attention", "todo", "later"]
 
 STEPS: list[tuple[str, str]] = [
     ("setup", "Setup"),
-    ("settings", "Settings"),
+    ("config", "Config"),
+    ("aircraft", "Aircraft"),
     ("sweep", "Sweep"),
     ("configs", "Configs"),
     ("run", "Run"),
     ("monitor", "Monitor"),
     ("results", "Results"),
 ]
+
+
+def visible_steps(project: Project) -> list[tuple[str, str]]:
+    """Aircraft only with a profile; Sweep only when the sweep is on."""
+    return [
+        (key, label) for key, label in STEPS
+        if not (key == "aircraft" and not project.profile)
+        and not (key == "sweep" and not project.sweep.enabled)
+    ]
 
 
 def _configs_badge(project_dir: Path, project: Project) -> Badge:
@@ -31,6 +42,16 @@ def _configs_badge(project_dir: Path, project: Project) -> Badge:
     except ProjectError:
         return "attention"
     return "done" if generated and generated == {case.name for case in project.cases} else "attention"
+
+
+def _config_badge(project_dir: Path, project: Project, template_ok: bool) -> Badge:
+    if not template_ok:
+        return "todo"
+    try:
+        warnings = template_warnings(read_template(project_dir, project))
+    except AeroSuiteError:
+        return "attention"
+    return "attention" if warnings else "done"
 
 
 def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
@@ -51,7 +72,8 @@ def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
         sweep = "done"
     return {
         "setup": setup,
-        "settings": "done" if template_ok else "todo",
+        "config": _config_badge(project_dir, project, template_ok),
+        "aircraft": "done" if template_ok else "todo",
         "sweep": sweep,
         "configs": _configs_badge(project_dir, project),
         "run": "later",

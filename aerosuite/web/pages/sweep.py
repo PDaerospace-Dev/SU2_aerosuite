@@ -3,12 +3,12 @@ from typing import Callable
 
 from nicegui import ui
 
-from ...engine.cfg import build_cases, generate_configs
+from ...engine.cfg import build_cases
 from ...engine.editing import parse_value_list, update_sweep
-from ...engine.errors import AeroSuiteError, ProjectError
+from ...engine.errors import ProjectError
 from ...engine.models import Project
 from ...engine.naming import find_collisions, format_value
-from ...engine.preflight import has_errors, preflight
+from ..checks import render_checks
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session
 
@@ -53,7 +53,7 @@ def register() -> None:
                 return
             box.clear()
             with box:
-                _problems(frame, render_problems)
+                render_checks(frame, render_problems)
 
         def after() -> None:
             render_cases()
@@ -61,6 +61,11 @@ def register() -> None:
 
         @ui.refreshable
         def body() -> None:
+            if not frame.session.project.sweep.enabled:
+                holders.clear()  # render_cases / render_problems then do nothing
+                ui.label("The sweep is off for this project: it is a single case. "
+                         "Switch the sweep on in Setup to run Mach/alpha/beta cases.").mark("sweep-off")
+                return
             _sweep_fields(frame, after)
             ui.label("Cases").classes("text-lg")
             holders["cases"] = ui.column().classes("w-full gap-2")
@@ -169,40 +174,3 @@ def _change_ref(p: Project, name: str, ref) -> None:
     if case is None:
         raise ProjectError(f"Case {name} no longer exists")
     case.restart_ref = ref
-
-
-def _problems(frame: ProjectFrame, refresh: Callable[[], None]) -> None:
-    found = preflight(frame.session.directory, frame.session.project, "generate")
-    if not found:
-        ui.label("No problems found.").classes("text-positive").mark("problems-none")
-    for problem in found:
-        style = "text-negative" if problem.severity == "error" else "text-warning"
-        prefix = "Error" if problem.severity == "error" else "Warning"
-        ui.label(f"{prefix}: {problem.message}").classes(style).mark(f"problem-{problem.severity}")
-
-    def generate() -> None:
-        stale = frame.ensure_current(notify=False)  # one toast, worded for Generate, not two
-        if stale is not None:
-            if frame.session.load_error is not None:  # project.json on disk is invalid
-                ui.notify(stale, type="negative")
-            else:
-                ui.notify("Project changed on disk and was reloaded; generate again", type="warning")
-            return
-        # Check again: files may have gone (e.g. the mesh deleted) since these checks were drawn.
-        errors = [p for p in preflight(frame.session.directory, frame.session.project, "generate")
-                  if p.severity == "error"]
-        if errors:
-            ui.notify(errors[0].message, type="negative")
-            refresh()
-            return
-        try:
-            written = generate_configs(frame.session.directory, frame.session.project)
-        except AeroSuiteError as exc:
-            ui.notify(str(exc), type="negative")
-            return
-        ui.notify(f"Wrote {len(written)} configs", type="positive")
-        frame.refresh()
-        refresh()
-
-    button = ui.button("Generate configs", on_click=generate).mark("generate")
-    button.set_enabled(not has_errors(found))
