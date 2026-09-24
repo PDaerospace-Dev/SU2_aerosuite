@@ -39,4 +39,23 @@ async def _test_base_page(project: str = "") -> None:
         ui.button("Browse", on_click=browse).mark("t-browse")
 
 
+from aerosuite.web.reference_panel import reference_panel  # noqa: E402
+
+
+@ui.page("/_test/reference")
+def _test_reference_page() -> None:
+    """Test-only page: a reference panel wired to an in-memory config text."""
+    state = {"text": "SOLVER= EULER\n", "inserted": []}
+    shown = ui.label("").mark("t-inserted")
+
+    def on_insert(option):
+        state["inserted"].append(option.key)
+        state["text"] += option.line + "\n"
+        shown.text = ",".join(state["inserted"])
+        return None
+
+    reference_panel(on_insert=on_insert, in_config=lambda: {
+        line.split("=")[0].strip() for line in state["text"].splitlines() if "=" in line})
+
+
 ui.run(reload=False, show=False)
