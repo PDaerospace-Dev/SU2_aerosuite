@@ -82,7 +82,10 @@ def line_options(x: list, df, columns: list, normalize: bool = False) -> dict:
         "animation": False,
         "tooltip": {"trigger": "axis"},
         "legend": {"data": list(columns), "orient": "vertical", "right": 10, "top": "middle"},
-        "xAxis": {"type": "value", "name": "Iteration"},
+        # onZero False keeps the axis line at the bottom of the grid instead of at y = 0, where
+        # ECharts puts a value axis by default (residuals are negative, so that's mid-chart).
+        "xAxis": {"type": "value", "name": "Iteration", "nameLocation": "middle", "nameGap": 30,
+                  "axisLine": {"onZero": False}},
         "yAxis": {"type": "value", "name": "residuals", "scale": True},
         "series": series,
     }
@@ -126,9 +129,10 @@ def data_job(view: JobView, case: str, started: Callable[[JobRecord], Sequence[s
 class _Content(NamedTuple):
     """What poll()/render() feeds into the source line, checkboxes and chart."""
     df: Any  # None: nothing to plot; else a (maybe empty) DataFrame
-    state: str  # "chart" | "no-history" | "not-run"
+    state: str  # "chart" | "no-history" | "not-run" | "no-columns"
     source_text: str
     source_tooltip: str  # only set in file mode
+    message: str = ""  # the label text for "no-columns"; "no-history"/"not-run" have fixed text
 
 
 def _replace_options(chart, options: dict) -> None:
@@ -150,7 +154,7 @@ class MonitorPage:
         self.df = None  # the DataFrame behind the chart, if one is shown
         self.chart = None  # the ui.echart, if the right pane currently shows one
         self.columns_shape: tuple = ()  # the column names self.checkbox_holder was built for
-        self.chart_state: Optional[str] = None  # the _Content.state self.chart_holder was built for
+        self.chart_shape: Optional[tuple] = None  # (state, message) self.chart_holder was built for
         # Built once; poll() updates these in place so it never closes an open dropdown or
         # resets a checkbox. Only the checkbox list and the chart-vs-message area are rebuilt,
         # and only when what they must show actually changes shape.
@@ -164,7 +168,7 @@ class MonitorPage:
                     "monitor-stop")
                 ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark("monitor-normalize")
                 self.checkbox_holder = ui.column().classes("gap-1")
-            self.chart_holder = ui.column().classes("grow h-[32rem]")
+            self.chart_holder = ui.column().classes("grow")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
 
@@ -228,7 +232,7 @@ class MonitorPage:
         self.chart_holder.clear()
         with self.chart_holder:
             ui.label(text).classes(css)
-        self.columns_shape, self.chart_state, self.chart, self.df = (), None, None, None
+        self.columns_shape, self.chart_shape, self.chart, self.df = (), None, None, None
 
     def _case_content(self, view: JobView) -> _Content:
         row = self._row(view)
@@ -252,6 +256,10 @@ class MonitorPage:
     def _file_content(self) -> _Content:
         df = WATCHER.file_history(self.file_path)
         text = f"{self.file_path.parent.name}/{self.file_path.name}"
+        if df is None or df.empty:
+            return _Content(df, "no-columns", text, str(self.file_path), "No history yet")
+        if not filtered_columns(df):
+            return _Content(df, "no-columns", text, str(self.file_path), "No plottable columns in this file")
         return _Content(df, "chart", text, str(self.file_path))
 
     def _apply(self, content: _Content, rebuild: bool) -> None:
@@ -265,9 +273,10 @@ class MonitorPage:
         if rebuild or columns != self.columns_shape:
             self.columns_shape = columns
             self._build_checkboxes(columns)
-        if rebuild or content.state != self.chart_state:
-            self.chart_state = content.state
-            self._build_chart_area(content.state)
+        shape = (content.state, content.message)
+        if rebuild or shape != self.chart_shape:
+            self.chart_shape = shape
+            self._build_chart_area(content.state, content.message)
         if content.state == "chart":
             self._draw_chart()
 
@@ -279,7 +288,7 @@ class MonitorPage:
                 ui.checkbox(column, value=checked, on_change=lambda e, c=column: self._toggle_column(
                     c, e.value)).mark(f"monitor-col-{column}")
 
-    def _build_chart_area(self, state: str) -> None:
+    def _build_chart_area(self, state: str, message: str = "") -> None:
         self.chart_holder.clear()
         with self.chart_holder:
             if state == "not-run":
@@ -288,8 +297,12 @@ class MonitorPage:
             elif state == "no-history":
                 ui.label("No history yet for this case.").classes("text-grey-7").mark("monitor-no-history")
                 self.chart = None
+            elif state == "no-columns":
+                ui.label(message).classes("text-grey-7").mark("monitor-no-columns")
+                self.chart = None
             else:
-                self.chart = ui.echart({}).classes("w-full h-full").mark("chart-history")
+                # ~70% of the viewport height, like the old app's plot filling its window.
+                self.chart = ui.echart({}).classes("w-full").style("height: 70vh").mark("chart-history")
 
     def _ticked_columns(self) -> list:
         return [column for column in filtered_columns(self.df) if self.ticked.get(column, True)]

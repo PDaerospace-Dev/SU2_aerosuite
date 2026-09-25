@@ -55,6 +55,9 @@ async def test_a_finished_case_shows_the_chart_with_every_column_ticked(user: Us
     assert _element(user, "monitor-col-rms[Rho]").value is True
     assert _element(user, "monitor-col-CL").value is True
     assert _element(user, "monitor-col-CD").value is True
+    chart = _element(user, "chart-history")
+    assert chart.style.get("height") == "70vh"  # tall, like the old app's plot filling its window
+    assert "w-full" in chart.classes
     await user.should_see(marker="badge-monitor-plain")
 
 
@@ -126,6 +129,39 @@ async def test_open_file_plots_a_history_file_and_choosing_a_case_switches_back(
     assert _element(user, "monitor-source").text == f"{A4} · job {job.id} · CONVERGED"
 
 
+async def _open_picked_file(user, folder, eventually):
+    """Click Open file..., navigate into `folder` and pick its history.csv."""
+    user.find(marker="monitor-open-file").click()
+    await user.should_see(marker=f"picker-entry-{folder.name}")
+    user.find(marker=f"picker-entry-{folder.name}").click()
+    await user.should_see(marker="picker-entry-history.csv")
+    user.find(marker="picker-entry-history.csv").click()
+    await eventually(lambda: _element(user, "monitor-source").text == f"{folder.name}/history.csv")
+
+
+async def test_opening_a_file_with_no_matching_columns_shows_a_message(user: User, ready_project, tmp_path,
+                                                                        eventually):
+    project_dir, project = ready_project
+    folder = tmp_path / "odd_run"
+    folder.mkdir()
+    (folder / "history.csv").write_text('"Inner_Iter","Foo","Bar"\n0, 1.0, 2.0\n1, 1.1, 2.1\n')
+    await _open(user, project_dir)
+    await _open_picked_file(user, folder, eventually)
+    assert _element(user, "monitor-no-columns").text == "No plottable columns in this file"
+    await user.should_not_see(marker="chart-history")
+
+
+async def test_opening_an_empty_file_shows_no_history_yet(user: User, ready_project, tmp_path, eventually):
+    project_dir, project = ready_project
+    folder = tmp_path / "empty_run"
+    folder.mkdir()
+    (folder / "history.csv").write_text("")
+    await _open(user, project_dir)
+    await _open_picked_file(user, folder, eventually)
+    assert _element(user, "monitor-no-columns").text == "No history yet"
+    await user.should_not_see(marker="chart-history")
+
+
 async def test_stop_pauses_updates_and_start_resumes(user: User, ready_project, history_writer, monkeypatch):
     from aerosuite.web.pages import monitor
     monkeypatch.setattr(monitor, "POLL_SECONDS", 0.05)
@@ -193,6 +229,16 @@ async def test_a_case_that_never_ran(user: User, ready_project):
     assert _element(user, "monitor-case").value == A0
     assert _element(user, "monitor-source").text == ""
     await user.should_see(marker="monitor-not-run")
+
+
+def test_x_axis_sits_at_the_bottom_with_a_centered_name():
+    # ECharts puts a value axis's line at y = 0 by default, which is mid-chart for residuals
+    # (negative values): onZero=False keeps the Iteration axis at the bottom of the grid instead.
+    df = pd.DataFrame({"Inner_Iter": [0, 1, 2], "CL": [0.5, 0.6, 0.7]})
+    x_axis = line_options([0, 1, 2], df, ["CL"])["xAxis"]
+    assert x_axis["axisLine"] == {"onZero": False}
+    assert x_axis["nameLocation"] == "middle"
+    assert x_axis["nameGap"] > 0  # room below the axis so the name doesn't overlap tick labels
 
 
 def test_long_histories_are_thinned_but_keep_the_last_iteration():
