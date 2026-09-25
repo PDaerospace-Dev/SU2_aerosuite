@@ -1,19 +1,22 @@
-"""Monitor: one case's residuals and coefficients against iteration, its convergence and the job log."""
+"""Monitor: one chart of a case's (or an opened file's) residuals/coefficients against iteration,
+with a checkbox per column — like the old PyQt5 monitor."""
 import math
+import re
+from pathlib import Path
 from typing import Any, Callable, NamedTuple, Optional, Sequence
 
 from nicegui import ui
 
 from ...engine.errors import AeroSuiteError
-from ...engine.jobs.overview import NOT_RUN, CaseRow
+from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.runner import CaseState, JobRecord
-from ...engine.results import check_convergence
 from ..jobs import WATCHER, JobView
 from ..layout import ProjectFrame, open_session
+from ..picker import pick_path
 
 POLL_SECONDS = 2.0
 ITERATION_COLUMNS = ("Inner_Iter", "Outer_Iter")
-DEFAULT_COEFFICIENTS = ("CL", "CD", "CMy")
+COLUMN_PATTERN = re.compile(r"rms|Res|^CL$|^CD$|^CFx$|^CFy$|^CFz$")
 MAX_POINTS = 2000  # per series; longer histories are thinned evenly
 
 
@@ -37,17 +40,29 @@ def iteration_values(df) -> list:
     return list(range(len(df)))
 
 
-def residual_columns(df) -> list:
-    return [column for column in df.columns if column.startswith("rms[")]
+def filtered_columns(df) -> list:
+    """The old monitor's column filter: residuals and the main force/moment coefficients."""
+    return [column for column in df.columns if COLUMN_PATTERN.search(column)]
 
 
-def coefficient_columns(df) -> list:
-    skip = set(residual_columns(df)) | set(ITERATION_COLUMNS)
-    return [column for column in df.columns if column not in skip]
+def normalize_series(values: list) -> list:
+    """The old app's normalize_data: 1 + value - v0, where v0 is the first value from index 1
+    onwards with |value| > 1e-6. Unchanged if there are fewer than 2 points or no such value."""
+    if len(values) < 2:
+        return values
+    v0 = None
+    for value in values[1:]:
+        if not math.isnan(value) and abs(value) > 1e-6:
+            v0 = value
+            break
+    if v0 is None:
+        return values
+    return [value if math.isnan(value) else 1 + value - v0 for value in values]
 
 
-def line_options(x: list, df, columns: list, y_name: str) -> dict:
-    """ECharts options: one line per column against iteration, thinned to MAX_POINTS; NaN is a gap."""
+def line_options(x: list, df, columns: list, normalize: bool = False) -> dict:
+    """ECharts options: one line per column against iteration, thinned to MAX_POINTS; NaN is a
+    gap. `normalize` applies the old app's normalize_data to each series first."""
     count = len(x)
     step = max(1, math.ceil(count / MAX_POINTS))
     indices = list(range(0, count, step))  # length <= MAX_POINTS, since step >= count / MAX_POINTS
@@ -59,14 +74,16 @@ def line_options(x: list, df, columns: list, y_name: str) -> dict:
     series = []
     for column in columns:
         values = df[column].tolist()
+        if normalize:
+            values = normalize_series(values)
         data = [[x[i], None if math.isnan(values[i]) else values[i]] for i in indices]
         series.append({"name": column, "type": "line", "showSymbol": False, "data": data})
     return {
         "animation": False,
         "tooltip": {"trigger": "axis"},
-        "legend": {"data": list(columns)},
+        "legend": {"data": list(columns), "orient": "vertical", "right": 10, "top": "middle"},
         "xAxis": {"type": "value", "name": "Iteration"},
-        "yAxis": {"type": "value", "name": y_name, "scale": True},
+        "yAxis": {"type": "value", "name": "residuals", "scale": True},
         "series": series,
     }
 
@@ -107,12 +124,11 @@ def data_job(view: JobView, case: str, started: Callable[[JobRecord], Sequence[s
 
 
 class _Content(NamedTuple):
-    """What the part below the Case select shows for the chosen case."""
-    shape: tuple  # that part is rebuilt when this changes, else updated in place
-    row: Optional[CaseRow]
-    status_job: Optional[JobRecord]  # the job the case's status comes from
-    source: Optional[JobRecord]  # the job whose run is shown (see data_job)
-    df: Any  # that run's history; None when there is no run to show
+    """What poll()/render() feeds into the source line, checkboxes and chart."""
+    df: Any  # None: nothing to plot; else a (maybe empty) DataFrame
+    state: str  # "chart" | "no-history" | "not-run"
+    source_text: str
+    source_tooltip: str  # only set in file mode
 
 
 def _replace_options(chart, options: dict) -> None:
@@ -124,17 +140,31 @@ def _replace_options(chart, options: dict) -> None:
 class MonitorPage:
     def __init__(self, frame: ProjectFrame) -> None:
         self.frame = frame
+        self.mode = "case"  # or "file"
         self.case: Optional[str] = None
-        self.columns: Optional[list] = None  # None: the default coefficients
+        self.file_path: Optional[Path] = None
+        self.stopped = False
+        self.normalize = False
+        self.ticked: dict = {}  # column name -> ticked, remembered across case/file switches
         self.was_running = False
-        # Built once, and the charts below are updated in place while the case runs: rebuilding
-        # them every poll would close an open dropdown and reset the charts.
-        self.select = ui.select([], label="Case", on_change=lambda e: self._choose(e.value)).classes(
-            "w-80").mark("monitor-case")
-        self.body = ui.column().classes("w-full gap-4")
-        self.shape: Optional[tuple] = None  # the _Content.shape self.body was built for
-        self.parts: dict = {}  # elements of self.body that poll() updates in place
-        self.df = None  # the history in the charts, if they are shown
+        self.df = None  # the DataFrame behind the chart, if one is shown
+        self.chart = None  # the ui.echart, if the right pane currently shows one
+        self.columns_shape: tuple = ()  # the column names self.checkbox_holder was built for
+        self.chart_state: Optional[str] = None  # the _Content.state self.chart_holder was built for
+        # Built once; poll() updates these in place so it never closes an open dropdown or
+        # resets a checkbox. Only the checkbox list and the chart-vs-message area are rebuilt,
+        # and only when what they must show actually changes shape.
+        with ui.row().classes("w-full gap-4 items-start no-wrap"):
+            with ui.column().classes("gap-2").style("width: 16rem; min-width: 16rem;"):
+                self.select = ui.select([], label="Case", on_change=lambda e: self._choose_case(e.value)).classes(
+                    "w-full").mark("monitor-case")
+                ui.button("Open file…", on_click=self._open_file).props("flat no-caps").mark("monitor-open-file")
+                self.source_label = ui.label("").classes("text-xs text-grey-7").mark("monitor-source")
+                self.stop_button = ui.button("Stop", on_click=self._toggle_stop).props("flat no-caps").mark(
+                    "monitor-stop")
+                ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark("monitor-normalize")
+                self.checkbox_holder = ui.column().classes("gap-1")
+            self.chart_holder = ui.column().classes("grow h-[32rem]")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
 
@@ -153,140 +183,151 @@ class MonitorPage:
         return WATCHER.started_cases(self.directory, job)
 
     def poll(self) -> None:
-        try:
-            view = WATCHER.state(self.directory, self.frame.session.project)
-        except AeroSuiteError:
+        if self.stopped:
             return
-        running = self._running(view)
-        if not (running or self.was_running):
-            return
-        self.was_running = running
-        content = self._content(view)
-        if content.shape != self.shape:
-            self._build(content)
+        if self.mode == "case":
+            try:
+                view = WATCHER.state(self.directory, self.frame.session.project)
+            except AeroSuiteError:
+                return
+            running = self._running(view)
+            if not (running or self.was_running):
+                return
+            self.was_running = running
+            content = self._case_content(view)
         else:
-            self._fill(content)
+            if self.file_path is None:
+                return
+            content = self._file_content()
+        self._apply(content, rebuild=False)
 
     def render(self, view: Optional[JobView] = None) -> None:
-        """Refresh the Case select's cases and rebuild everything below it."""
+        """Refresh the Case select's cases and the content below (chart or message)."""
         if view is None:
             try:
                 view = WATCHER.state(self.directory, self.frame.session.project)
             except AeroSuiteError as exc:
                 self.select.set_visibility(False)
-                self._clear()
-                with self.body:
-                    ui.label(f"Error: {exc}").classes("text-negative")
+                self._show_message(f"Error: {exc}", "text-negative")
                 return
         names = [case.name for case in self.frame.session.project.cases]
-        if self.case not in names:
-            self.case = default_case(view, names, self._started)
-        self.was_running = self._running(view)
-        self.select.set_options(names, value=self.case)  # _choose sees the same case: no re-render
+        if self.mode == "case":
+            if self.case not in names:
+                self.case = default_case(view, names, self._started)
+            self.was_running = self._running(view)
+        self.select.set_options(names, value=self.case if self.mode == "case" else None)
         self.select.set_visibility(bool(names))
-        if not names:
-            self._clear()
-            with self.body:
-                ui.label("No cases yet: set up the sweep first.").classes("text-grey-7")
+        if self.mode == "case" and not names:
+            self._show_message("No cases yet: set up the sweep first.", "text-grey-7")
             return
-        self._build(self._content(view))
+        content = self._case_content(view) if self.mode == "case" else self._file_content()
+        self._apply(content, rebuild=True)
 
-    def _content(self, view: JobView) -> _Content:
+    def _show_message(self, text: str, css: str) -> None:
+        self.checkbox_holder.clear()
+        self.chart_holder.clear()
+        with self.chart_holder:
+            ui.label(text).classes(css)
+        self.columns_shape, self.chart_state, self.chart, self.df = (), None, None, None
+
+    def _case_content(self, view: JobView) -> _Content:
         row = self._row(view)
-        status_job = source = df = None
-        if row is not None:
-            status_job = next((j for j in view.overview.jobs if j.id == row.job_id), None)
-            source = data_job(view, self.case, self._started)
-            if source is not None:
-                df = WATCHER.history(self.directory, source.id, self.case)
-        columns = None if df is None or df.empty else tuple(df.columns)
-        shape = (self.case, row is not None, status_job.id if status_job else None,
-                 source.id if source else None, columns)
-        return _Content(shape, row, status_job, source, df)
+        if row is None or row.status == NOT_RUN:
+            return _Content(None, "not-run", "", "")
+        status_job = next((job for job in view.overview.jobs if job.id == row.job_id), None)
+        source = data_job(view, self.case, self._started)
+        if source is None:
+            # The case appears in a job's case_status (e.g. CANCELLED before it started) but its
+            # "Running Case" banner is in no job's log: there is no run to show data for.
+            text = f"{self.case} · job {status_job.id} · {row.status}" if status_job is not None else ""
+            return _Content(None, "not-run", text, "")
+        df = WATCHER.history(self.directory, source.id, self.case)
+        if status_job is not None and source.id != status_job.id:
+            text = f"{row.status} in job {status_job.id} · showing job {source.id}"
+        else:
+            text = f"{self.case} · job {status_job.id} · {row.status}" if status_job is not None else ""
+        state = "no-history" if df is None or df.empty else "chart"
+        return _Content(df, state, text, "")
 
-    def _clear(self) -> None:
-        self.body.clear()
-        self.shape, self.parts, self.df = None, {}, None
+    def _file_content(self) -> _Content:
+        df = WATCHER.file_history(self.file_path)
+        text = f"{self.file_path.parent.name}/{self.file_path.name}"
+        return _Content(df, "chart", text, str(self.file_path))
 
-    def _build(self, content: _Content) -> None:
-        self._clear()
-        self.shape = content.shape
-        row, status_job, source, df = content.row, content.status_job, content.source, content.df
-        with self.body:
-            if row is None:
+    def _apply(self, content: _Content, rebuild: bool) -> None:
+        self.df = content.df
+        self.source_label.set_text(content.source_text)
+        if content.source_tooltip:
+            self.source_label.props["title"] = content.source_tooltip
+        else:
+            self.source_label.props.pop("title", None)
+        columns = tuple(filtered_columns(content.df)) if content.df is not None else ()
+        if rebuild or columns != self.columns_shape:
+            self.columns_shape = columns
+            self._build_checkboxes(columns)
+        if rebuild or content.state != self.chart_state:
+            self.chart_state = content.state
+            self._build_chart_area(content.state)
+        if content.state == "chart":
+            self._draw_chart()
+
+    def _build_checkboxes(self, columns: tuple) -> None:
+        self.checkbox_holder.clear()
+        with self.checkbox_holder:
+            for column in columns:
+                checked = self.ticked.setdefault(column, True)  # unseen columns start ticked
+                ui.checkbox(column, value=checked, on_change=lambda e, c=column: self._toggle_column(
+                    c, e.value)).mark(f"monitor-col-{column}")
+
+    def _build_chart_area(self, state: str) -> None:
+        self.chart_holder.clear()
+        with self.chart_holder:
+            if state == "not-run":
                 ui.label("This case has not run yet.").classes("text-grey-7").mark("monitor-not-run")
-                return
-            if status_job is not None:
-                self.parts["status"] = ui.label(f"{row.status} in job {status_job.id}").mark("monitor-status")
-            if source is None:
-                # The case appears in a job's case_status (e.g. CANCELLED before it started) but its
-                # "Running Case" banner is in no job's log: there is no run to show data for.
-                ui.label("This case has not run yet.").classes("text-grey-7").mark("monitor-not-run")
-                return
-            if status_job is None or source.id != status_job.id:
-                ui.label(f"Showing the run from job {source.id}").classes("text-grey-7").mark("monitor-data-job")
-            if df.empty:
+                self.chart = None
+            elif state == "no-history":
                 ui.label("No history yet for this case.").classes("text-grey-7").mark("monitor-no-history")
+                self.chart = None
             else:
-                self._charts(df)
-            ui.label("Job log").classes("text-lg")
-            self.parts["log"] = ui.label(self._log(source)).classes(
-                "font-mono text-xs whitespace-pre-wrap").mark("monitor-log")
+                self.chart = ui.echart({}).classes("w-full h-full").mark("chart-history")
 
-    def _fill(self, content: _Content) -> None:
-        """Update the elements built for this same shape with the latest status, history and log."""
-        if "status" in self.parts:
-            self.parts["status"].set_text(f"{content.row.status} in job {content.status_job.id}")
-        if self.df is not None:  # the charts are shown: same shape, so content.df has rows too
-            self.df = content.df
-            self._draw()
-        if "log" in self.parts:
-            self.parts["log"].set_text(self._log(content.source))
+    def _ticked_columns(self) -> list:
+        return [column for column in filtered_columns(self.df) if self.ticked.get(column, True)]
 
-    def _log(self, job: JobRecord) -> str:
-        log = WATCHER.log_tail(self.directory, job)
-        return log if log is not None else "Log not available"
+    def _chart_options(self) -> dict:
+        return line_options(iteration_values(self.df), self.df, self._ticked_columns(), self.normalize)
 
-    def _chosen(self) -> list:
-        others = coefficient_columns(self.df)
-        wanted = self.columns if self.columns is not None else list(DEFAULT_COEFFICIENTS)
-        return [column for column in wanted if column in others]
+    def _draw_chart(self) -> None:
+        if self.chart is not None:
+            _replace_options(self.chart, self._chart_options())
 
-    def _options(self, which: str) -> dict:
-        x = iteration_values(self.df)
-        if which == "residuals":
-            return line_options(x, self.df, residual_columns(self.df), "log10 residual")
-        return line_options(x, self.df, self._chosen(), "value")
+    def _toggle_column(self, column: str, value: bool) -> None:
+        self.ticked[column] = value
+        self._draw_chart()
 
-    def _verdict(self) -> str:
-        _converged, message = check_convergence(self.df)
-        return f"Convergence: {message}"
+    def _set_normalize(self, value: bool) -> None:
+        self.normalize = value
+        self._draw_chart()
 
-    def _charts(self, df) -> None:
-        self.df = df
-        ui.label("Residuals").classes("text-lg")
-        self.parts["residuals"] = ui.echart(self._options("residuals")).classes("w-full h-72").mark(
-            "chart-residuals")
-        ui.label("Coefficients").classes("text-lg")
-        ui.select(coefficient_columns(df), multiple=True, value=self._chosen(), label="Columns",
-                  on_change=lambda e: self._set_columns(e.value)).classes("w-full").mark("monitor-columns")
-        self.parts["coefficients"] = ui.echart(self._options("coefficients")).classes("w-full h-72").mark(
-            "chart-coefficients")
-        self.parts["verdict"] = ui.label(self._verdict()).mark("monitor-verdict")
+    def _toggle_stop(self) -> None:
+        self.stopped = not self.stopped
+        self.stop_button.set_text("Start" if self.stopped else "Stop")
 
-    def _draw(self) -> None:
-        """Put self.df into the existing charts and verdict."""
-        for which in ("residuals", "coefficients"):
-            _replace_options(self.parts[which], self._options(which))
-        self.parts["verdict"].set_text(self._verdict())
-
-    def _choose(self, case: str) -> None:
-        if case == self.case:
+    def _choose_case(self, case: Optional[str]) -> None:
+        # A case is never really None: the select only ever offers real case names. None
+        # arrives here when render() itself sets the select's value (e.g. clearing it while
+        # switching to file mode), which fires this same on_change handler synchronously —
+        # ignore that programmatic change rather than reentering render() mid-render.
+        if case is None or (self.mode == "case" and case == self.case):
             return
+        self.mode = "case"
         self.case = case
         self.render()
 
-    def _set_columns(self, columns) -> None:
-        self.columns = list(columns or [])
-        if self.df is not None:  # redraw the coefficients chart only: the Columns dropdown stays open
-            _replace_options(self.parts["coefficients"], self._options("coefficients"))
+    async def _open_file(self) -> None:
+        chosen = await pick_path("Open history file", mode="file", suffixes=(".csv", ".dat"))
+        if chosen is None:
+            return
+        self.mode = "file"
+        self.file_path = Path(chosen)
+        self.render()

@@ -2,11 +2,13 @@
 
 One LocalRunner for the whole server (it keeps the processes it started so it can reap them),
 an active job refreshed at most every REFRESH_SECONDS per project however many tabs ask, and
-one incremental history buffer per (project, job, case). No NiceGUI and no pandas import here.
+one incremental history buffer per (project, job, case), plus one per opened file (for the
+Monitor page's "Open file..."). No NiceGUI and no pandas import here.
 """
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Sequence
@@ -20,6 +22,7 @@ from ..engine.results import HISTORY_FILE, HistoryBuffer
 REFRESH_SECONDS = 2.0
 LOG_TAIL_LINES = 40
 LOG_TAIL_BYTES = 64 * 1024
+FILE_BUFFER_LIMIT = 8  # opened-file history buffers kept; least-recently-used evicted past this
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,9 @@ class JobWatcher:
         # the number of *currently* active jobs.
         self._refreshed: dict[Path, tuple[str, float]] = {}
         self._buffers: dict[tuple[Path, str, str], HistoryBuffer] = {}
+        # Most-recently-used last; evicted past FILE_BUFFER_LIMIT so opening many different
+        # files over a session does not grow this without bound.
+        self._file_buffers: "OrderedDict[Path, HistoryBuffer]" = OrderedDict()
 
     def state(self, project_dir: Path, project: Project) -> JobView:
         directory = Path(project_dir).resolve()
@@ -91,6 +97,21 @@ class JobWatcher:
                 del self._buffers[old]
             self._buffers[key] = HistoryBuffer(directory / RUNS_DIR / case / HISTORY_FILE)
         return self._buffers[key].read()
+
+    def file_history(self, path: Path):
+        """Every row of the history file at `path` read so far (a DataFrame, maybe empty).
+
+        One incremental buffer per path (like `history()`, but keyed on the file itself rather
+        than a job/case), least-recently-used evicted past FILE_BUFFER_LIMIT.
+        """
+        path = Path(path).resolve()
+        buffer = self._file_buffers.pop(path, None)
+        if buffer is None:
+            buffer = HistoryBuffer(path)
+        self._file_buffers[path] = buffer  # (re-)insert as most-recently-used
+        while len(self._file_buffers) > FILE_BUFFER_LIMIT:
+            self._file_buffers.popitem(last=False)
+        return buffer.read()
 
     def log_tail(self, project_dir: Path, job: JobRecord, lines: int = LOG_TAIL_LINES) -> Optional[str]:
         """The last `lines` lines of the job's log, reading at most LOG_TAIL_BYTES; None if unreadable."""

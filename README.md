@@ -137,7 +137,7 @@ Pages:
 - **Aircraft** (with a profile): the Aircraft Aero form (dropdowns for scheme, MUSCL and turbulence; the four marker lines; placeholders), with the same reference panel.
 - **Sweep** (sweep on): Mach/α/β ranges, naming, restarts, checks, Generate. Each case restarts from `none` (a fresh start), `previous` (the case before it) or `custom` (a restart file, or a case folder such as another study's `runs/M0p8_a2_b0/` — the restart file inside is found for you). A `previous` or `custom` case gets `RESTART_SOL= YES` in the job's own copy of its config automatically (a `none` case gets `NO`); `template.cfg` and `configs/` are left as they are. A `previous` case whose predecessor fails in the same job has nothing to restart from and fails too, as in the desktop app.
 - **Run**: checks, every case's latest status, and **Submit** for all or selected cases (*Failed*, *Unconverged*, *Not run* select them for you). *Continue from each case's last solution* reruns a case from where it stopped (on by default for unconverged cases). **Cancel** stops a running job; job history is listed below. The sweep keeps running when you close the browser or stop the server.
-- **Monitor**: pick a case to see its residuals and coefficients against iteration, its convergence verdict and the end of the job's log, updating live while it runs.
+- **Monitor**: pick a case, or **Open file…** any history file, to plot residuals and coefficients against iteration — tick columns on or off, **Normalize**, **Stop**/**Start** live updating. Updates live while the case runs.
 
 Every field saves as soon as you leave it; invalid values are shown in red and not saved. Results arrive later; until then use `aerosuite summarize`.
 
