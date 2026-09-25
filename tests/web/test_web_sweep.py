@@ -26,6 +26,12 @@ async def test_changing_mach_rebuilds_the_cases(user: User, ready_project):
     await user.should_see(marker="case-M0p6_a0_b0")
 
 
+async def test_a_field_without_a_placeholder_has_no_stack_label(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    assert _element(user, "sweep-base-name").props.get("stack-label") is None
+
+
 async def test_ranges_and_bad_values(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)

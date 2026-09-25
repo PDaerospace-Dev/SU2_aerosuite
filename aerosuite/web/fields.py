@@ -9,6 +9,8 @@ Commit = Callable[[str], Optional[str]]  # returns an error message, or None whe
 def text_field(label: str, value: object, on_commit: Commit, *, mark: str, placeholder: str = "") -> ui.input:
     field = ui.input(label, value="" if value is None else str(value), placeholder=placeholder)
     field.classes("w-full").mark(mark)
+    if placeholder:
+        field.props("stack-label")
     error = ui.label("").classes("text-negative text-xs").mark(f"{mark}-error")
     last = {"text": field.value or ""}
 

@@ -66,6 +66,7 @@ async def test_markers_include_and_value(user: User, ready_project):
     _with_x07(project_dir)
     await _open(user, project_dir)
     assert _element(user, "marker-MARKER_HEATFLUX-value").props["placeholder"] == "( Fuselage, Wing, VT, HT )"
+    assert _element(user, "marker-MARKER_FAR-value").props.get("stack-label") is True
     with user:
         _element(user, "marker-MARKER_FAR-include").set_value(False)
     assert open_project(project_dir).settings.markers == {"MARKER_FAR": None}
