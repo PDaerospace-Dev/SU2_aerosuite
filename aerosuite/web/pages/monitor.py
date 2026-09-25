@@ -49,9 +49,12 @@ def line_options(x: list, df, columns: list, y_name: str) -> dict:
     """ECharts options: one line per column against iteration, thinned to MAX_POINTS; NaN is a gap."""
     count = len(x)
     step = max(1, math.ceil(count / MAX_POINTS))
-    indices = list(range(0, count, step))
+    indices = list(range(0, count, step))  # length <= MAX_POINTS, since step >= count / MAX_POINTS
     if count and indices[-1] != count - 1:
-        indices.append(count - 1)
+        if len(indices) < MAX_POINTS:
+            indices.append(count - 1)  # room to spare: add the last index as an extra point
+        else:
+            indices[-1] = count - 1  # already at the bound: swap in the last index, don't grow
     series = []
     for column in columns:
         values = df[column].tolist()
@@ -68,16 +71,17 @@ def line_options(x: list, df, columns: list, y_name: str) -> dict:
 
 
 def default_case(view: JobView, names: list) -> Optional[str]:
-    """The case running now, else the last case the newest job started, else the first case."""
+    """The case running now, else the case that ran most recently, else the first case."""
     if not names:
         return None
     job = view.latest
     if job is not None:
-        started = [n for n in job.cases if n in names and job.case_status.get(n, CaseState.PENDING)
-                   is not CaseState.PENDING]
-        running = [n for n in started if job.case_status[n] is CaseState.RUNNING]
+        running = [n for n in job.cases if n in names and job.case_status.get(n) is CaseState.RUNNING]
         if running:
             return running[0]
+    for job in view.overview.jobs:  # newest first
+        started = [n for n in job.cases if n in names and job.case_status.get(n, CaseState.PENDING)
+                   is not CaseState.PENDING]
         if started:
             return started[-1]
     return names[0]
