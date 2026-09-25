@@ -14,11 +14,21 @@ def web_env(tmp_path, monkeypatch):
 
 @pytest.fixture
 def eventually():
-    """Wait (without blocking the event loop) until condition() is true, e.g. after an awaited dialog."""
+    """Wait (without blocking the event loop) until condition() is true, e.g. after an awaited dialog.
+
+    `condition` may itself raise `AssertionError` (e.g. `user.find(marker=...)` when nothing matches
+    yet, which raises rather than returning an empty result): that counts as "not yet" and polling
+    continues, so a condition can be written the same way whether the element already exists or not.
+    """
 
     async def wait(condition, timeout: float = 3.0) -> None:
         deadline = time.monotonic() + timeout
-        while not condition():
+        while True:
+            try:
+                if condition():
+                    return
+            except AssertionError:
+                pass
             if time.monotonic() > deadline:
                 raise AssertionError("condition not met in time")
             await asyncio.sleep(0.02)

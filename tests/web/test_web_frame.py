@@ -13,7 +13,7 @@ async def test_frame_shows_project_and_badges(user: User, ready_project):
     await user.should_see(marker="badge-setup-done")
     await user.should_see(marker="badge-sweep-done")
     await user.should_see(marker="badge-configs-todo")
-    await user.should_see(marker="badge-run-later")
+    await user.should_see(marker="badge-run-todo")
 
 
 async def test_non_utf8_template_does_not_lock_the_project_pages_out(user: User, ready_project):

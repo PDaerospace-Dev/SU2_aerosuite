@@ -14,7 +14,7 @@ def test_ready_project(ready_project):
     project_dir, project = ready_project
     assert step_badges(project_dir, project) == {
         "setup": "done", "config": "done", "aircraft": "done", "sweep": "done", "configs": "todo",
-        "run": "later", "monitor": "later", "results": "later",
+        "run": "todo", "monitor": "later", "results": "later",
     }
 
 
@@ -60,6 +60,34 @@ def test_non_utf8_template_does_not_crash_step_badges(ready_project):
     (project_dir / TEMPLATE_FILE).write_bytes(b"% Latin-1 degree sign \xb0\nAOA= 0.0\n")
     badges = step_badges(project_dir, project)
     assert badges["config"] == "attention"
+
+
+def test_run_badge(ready_project):
+    import os
+    from datetime import datetime, timedelta
+
+    import psutil
+
+    from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
+    from aerosuite.engine.jobs.store import clear_lock, save_job, write_lock
+
+    project_dir, project = ready_project
+    names = [case.name for case in project.cases]
+    t0 = datetime(2026, 9, 25, 10, 0)
+    assert step_badges(project_dir, project)["run"] == "todo"
+    save_job(project_dir, JobRecord(
+        id="a", backend="local", cases=names, log_path="jobs/a.log", created=t0, state=JobState.DONE,
+        case_status={n: CaseState.CONVERGED for n in names}))
+    assert step_badges(project_dir, project)["run"] == "done"
+    save_job(project_dir, JobRecord(
+        id="b", backend="local", cases=[names[1]], log_path="jobs/b.log", created=t0 + timedelta(hours=1),
+        state=JobState.FAILED, case_status={names[1]: CaseState.FAILED}))
+    assert step_badges(project_dir, project)["run"] == "attention"
+    write_lock(project_dir, "c", os.getpid(), psutil.Process().create_time())
+    try:
+        assert step_badges(project_dir, project)["run"] == "running"
+    finally:
+        clear_lock(project_dir)
 
 
 def test_configs_badge_follows_the_sweep(ready_project):

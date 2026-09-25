@@ -16,8 +16,10 @@ BADGE_ICONS = {
     "attention": ("error", "warning"),
     "todo": ("radio_button_unchecked", "grey-6"),
     "later": ("schedule", "grey-4"),
+    "running": ("autorenew", "primary"),
+    "plain": ("insights", "grey-6"),
 }
-PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep"}
+PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep", "run": "run"}
 PAGE_CSS = "body { background-color: #f7f7f7; color: #1f1f1f; }"
 
 

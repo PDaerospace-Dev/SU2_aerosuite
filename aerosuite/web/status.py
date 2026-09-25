@@ -6,12 +6,14 @@ from typing import Literal
 
 from ..engine.cfg import CASE_INDEX_FILE, CONFIGS_DIR, read_template
 from ..engine.errors import AeroSuiteError, ProjectError
+from ..engine.jobs.overview import NOT_RUN, case_overview
+from ..engine.jobs.store import active_lock
 from ..engine.models import Project
 from ..engine.preflight import sweep_problems
 from ..engine.project import template_warnings
 from ..engine.results import load_case_index
 
-Badge = Literal["done", "attention", "todo", "later"]
+Badge = Literal["done", "attention", "todo", "later", "running", "plain"]
 
 STEPS: list[tuple[str, str]] = [
     ("setup", "Setup"),
@@ -54,6 +56,17 @@ def _config_badge(project_dir: Path, project: Project, template_ok: bool) -> Bad
     return "attention" if warnings else "done"
 
 
+def _run_badge(project_dir: Path, project: Project) -> Badge:
+    if active_lock(project_dir):
+        return "running"
+    statuses = [row.status for row in case_overview(project_dir, project).rows]
+    if not statuses or all(status == NOT_RUN for status in statuses):
+        return "todo"
+    if all(status == "CONVERGED" for status in statuses):
+        return "done"
+    return "attention"
+
+
 def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
     project_dir = Path(project_dir)
     template_ok = (project_dir / project.template).is_file()
@@ -76,7 +89,7 @@ def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
         "aircraft": "done" if template_ok else "todo",
         "sweep": sweep,
         "configs": _configs_badge(project_dir, project),
-        "run": "later",
+        "run": _run_badge(project_dir, project),
         "monitor": "later",
         "results": "later",
     }
