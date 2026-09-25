@@ -126,3 +126,15 @@ def test_check_convergence_near_zero_mean(tmp_path):
     df = read_history(path)
     assert df["CL"].std() / abs(df["CL"].mean()) > 1e-3  # the relative rule alone would fail it
     assert check_convergence(df) == (True, "Converged")
+
+
+def test_history_buffer_accumulates_and_starts_over(tmp_path, history_writer):
+    from aerosuite.engine.results import HistoryBuffer
+
+    path = history_writer(tmp_path / "case", [0.5] * 20)
+    buffer = HistoryBuffer(path)
+    assert len(buffer.read()) == 20
+    history_writer(tmp_path / "case", [0.5] * 30)  # 10 rows appended
+    assert len(buffer.read()) == 30
+    history_writer(tmp_path / "case", [0.5] * 5)  # the case was re-run: the file shrank
+    assert len(buffer.read()) == 5

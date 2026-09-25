@@ -37,11 +37,13 @@ class HistoryReader:
         self.path = Path(path)
         self.columns: list[str] = []
         self._offset = 0
+        self.restarts = 0
 
     def read_new(self) -> pd.DataFrame:
         try:
             if self.path.stat().st_size < self._offset:
                 self._offset, self.columns = 0, []
+                self.restarts += 1
             with open(self.path, "rb") as fh:
                 fh.seek(self._offset)
                 chunk = fh.read()
@@ -73,6 +75,24 @@ class HistoryReader:
 
 def read_history(path: Path) -> pd.DataFrame:
     return HistoryReader(path).read_new()
+
+
+class HistoryBuffer:
+    """Every row of a history file read so far, growing incrementally (for live monitoring)."""
+
+    def __init__(self, path: Path):
+        self._reader = HistoryReader(path)
+        self._restarts = 0
+        self.frame = pd.DataFrame()
+
+    def read(self) -> pd.DataFrame:
+        new = self._reader.read_new()
+        if self._reader.restarts != self._restarts:  # the file shrank: the case was re-run
+            self._restarts = self._reader.restarts
+            self.frame = pd.DataFrame()
+        if not new.empty:
+            self.frame = new if self.frame.empty else pd.concat([self.frame, new], ignore_index=True)
+        return self.frame
 
 
 def check_convergence(
