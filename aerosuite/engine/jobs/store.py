@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Optional
 
 import psutil
-from pydantic import ValidationError
 
 from ..errors import JobError
 from .runner import JobRecord
@@ -38,7 +37,7 @@ def load_job(project_dir: Path, job_id: str) -> JobRecord:
         return JobRecord.model_validate_json(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         raise JobError(f"No job {job_id} in {project_dir}") from None
-    except (OSError, ValidationError) as exc:
+    except (OSError, ValueError) as exc:  # ValueError: ValidationError, UnicodeDecodeError
         raise JobError(f"Cannot read job record {path}: {exc}") from exc
 
 

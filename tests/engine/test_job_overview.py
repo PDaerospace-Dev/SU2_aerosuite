@@ -50,3 +50,14 @@ def test_no_jobs_yet(ready_project):
     overview = case_overview(project_dir, project)
     assert {row.status for row in overview.rows} == {NOT_RUN}
     assert overview.jobs == [] and overview.problems == []
+
+
+def test_a_job_record_that_is_not_utf8_is_skipped_with_a_warning(ready_project):
+    project_dir, project = ready_project
+    _job(project_dir, "good", T0, {A0: CaseState.CONVERGED})
+    (project_dir / "jobs" / "bad.json").write_bytes(b"\xff\xfe not a job record")
+    overview = case_overview(project_dir, project)
+    assert [job.id for job in overview.jobs] == ["good"]
+    assert overview.problems == ["Job record jobs/bad.json can't be read; ignored"]
+    with pytest.raises(JobError):
+        list_jobs(project_dir)
