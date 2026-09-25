@@ -7,7 +7,7 @@ from . import config
 def register_pages(root: Path) -> None:
     config.set_root(root)
     from .pages import config as config_page
-    from .pages import aircraft, projects, run, setup, sweep
+    from .pages import aircraft, monitor, projects, run, setup, sweep
 
     projects.register()
     setup.register()
@@ -15,3 +15,4 @@ def register_pages(root: Path) -> None:
     aircraft.register()
     sweep.register()
     run.register()
+    monitor.register()

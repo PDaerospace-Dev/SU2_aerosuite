@@ -19,7 +19,8 @@ BADGE_ICONS = {
     "running": ("autorenew", "primary"),
     "plain": ("insights", "grey-6"),
 }
-PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep", "run": "run"}
+PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep", "run": "run",
+                 "monitor": "monitor"}
 PAGE_CSS = "body { background-color: #f7f7f7; color: #1f1f1f; }"
 
 

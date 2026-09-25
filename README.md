@@ -135,13 +135,17 @@ Pages:
 - **Setup**: mesh, template, run settings. The **aircraft profile** is chosen here, with *Apply profile defaults* and *Save as profile…* (this saves your template and settings for the next study of that aircraft). The **sweep on/off** switch is here too.
 - **Config**: your config as text, with a live preview. **SU2's reference** is beside it: search any option, then click *Insert*, or use *Find* in the full file. With the sweep off, *Generate config* is here.
 - **Aircraft** (with a profile): the Aircraft Aero form (dropdowns for scheme, MUSCL and turbulence; the four marker lines; placeholders), with the same reference panel.
-- **Sweep** (sweep on): Mach/α/β ranges, naming, restarts, checks, Generate.
+- **Sweep** (sweep on): Mach/α/β ranges, naming, restarts, checks, Generate. Each case restarts from `none` (a fresh start), `previous` (the case before it) or `custom` (a restart file, or a case folder such as another study's `runs/M0p8_a2_b0/` — the restart file inside is found for you).
+- **Run**: checks, every case's latest status, and **Submit** for all or selected cases (*Failed*, *Unconverged*, *Not run* select them for you). *Continue from each case's last solution* reruns a case from where it stopped (on by default for unconverged cases). **Cancel** stops a running job; job history is listed below. The sweep keeps running when you close the browser or stop the server.
+- **Monitor**: pick a case to see its residuals and coefficients against iteration, its convergence verdict and the end of the solver log, updating live while it runs.
 
-Every field saves as soon as you leave it; invalid values are shown in red and not saved. Run, Monitor and Results arrive in phase 3b; until then use `aerosuite run / status / summarize`.
+Every field saves as soon as you leave it; invalid values are shown in red and not saved. Results arrive later; until then use `aerosuite summarize`.
 
 The bundled X07 profile has the desktop app's form defaults but no template. On the workstation, create an X07 study with your template, then use *Save as profile…* with the id `x07` to keep it.
 
 The web UI has no login, so it only listens on the workstation itself unless you pass `--host` together with `--i-understand-no-auth`.
+
+Because the web UI can start and cancel jobs, anyone with an account on the workstation can reach it at 127.0.0.1 while it runs; a login token is planned before AeroSuite is used on a shared machine.
 
 ## Command line
 The same workflow without the GUI — handy over SSH and for scripting (run inside the uv environment, or `uv run aerosuite ...`):
