@@ -134,7 +134,9 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
         ui.label("No cases yet: enter Mach numbers above.").classes("text-grey-7")
         return
     duplicates = set(find_collisions(case.name for case in project.cases))
-    with ui.grid(columns=6).classes("w-full items-center gap-x-4 gap-y-1"):
+    with ui.grid(columns=6).classes("w-full items-center gap-x-4 gap-y-1").style(
+        "grid-template-columns: repeat(4, auto) 10rem minmax(20rem, 1fr)"
+    ):
         for heading in ("Case", "Mach", "Alpha", "Beta", "Restart", "Restart from"):
             ui.label(heading).classes("text-bold")
         for case in project.cases:
@@ -150,7 +152,7 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
                     frame, n, after, restart=e.value, restart_ref=None),
             ).mark(f"restart-{case.name}")
             if case.restart == "custom":
-                with ui.row().classes("items-start no-wrap w-full"):
+                with ui.row().classes("items-center no-wrap w-full"):
                     with ui.column().classes("grow gap-0"):
                         text_field("Restart file or case folder", case.restart_ref,
                                    lambda text, n=case.name: frame.save(
