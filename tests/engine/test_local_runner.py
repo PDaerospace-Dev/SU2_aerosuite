@@ -216,3 +216,20 @@ def test_sweep_exits_mid_case(ready_project):
     }
     assert job.failure_tail[A2].startswith("No history.csv was written")
     assert "exited before this case started" in job.failure_tail[A4]
+
+
+def test_refresh_of_a_stale_copy_keeps_a_cancel_made_elsewhere(ready_project):
+    """E.g. `status --watch` holds the RUNNING record while the web cancels the job."""
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A0: "hang"})
+    web = LocalRunner()
+    job = web.submit(project_dir, project)
+    stale = _wait(LocalRunner(), project_dir, load_job(project_dir, job.id),
+                  lambda j: j.case_status[A0] is CaseState.RUNNING)
+    web.cancel(project_dir, load_job(project_dir, job.id))
+    watcher = LocalRunner()
+    assert stale.state is JobState.RUNNING
+    refreshed = watcher.refresh(project_dir, stale)
+    assert refreshed.state is JobState.CANCELLED
+    assert refreshed.case_status[A0] is CaseState.CANCELLED
+    assert load_job(project_dir, job.id).state is JobState.CANCELLED

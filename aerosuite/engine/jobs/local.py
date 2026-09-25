@@ -32,7 +32,7 @@ from .runner import (
     sweep_environment,
     sweep_script_path,
 )
-from .store import JOBS_DIR, active_lock, clear_lock, kill_tree, process_alive, save_job, write_lock
+from .store import JOBS_DIR, active_lock, clear_lock, kill_tree, load_job, process_alive, save_job, write_lock
 
 BANNER_RE = re.compile(r"Running Case\s+\d+/\d+:\s+(\S+?)\.cfg")
 TAIL_LINES = 50
@@ -158,6 +158,14 @@ class LocalRunner:
         if not job.is_active:
             return job
         project_dir = Path(project_dir).resolve()
+        # The caller's copy may be stale: another process (the web, `aerosuite cancel`) may have
+        # cancelled or finished the job since. Never overwrite that with this copy's view.
+        try:
+            job = load_job(project_dir, job.id)
+        except JobError:
+            pass  # unreadable or gone: carry on with the caller's copy
+        if not job.is_active:
+            return job
         alive = self._alive(job)
         self._update_cases(project_dir, job, alive)
         if not alive:
