@@ -49,6 +49,21 @@ def list_jobs(project_dir: Path) -> list[JobRecord]:
     return sorted(jobs, key=lambda job: job.created, reverse=True)
 
 
+def scan_jobs(project_dir: Path) -> tuple[list[JobRecord], list[str]]:
+    """Readable jobs, newest first, and a warning for each job record that cannot be read."""
+    jobs_dir = Path(project_dir) / JOBS_DIR
+    jobs: list[JobRecord] = []
+    problems: list[str] = []
+    if jobs_dir.is_dir():
+        for path in sorted(jobs_dir.glob("*.json")):
+            try:
+                jobs.append(load_job(project_dir, path.stem))
+            except JobError:
+                problems.append(f"Job record {JOBS_DIR}/{path.name} can't be read; ignored")
+    jobs.sort(key=lambda job: job.created, reverse=True)
+    return jobs, problems
+
+
 def process_alive(pid: int, create_time: float) -> bool:
     """True if `pid` is running and is the same process (start time matches). Zombies count as dead.
 

@@ -182,3 +182,13 @@ def test_non_utf8_template_is_a_problem_not_a_crash(ready_project):
     (project_dir / "template.cfg").write_bytes(b"% comment with a Latin-1 degree sign \xb0\nAOA= 0.0\n")
     errors = _messages(preflight(project_dir, project, "generate"), "error")
     assert any("not UTF-8 text" in m for m in errors)
+
+
+def test_submit_checks_skip_the_generated_config_state(ready_project, monkeypatch):
+    monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    project_dir, project = ready_project  # configs never generated
+    run_errors = _messages(preflight(project_dir, project, "run"), "error")
+    assert any("Configs have not been generated" in m for m in run_errors)
+    assert _messages(preflight(project_dir, project, "submit"), "error") == []
+    monkeypatch.delenv("SU2_RUN")
+    assert any("SU2_RUN is not set" in m for m in _messages(preflight(project_dir, project, "submit"), "error"))

@@ -111,7 +111,7 @@ def sweep_problems(project: Project, project_dir: Optional[Path] = None) -> list
     return problems
 
 
-def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
+def _config_state_problems(project_dir: Path, project: Project) -> list[Problem]:
     problems = []
     if not (project_dir / CONFIGS_DIR / RUN_CONTROL_FILE).is_file():
         problems.append(Problem("error", "Configs have not been generated (configs/run_control.txt is missing)"))
@@ -125,6 +125,11 @@ def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
             problems.append(Problem(
                 "warning", "Generated configs are out of date with the sweep; regenerate before running"
             ))
+    return problems
+
+
+def _environment_problems(project: Project) -> list[Problem]:
+    problems = []
     if not os.environ.get("SU2_RUN"):
         problems.append(Problem("error", "SU2_RUN is not set; the sweep script needs it to import SU2"))
     script = sweep_script_path(project.run)
@@ -145,7 +150,7 @@ def _run_problems(project_dir: Path, project: Project) -> list[Problem]:
     return problems
 
 
-def preflight(project_dir: Path, project: Project, action: Literal["generate", "run"]) -> list[Problem]:
+def preflight(project_dir: Path, project: Project, action: Literal["generate", "run", "submit"]) -> list[Problem]:
     project_dir = Path(project_dir)
     problems: list[Problem] = []
     template = project_dir / project.template
@@ -172,5 +177,7 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
     if lock:
         problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))
     if action == "run":
-        problems += _run_problems(project_dir, project)
+        problems += _config_state_problems(project_dir, project)
+    if action in ("run", "submit"):
+        problems += _environment_problems(project)
     return problems
