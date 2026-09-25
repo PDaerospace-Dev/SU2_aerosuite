@@ -33,6 +33,14 @@ async def test_editor_shows_and_saves_the_template(user: User, ready_project):
     assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
 
 
+async def test_editor_has_a_fixed_scrolling_height(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    editor = _element(user, "config-text")
+    assert "autogrow" not in editor.props
+    assert editor.props.get("input-style") == "height: 70vh"
+
+
 async def test_warnings_are_shown_but_do_not_block(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)

@@ -130,7 +130,7 @@ def _build(frame: ProjectFrame, state: dict) -> None:
     with ui.row().classes("w-full no-wrap items-start gap-6"):
         with ui.column().classes("w-1/2 gap-2"):
             editor = ui.textarea("Template (template.cfg)", value=initial).props(
-                "outlined autogrow input-class=font-mono").classes("w-full").mark("config-text")
+                'outlined input-class=font-mono input-style="height: 70vh"').classes("w-full").mark("config-text")
             if load_error:
                 editor.props("readonly")
             holders["editor"] = editor
