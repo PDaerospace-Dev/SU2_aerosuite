@@ -8,7 +8,7 @@ import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Iterable, Optional, Protocol, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -56,7 +56,8 @@ class JobRecord(BaseModel):
 
 
 class Runner(Protocol):
-    def submit(self, project_dir: Path, project: Project) -> JobRecord: ...
+    def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
+               continue_cases: Iterable[str] = ()) -> JobRecord: ...
 
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 

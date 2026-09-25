@@ -30,26 +30,33 @@ def main() -> int:
     args = parser.parse_args()
 
     plan_path = Path(args.cfg_dir) / "fake_plan.json"
+    if not plan_path.is_file():  # jobs run from jobs/<id>/configs; tests write the plan into configs/
+        plan_path = Path.cwd().parent / "configs" / "fake_plan.json"
     plan = json.loads(plan_path.read_text()) if plan_path.is_file() else {}
     delay = float(plan.get("delay", 0.05))
     behaviour = plan.get("cases", {})
-    cfgs = [
-        line.split(",")[0].strip()
+    lines = [
+        line.strip()
         for line in Path(args.control_file).read_text().splitlines()
         if line.strip() and not line.startswith("#")
     ]
+    cfgs = [line.split(",")[0].strip() for line in lines]
 
     if input("Proceed with this execution plan? (yes/no): ").strip().lower() not in ("yes", "y"):
         print("Execution cancelled by user.")
         return 0
 
-    for i, cfg in enumerate(cfgs, 1):
+    for i, (cfg, line) in enumerate(zip(cfgs, lines), 1):
         print(f"=== Running Case {i}/{len(cfgs)}: {cfg} ===")
         name = cfg[:-4]
         folder = Path(name)
         if folder.is_dir():
             shutil.rmtree(folder)
         folder.mkdir()
+        source = Path(args.cfg_dir) / cfg
+        if source.is_file():
+            shutil.copy(source, folder)
+        (folder / "restart_used.txt").write_text(line + "\n")
         mode = behaviour.get(name, "converge")
         if mode == "exit":
             sys.stdout.flush()
@@ -63,6 +70,7 @@ def main() -> int:
             print(f"ERROR: Simulation for {cfg} failed: boom")
             continue
         write_history(folder, diverge=(mode == "diverge"))
+        (folder / "restart_flow.dat").write_text(f"solution of {name}\n")
         print("--> Iterations completed: 50")
     return 0
 

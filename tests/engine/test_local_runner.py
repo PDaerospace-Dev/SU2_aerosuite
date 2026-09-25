@@ -127,20 +127,38 @@ def test_submit_with_missing_python(ready_project):
     with pytest.raises(JobError, match="Cannot start"):
         LocalRunner().submit(project_dir, project)
     assert read_lock(project_dir) is None
+    assert not [p for p in (project_dir / "jobs").iterdir() if p.is_dir()]
 
 
-def test_cases_come_from_run_control(ready_project):
-    """A hand-edited run_control.txt decides which cases the job tracks."""
+def test_subset_runs_only_the_selected_cases(ready_project):
     project_dir, project = ready_project
     _prepare(project_dir, project)
-    control = project_dir / CONFIGS_DIR / "run_control.txt"
-    control.write_text(f"# edited by hand\n{A0}.cfg, none\n\n{A4}.cfg, previous\n")
+    earlier = project_dir / RUNS_DIR / A2
+    earlier.mkdir(parents=True)
+    (earlier / "keep.txt").write_text("earlier run")
     runner = LocalRunner()
-    job = runner.submit(project_dir, project)
-    assert job.cases == [A0, A4]
+    job = runner.submit(project_dir, project, cases=[A4, A0])
+    assert job.cases == [A0, A4]  # project order
     job = _wait(runner, project_dir, job, _finished)
-    assert job.state is JobState.DONE
     assert job.case_status == {A0: CaseState.CONVERGED, A4: CaseState.CONVERGED}
+    assert (earlier / "keep.txt").read_text() == "earlier run"
+    assert (project_dir / "jobs" / job.id / "configs" / "run_control.txt").is_file()
+
+
+def test_continue_reruns_a_case_from_its_own_solution(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A2: "diverge"})
+    runner = LocalRunner()
+    first = _wait(runner, project_dir, runner.submit(project_dir, project), _finished)
+    assert first.case_status[A2] is CaseState.UNCONVERGED
+    _prepare(project_dir, project)  # this time it converges
+    second = _wait(runner, project_dir, runner.submit(project_dir, project, cases=[A2], continue_cases=[A2]),
+                   _finished)
+    assert second.case_status == {A2: CaseState.CONVERGED}
+    copy = project_dir.resolve() / "jobs" / second.id / "restart" / A2 / "restart_flow.dat"
+    assert (project_dir / RUNS_DIR / A2 / "restart_used.txt").read_text() == f"{A2}.cfg, custom, {copy}\n"
+    assert copy.read_text() == f"solution of {A2}\n"
+    assert "RESTART_SOL= YES" in (project_dir / RUNS_DIR / A2 / f"{A2}.cfg").read_text()
 
 
 def test_submit_os_error_is_a_job_error(ready_project):

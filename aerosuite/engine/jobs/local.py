@@ -7,18 +7,21 @@ fresh LocalRunner — e.g. after a server restart — reports the same state.
 from __future__ import annotations
 
 import re
+import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Iterable, Optional, Sequence
 
 import psutil
 
-from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE
+from ..cfg import RUN_CONTROL_FILE
 from ..errors import JobError
 from ..models import Project
 from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
+from .plan import prepare_job
 from .runner import (
     FINAL_CASE_STATES,
     CaseState,
@@ -82,28 +85,12 @@ class LocalRunner:
 
     # -- Runner interface ---------------------------------------------------
 
-    def submit(self, project_dir: Path, project: Project) -> JobRecord:
+    def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
+               continue_cases: Iterable[str] = ()) -> JobRecord:
+        """Run `cases` (default: every case) from the job's own configs (see jobs/plan.py)."""
         project_dir = Path(project_dir).resolve()
-        configs = project_dir / CONFIGS_DIR
-        control = configs / RUN_CONTROL_FILE
-        if not control.is_file():
-            raise JobError(f"{control} not found; generate configs first")
         if active_lock(project_dir):
             raise JobError("A job is already running for this project")
-
-        # The sweep script runs what run_control.txt lists (it may have been edited
-        # by hand), so the job tracks exactly those cases.
-        cases = control_cases(control)
-        if not cases:
-            raise JobError(f"{control} lists no cases")
-        job_id = new_job_id()
-        job = JobRecord(
-            id=job_id,
-            backend=self.backend,
-            cases=cases,
-            log_path=f"{JOBS_DIR}/{job_id}.log",
-            case_status={name: CaseState.PENDING for name in cases},
-        )
         runs = project_dir / RUNS_DIR
         for folder in (project_dir / JOBS_DIR, runs):
             try:
@@ -111,6 +98,18 @@ class LocalRunner:
             except OSError as exc:
                 raise JobError(f"Cannot create {folder}: {exc}") from exc
 
+        selected = [case.name for case in project.cases] if cases is None else list(cases)
+        job_id = new_job_id()
+        configs = prepare_job(project_dir, project, job_id, selected, continue_cases)
+        control = configs / RUN_CONTROL_FILE
+        names = control_cases(control)
+        job = JobRecord(
+            id=job_id,
+            backend=self.backend,
+            cases=names,
+            log_path=f"{JOBS_DIR}/{job_id}.log",
+            case_status={name: CaseState.PENDING for name in names},
+        )
         cmd = [
             resolve_sweep_python(project.run.sweep_python), str(sweep_script_path(project.run)),
             "-d", str(configs), "-c", str(control), "-n", str(project.run.partitions),
@@ -130,6 +129,7 @@ class LocalRunner:
                     stderr=subprocess.STDOUT, env=env, **detach,
                 )
         except OSError as exc:
+            shutil.rmtree(configs.parent, ignore_errors=True)
             raise JobError(f"Cannot start the sweep script ({' '.join(cmd)}): {exc}") from exc
 
         try:  # the script asks "Proceed with this execution plan? (yes/no)"
