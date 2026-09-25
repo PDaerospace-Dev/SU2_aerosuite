@@ -204,8 +204,12 @@ class LocalRunner:
         ref = job.backend_ref
         return process_alive(int(ref.get("pid", -1)), float(ref.get("create_time", 0.0)))
 
-    def _started_cases(self, project_dir: Path, job: JobRecord) -> list[str]:
-        """Case names whose banner is in the log, reading only bytes not scanned yet."""
+    def started_cases(self, project_dir: Path, job: JobRecord) -> list[str]:
+        """Case names whose banner is in the log, reading only bytes not scanned yet.
+
+        Cached incrementally per job id: a finished job's log never changes again, so once
+        fully scanned it is not re-read. Safe to call for any job, active or not.
+        """
         offset, started = self._scan.get(job.id, (0, []))
         try:
             with open(project_dir / job.log_path, "rb") as fh:
@@ -222,7 +226,7 @@ class LocalRunner:
         return started
 
     def _update_cases(self, project_dir: Path, job: JobRecord, alive: bool) -> None:
-        started = self._started_cases(project_dir, job)
+        started = self.started_cases(project_dir, job)
         current = started[-1] if (alive and started) else None
         runs = project_dir / RUNS_DIR
         for name in job.cases:

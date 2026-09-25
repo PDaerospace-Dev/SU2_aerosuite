@@ -82,6 +82,24 @@ async def test_defaults_to_the_running_case(user: User, ready_project):
         runner.cancel(project_dir, job)
 
 
+async def test_a_never_started_cancelled_case_shows_the_older_jobs_data(user: User, ready_project):
+    project_dir, project = ready_project
+    runner1, job1 = _start(project_dir, project)
+    _wait(runner1, project_dir, job1, lambda j: not j.is_active)
+    runner2, job2 = _start(project_dir, project, **{A2: "hang"})
+    _wait(runner2, project_dir, job2, lambda j: j.case_status[A2] is CaseState.RUNNING)
+    job2 = runner2.cancel(project_dir, job2)
+    # A4 never started in job2 (the sweep hung on A2 before reaching it) but is CANCELLED anyway.
+    assert job2.case_status[A4] is CaseState.CANCELLED
+    await _open(user, project_dir)
+    assert _element(user, "monitor-case").value == A2  # the case running when cancelled, not A4
+    with user:
+        _element(user, "monitor-case").set_value(A4)
+    assert _element(user, "monitor-status").text == f"CANCELLED in job {job2.id}"
+    assert _element(user, "monitor-data-job").text == f"Showing the run from job {job1.id}"
+    assert _element(user, "monitor-verdict").text == "Convergence: Converged"
+
+
 async def test_a_case_that_never_ran(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
@@ -121,6 +139,12 @@ def test_nan_values_become_gaps():
     assert data == [[0, 0.5], [1, None], [2, 0.6]]
 
 
+def _by_status(job: JobRecord) -> list:
+    """Stand-in for the log-banner rule in tests that build JobRecords directly (no real log
+    file to scan): "started" is every case not left at PENDING, in `job.cases` order."""
+    return [n for n in job.cases if job.case_status.get(n, CaseState.PENDING) is not CaseState.PENDING]
+
+
 def test_default_case_prefers_the_older_jobs_last_started_case_when_the_newest_job_is_all_pending():
     # Right after a submit, every case of the newest job is still PENDING: default_case must not
     # fall through to names[0] when an older, finished job has a genuine last-run case.
@@ -130,7 +154,7 @@ def test_default_case_prefers_the_older_jobs_last_started_case_when_the_newest_j
                        case_status={A0: CaseState.CONVERGED, A2: CaseState.FAILED, A4: CaseState.PENDING})
     overview = CaseOverview(rows=[], problems=[], jobs=[newest, older])
     view = JobView(latest=newest, active=None, overview=overview)
-    assert default_case(view, [A0, A2, A4]) == A2
+    assert default_case(view, [A0, A2, A4], _by_status) == A2
 
 
 def test_default_case_prefers_a_running_case_in_the_newest_job():
@@ -142,10 +166,23 @@ def test_default_case_prefers_a_running_case_in_the_newest_job():
                                     A4: CaseState.CONVERGED})
     overview = CaseOverview(rows=[], problems=[], jobs=[running_job, older])
     view = JobView(latest=running_job, active=running_job, overview=overview)
-    assert default_case(view, [A0, A2, A4]) == A2
+    assert default_case(view, [A0, A2, A4], _by_status) == A2
 
 
 def test_default_case_falls_back_to_the_first_case_with_no_jobs():
     overview = CaseOverview(rows=[], problems=[], jobs=[])
     view = JobView(latest=None, active=None, overview=overview)
-    assert default_case(view, [A0, A2, A4]) == A0
+    assert default_case(view, [A0, A2, A4], _by_status) == A0
+
+
+def test_default_case_skips_a_cancelled_case_that_never_started():
+    # Cancelling a job marks every not-yet-finished case CANCELLED, including ones the sweep never
+    # reached. default_case must use the log-banner "started" rule, not case_status, to tell them
+    # apart from the case that was genuinely running when the job was cancelled.
+    newest = JobRecord(id="2", backend="local", cases=[A0, A2, A4], log_path="job2.log",
+                        case_status={A0: CaseState.CONVERGED, A2: CaseState.CANCELLED,
+                                     A4: CaseState.CANCELLED})
+    overview = CaseOverview(rows=[], problems=[], jobs=[newest])
+    view = JobView(latest=newest, active=None, overview=overview)
+    started = {"2": [A0, A2]}  # A4's banner never printed: the sweep hung on A2 before reaching it
+    assert default_case(view, [A0, A2, A4], lambda job: started[job.id]) == A2

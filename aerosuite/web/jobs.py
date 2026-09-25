@@ -76,6 +76,11 @@ class JobWatcher:
             return None
         return self.runner.cancel(directory, active)
 
+    def started_cases(self, project_dir: Path, job: JobRecord) -> list[str]:
+        """Case names whose "Running Case" banner is in `job`'s log (see LocalRunner.started_cases)."""
+        directory = Path(project_dir).resolve()
+        return self.runner.started_cases(directory, job)
+
     def history(self, project_dir: Path, job_id: str, case: str):
         """Every history row of `case` written in job `job_id` so far (a DataFrame, maybe empty)."""
         directory = Path(project_dir).resolve()
