@@ -51,6 +51,32 @@ def test_state_refreshes_an_active_job_at_most_every_two_seconds(ready_project):
     watcher.cancel(project_dir, project)
 
 
+def test_refresh_throttle_holds_at_most_one_entry_per_project(ready_project):
+    """The _refreshed throttle map must not grow with every job ever submitted."""
+    project_dir, project = ready_project
+    _prepare(project_dir, project, **{A0: "hang"})
+    now = [100.0]
+    watcher = JobWatcher(runner=CountingRunner(), clock=lambda: now[0])
+
+    watcher.submit(project_dir, project, [A0])
+    watcher.state(project_dir, project)
+    assert len(watcher._refreshed) == 1  # one entry for the one active job
+
+    view = watcher.state(project_dir, project)
+    assert view.active is not None
+    watcher.cancel(project_dir, project)
+    view = watcher.state(project_dir, project)
+    assert view.active is None
+    assert len(watcher._refreshed) == 0  # dropped once the project has no active job
+
+    _prepare(project_dir, project, **{A2: "hang"})
+    second = watcher.submit(project_dir, project, [A2])
+    view = watcher.state(project_dir, project)
+    assert view.active is not None and view.active.id == second.id
+    assert len(watcher._refreshed) == 1  # still only one entry, now for the second job
+    watcher.cancel(project_dir, project)
+
+
 def test_a_new_watcher_picks_up_a_running_job(ready_project):
     project_dir, project = ready_project
     _prepare(project_dir, project, **{A0: "hang"})

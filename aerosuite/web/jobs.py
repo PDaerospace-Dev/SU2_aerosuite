@@ -34,20 +34,28 @@ class JobWatcher:
                  clock: Callable[[], float] = time.monotonic) -> None:
         self.runner = runner if runner is not None else LocalRunner()
         self._clock = clock
-        self._refreshed: dict[tuple[Path, str], float] = {}
+        # One entry per project with an active job: (job_id, time of its last refresh).
+        # Dropped as soon as the project has no active job, so this never grows past
+        # the number of *currently* active jobs.
+        self._refreshed: dict[Path, tuple[str, float]] = {}
         self._buffers: dict[tuple[Path, str, str], HistoryBuffer] = {}
 
     def state(self, project_dir: Path, project: Project) -> JobView:
         directory = Path(project_dir).resolve()
         view = self._view(directory, project)
-        if view.active is not None:
-            key = (directory, view.active.id)
-            now = self._clock()
-            last = self._refreshed.get(key)
-            if last is None or now - last >= REFRESH_SECONDS:
-                self._refreshed[key] = now
-                self.runner.refresh(directory, view.active)  # saves the job record
-                view = self._view(directory, project)
+        if view.active is None:
+            self._refreshed.pop(directory, None)
+            return view
+        now = self._clock()
+        entry = self._refreshed.get(directory)
+        # Refresh immediately for a newly active job (different id, or none seen yet),
+        # otherwise at most once every REFRESH_SECONDS for the same job.
+        if entry is None or entry[0] != view.active.id or now - entry[1] >= REFRESH_SECONDS:
+            self._refreshed[directory] = (view.active.id, now)
+            self.runner.refresh(directory, view.active)  # saves the job record
+            view = self._view(directory, project)
+            if view.active is None:
+                self._refreshed.pop(directory, None)
         return view
 
     def _view(self, directory: Path, project: Project) -> JobView:
