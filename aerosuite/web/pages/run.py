@@ -39,6 +39,17 @@ def _plural(count: int, word: str) -> str:
     return f"{count} {word}{'' if count == 1 else 's'}"
 
 
+def _snapshot(view: JobView) -> tuple:
+    """What the page shows from `view`: the active job, each case's row and the job history."""
+    active = view.active
+    return (
+        (active.id, active.state) if active is not None else None,
+        tuple((row.name, row.status, row.job_id, row.failure_tail) for row in view.overview.rows),
+        tuple((job.id, job.state, job.finished) for job in view.overview.jobs),
+        tuple(view.overview.problems),
+    )
+
+
 def _answer(dialog: ui.dialog, value: bool) -> None:
     """Submit a dialog's result and delete it immediately (see the comment in confirm_cancel)."""
     dialog.submit(value)
@@ -53,6 +64,7 @@ class RunPage:
         self.continue_cases: list[str] = []
         self.has_errors = False
         self.was_active = False
+        self.shown: Optional[tuple] = None  # _snapshot() of the view on screen
         self.dialogs_open = 0  # a re-render while Cancel's confirm dialog awaits would orphan it
         self.holder = ui.column().classes("w-full gap-4")
         self.render()
@@ -73,7 +85,11 @@ class RunPage:
             view = WATCHER.state(self.directory, self.project)
         except AeroSuiteError:
             return
-        if view.active is not None or self.was_active:
+        if view.active is None and not self.was_active:
+            return
+        # Rebuild only when something shown changed: a rebuild every poll would collapse an open
+        # "Why it failed" and let clicks land on deleted elements during a long sweep.
+        if _snapshot(view) != self.shown:
             self.render(view)
             self.frame.refresh()
 
@@ -87,6 +103,7 @@ class RunPage:
                     ui.label(f"Error: {exc}").classes("text-negative").mark("run-error")
                 return
         self.was_active = view.active is not None
+        self.shown = _snapshot(view)
         self.ticked &= {case.name for case in self.project.cases}  # the cases may have been rebuilt
         self.holder.clear()
         with self.holder:

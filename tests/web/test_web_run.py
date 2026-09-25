@@ -130,3 +130,26 @@ async def test_cases_changed_on_disk_follow_into_the_table(user: User, ready_pro
     await eventually(lambda: bool(user.find(marker="tick-M0p8_a6_b0").elements), timeout=10)
     await user.should_not_see(marker=f"tick-{A2}")
     assert not _element(user, "tick-M0p8_a6_b0").value
+
+
+async def test_a_poll_with_nothing_new_does_not_rebuild_the_page(user: User, ready_project, su2_env, eventually,
+                                                                 monkeypatch):
+    """Rebuilding every poll would collapse an open "Why it failed" and drop clicks mid-flight."""
+    import asyncio
+
+    from aerosuite.web.pages import run
+
+    monkeypatch.setattr(run, "POLL_SECONDS", 0.05)
+    project_dir, _ = ready_project
+    _plan(project_dir, **{A0: "hang"})
+    await _open(user, project_dir)
+    user.find(marker="submit").click()
+    await eventually(lambda: _text(user, f"status-{A0}") == "RUNNING", timeout=20)
+    shown = _element(user, f"status-{A0}")
+    tick = _element(user, f"tick-{A2}")
+    await asyncio.sleep(0.5)  # ~10 polls, the job still on A0
+    assert _element(user, f"status-{A0}") is shown and _element(user, f"tick-{A2}") is tick
+    user.find(marker="cancel").click()
+    await user.should_see(marker="cancel-confirm")
+    user.find(marker="cancel-confirm").click()
+    await eventually(lambda: _text(user, f"status-{A0}") == "CANCELLED", timeout=20)
