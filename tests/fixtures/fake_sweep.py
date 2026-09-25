@@ -3,10 +3,15 @@
 Per-case behaviour comes from <cfg_dir>/fake_plan.json:
     {"delay": 0.05, "cases": {"<case name>": "converge" | "diverge" | "fail" | "hang" | "exit"}}
 Cases not listed converge. "exit" ends the whole script (exit code 1) right after that case's banner.
+
+Each case folder gets restart_used.txt (its run_control.txt line) and restart_applied.txt: "yes" when
+the line asks for a restart (previous / from_case / custom) and the case cfg has RESTART_SOL= YES,
+else "no" -- like aoa_sweep_v8.py, which ignores the restart file unless RESTART_SOL is YES.
 """
 import argparse
 import json
 import math
+import re
 import shutil
 import sys
 import time
@@ -19,6 +24,15 @@ def write_history(folder: Path, diverge: bool) -> None:
         cl = 0.5 + (0.2 * math.sin(i) if diverge else 0.0)
         lines.append(f"{i:8d}, {-2 - 0.1 * i:12.6f}, {cl:12.8f}, {0.02:12.8f}, {-0.1:12.8f}")
     (folder / "history.csv").write_text("\n".join(lines) + "\n")
+
+
+def restart_applied(line: str, cfg: Path) -> bool:
+    fields = [field.strip() for field in line.split(",")]
+    if len(fields) < 2 or fields[1] not in ("previous", "from_case", "custom"):
+        return False
+    text = cfg.read_text() if cfg.is_file() else ""
+    match = re.search(r"^RESTART_SOL\s*=\s*(\S+)", text, re.MULTILINE)
+    return bool(match) and match.group(1).upper() == "YES"
 
 
 def main() -> int:
@@ -57,6 +71,7 @@ def main() -> int:
         if source.is_file():
             shutil.copy(source, folder)
         (folder / "restart_used.txt").write_text(line + "\n")
+        (folder / "restart_applied.txt").write_text("yes\n" if restart_applied(line, source) else "no\n")
         mode = behaviour.get(name, "converge")
         if mode == "exit":
             sys.stdout.flush()

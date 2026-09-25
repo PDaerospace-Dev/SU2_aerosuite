@@ -5,11 +5,16 @@ restart never silently refers to a different case than the one the user chose:
 - `previous` means the case before it in the project's case list;
 - a reference to a case of this project that runs earlier in the job uses its fresh solution
   (`previous` when it runs just before, else `from_case`);
-- otherwise that case's current solution is copied to jobs/<id>/restart/<case>/ before anything
-  runs (the sweep script deletes runs/<case>/ when that case starts) and passed as `custom`.
+- otherwise that case's current solution is hard-linked (or, where that fails, copied) to
+  jobs/<id>/restart/<case>/ before anything runs (the sweep script deletes runs/<case>/ when that
+  case starts) and passed as `custom`; the runner removes jobs/<id>/restart/ when the job ends.
+
+The sweep script uses a restart file only if the case cfg says RESTART_SOL= YES, so the job's copy of
+each cfg gets RESTART_SOL= YES when its line restarts (previous / from_case / custom), else NO.
 """
 from __future__ import annotations
 
+import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -22,6 +27,7 @@ from ..restarts import find_restart_file, own_case_of, restart_file
 from .store import JOBS_DIR
 
 RESTART_DIR = "restart"
+RESTART_OPTIONS = ("previous", "from_case", "custom")  # the control-line options that restart
 
 
 @dataclass(frozen=True)
@@ -110,13 +116,12 @@ def _custom_path(name: str, ref: str) -> ControlLine:
 
 def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
                 continue_cases: Iterable[str] = ()) -> Path:
-    """Write jobs/<id>/configs/ (cfgs + run_control.txt) and copy restart solutions aside.
+    """Write jobs/<id>/configs/ (cfgs + run_control.txt) and set restart solutions aside.
 
     Returns the configs folder. On any error nothing of this job is left behind.
     """
     project_dir = Path(project_dir).resolve()
-    continued = set(continue_cases)
-    plan = plan_restarts(project_dir, project, cases, continued)
+    plan = plan_restarts(project_dir, project, cases, continue_cases)
     if plan.missing_continue:
         raise JobError("These cases have no solution to continue from: " + ", ".join(plan.missing_continue))
     source = project_dir / CONFIGS_DIR
@@ -126,16 +131,23 @@ def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequenc
     job_dir = project_dir / JOBS_DIR / job_id
     if job_dir.exists():
         raise JobError(f"{job_dir} already exists")
+    lines = [(line, _reference(job_dir, line)) for line in plan.lines]
+    for line, reference in lines:
+        if reference is not None and "," in reference:
+            raise JobError(f"{line.case}: the restart path {reference} contains a comma, which "
+                           "run_control.txt cannot hold; rename or move it")
     configs = job_dir / CONFIGS_DIR
     try:
         configs.mkdir(parents=True)
         control = []
-        for line in plan.lines:
+        for line, reference in lines:
             text = (source / f"{line.case}.cfg").read_text(encoding="utf-8")
-            if line.case in continued:
-                text = apply_parameters(text, {"RESTART_SOL": "YES"})
+            restarts = "YES" if line.option in RESTART_OPTIONS else "NO"
+            text = apply_parameters(text, {"RESTART_SOL": restarts})
             (configs / f"{line.case}.cfg").write_text(text, encoding="utf-8", newline="\n")
-            control.append(_control_line(job_dir, line))
+            if line.copy_from is not None:
+                _set_aside(line.copy_from, Path(reference))
+            control.append(", ".join([f"{line.case}.cfg", line.option] + ([reference] if reference else [])))
         (configs / RUN_CONTROL_FILE).write_text("\n".join(control) + "\n", encoding="utf-8", newline="\n")
     except OSError as exc:
         shutil.rmtree(job_dir, ignore_errors=True)
@@ -143,13 +155,19 @@ def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequenc
     return configs
 
 
-def _control_line(job_dir: Path, line: ControlLine) -> str:
-    fields = [f"{line.case}.cfg", line.option]
+def _reference(job_dir: Path, line: ControlLine) -> Optional[str]:
+    """The third field of `line` in run_control.txt: the set-aside solution, or line.ref."""
     if line.copy_from is not None:
-        copy = job_dir / RESTART_DIR / line.copy_from.parent.name / line.copy_from.name
-        copy.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(line.copy_from, copy)
-        fields.append(str(copy))
-    elif line.ref is not None:
-        fields.append(line.ref)
-    return ", ".join(fields)
+        return str(job_dir / RESTART_DIR / line.copy_from.parent.name / line.copy_from.name)
+    return line.ref
+
+
+def _set_aside(solution: Path, target: Path) -> None:
+    """Hard-link `solution` to `target` (instant, no extra space), copying it where that fails."""
+    if target.exists():  # another case of this job restarts from the same solution
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.link(solution, target)  # survives the sweep deleting runs/<case>/
+    except OSError:  # another filesystem, or no hard links there
+        shutil.copyfile(solution, target)

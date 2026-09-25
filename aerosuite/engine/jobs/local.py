@@ -21,7 +21,7 @@ from ..errors import JobError
 from ..models import Project
 from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
-from .plan import prepare_job
+from .plan import RESTART_DIR, prepare_job
 from .runner import (
     FINAL_CASE_STATES,
     CaseState,
@@ -73,6 +73,20 @@ def control_cases(control: Path) -> list[str]:
         name = line.split(",")[0].strip()
         names.append(name[:-4] if name.endswith(".cfg") else name)
     return names
+
+
+def _remove_restart_copies(project_dir: Path, job: JobRecord) -> None:
+    """Delete jobs/<id>/restart/ (solutions set aside for this job): nothing reads them any more."""
+    shutil.rmtree(project_dir / JOBS_DIR / job.id / RESTART_DIR, ignore_errors=True)
+
+
+def _discard(project_dir: Path, job: JobRecord) -> None:
+    """Remove a job that never got going: its jobs/<id>/ folder and its log."""
+    shutil.rmtree(project_dir / JOBS_DIR / job.id, ignore_errors=True)
+    try:
+        (project_dir / job.log_path).unlink()
+    except OSError:
+        pass
 
 
 class LocalRunner:
@@ -129,7 +143,7 @@ class LocalRunner:
                     stderr=subprocess.STDOUT, env=env, **detach,
                 )
         except OSError as exc:
-            shutil.rmtree(configs.parent, ignore_errors=True)
+            _discard(project_dir, job)
             raise JobError(f"Cannot start the sweep script ({' '.join(cmd)}): {exc}") from exc
 
         try:  # the script asks "Proceed with this execution plan? (yes/no)"
@@ -146,9 +160,10 @@ class LocalRunner:
         job.state = JobState.RUNNING
         try:
             write_lock(project_dir, job.id, proc.pid, create_time)
-        except JobError:
+        except JobError:  # another submit won the lock after our check: undo this one
             kill_tree(proc.pid)
             proc.wait()
+            _discard(project_dir, job)
             raise
         self._procs[job.id] = proc
         save_job(project_dir, job)
@@ -197,6 +212,7 @@ class LocalRunner:
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
         self._scan.pop(job.id, None)
+        _remove_restart_copies(project_dir, job)
         save_job(project_dir, job)
         return job
 
@@ -276,3 +292,4 @@ class LocalRunner:
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
         self._scan.pop(job.id, None)
+        _remove_restart_copies(project_dir, job)

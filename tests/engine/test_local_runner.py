@@ -127,7 +127,54 @@ def test_submit_with_missing_python(ready_project):
     with pytest.raises(JobError, match="Cannot start"):
         LocalRunner().submit(project_dir, project)
     assert read_lock(project_dir) is None
-    assert not [p for p in (project_dir / "jobs").iterdir() if p.is_dir()]
+    assert list((project_dir / "jobs").iterdir()) == []  # no job folder and no job log
+
+
+def test_losing_the_lock_race_leaves_nothing_behind(ready_project, monkeypatch):
+    """Another submit took the lock between our check and our write_lock: undo everything."""
+    import aerosuite.engine.jobs.local as local
+
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A0: "hang"})
+    started = []
+
+    def lost(project_dir, job_id, pid, create_time):
+        started.append((pid, create_time))
+        raise JobError("A job is already running for this project")
+
+    monkeypatch.setattr(local, "write_lock", lost)
+    with pytest.raises(JobError, match="already running"):
+        LocalRunner().submit(project_dir, project)
+    assert not process_alive(*started[0])
+    assert list((project_dir / "jobs").iterdir()) == []
+
+
+def test_a_previous_case_really_restarts_from_the_case_before(ready_project):
+    project_dir, project = ready_project
+    project.cases[1].restart = "previous"
+    _prepare(project_dir, project)
+    runner = LocalRunner()
+    job = _wait(runner, project_dir, runner.submit(project_dir, project), _finished)
+    assert job.state is JobState.DONE
+    applied = {n: (project_dir / RUNS_DIR / n / "restart_applied.txt").read_text() for n in (A0, A2, A4)}
+    assert applied == {A0: "no\n", A2: "yes\n", A4: "no\n"}
+    assert (project_dir / RUNS_DIR / A2 / "restart_used.txt").read_text() == f"{A2}.cfg, previous\n"
+
+
+def test_cancel_removes_the_restart_folder(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project)
+    runner = LocalRunner()
+    _wait(runner, project_dir, runner.submit(project_dir, project, cases=[A2]), _finished)
+    _prepare(project_dir, project, cases={A2: "hang"})
+    job = runner.submit(project_dir, project, cases=[A2], continue_cases=[A2])
+    restart = project_dir.resolve() / "jobs" / job.id / "restart"
+    assert restart.is_dir()
+    job = _wait(runner, project_dir, job, lambda j: j.case_status[A2] is CaseState.RUNNING)
+    job = runner.cancel(project_dir, job)
+    assert job.state is JobState.CANCELLED
+    assert not restart.exists()
+    assert (project_dir / RUNS_DIR / A2 / "restart_applied.txt").read_text() == "yes\n"
 
 
 def test_subset_runs_only_the_selected_cases(ready_project):
@@ -157,8 +204,9 @@ def test_continue_reruns_a_case_from_its_own_solution(ready_project):
     assert second.case_status == {A2: CaseState.CONVERGED}
     copy = project_dir.resolve() / "jobs" / second.id / "restart" / A2 / "restart_flow.dat"
     assert (project_dir / RUNS_DIR / A2 / "restart_used.txt").read_text() == f"{A2}.cfg, custom, {copy}\n"
-    assert copy.read_text() == f"solution of {A2}\n"
+    assert (project_dir / RUNS_DIR / A2 / "restart_applied.txt").read_text() == "yes\n"
     assert "RESTART_SOL= YES" in (project_dir / RUNS_DIR / A2 / f"{A2}.cfg").read_text()
+    assert not copy.parent.parent.exists()  # the job's restart/ folder goes when the job ends
 
 
 def test_submit_os_error_is_a_job_error(ready_project):
