@@ -7,11 +7,11 @@ from nicegui.testing import User
 
 from aerosuite.engine.cfg import CONFIGS_DIR, generate_configs
 from aerosuite.engine.jobs.local import LocalRunner
-from aerosuite.engine.jobs.overview import CaseOverview
+from aerosuite.engine.jobs.overview import NOT_RUN, CaseOverview, CaseRow
 from aerosuite.engine.jobs.runner import CaseState, JobRecord
 from aerosuite.web.jobs import JobView
 from aerosuite.web.layout import project_url
-from aerosuite.web.pages.monitor import MAX_POINTS, default_case, line_options
+from aerosuite.web.pages.monitor import MAX_POINTS, data_job, default_case, line_options
 
 A0, A2, A4 = "M0p8_a0_b0", "M0p8_a2_b0", "M0p8_a4_b0"
 
@@ -53,6 +53,7 @@ async def test_a_finished_case_shows_charts_verdict_and_log(user: User, ready_pr
     assert [s["name"] for s in _element(user, "chart-coefficients").options["series"]] == ["CL", "CD", "CMy"]
     assert _element(user, "monitor-verdict").text == "Convergence: Converged"
     assert "Running Case" in _element(user, "monitor-log").text
+    await user.should_see("Job log")  # the whole job's log, not just this case's solver output
     await user.should_see(marker="badge-monitor-plain")
 
 
@@ -186,3 +187,70 @@ def test_default_case_skips_a_cancelled_case_that_never_started():
     view = JobView(latest=newest, active=None, overview=overview)
     started = {"2": [A0, A2]}  # A4's banner never printed: the sweep hung on A2 before reaching it
     assert default_case(view, [A0, A2, A4], lambda job: started[job.id]) == A2
+
+
+async def test_a_poll_while_running_updates_the_charts_in_place(user: User, ready_project, history_writer,
+                                                                 monkeypatch):
+    """Recreating the selects and charts every poll would close an open dropdown."""
+    import asyncio
+
+    from aerosuite.web.pages import monitor
+
+    monkeypatch.setattr(monitor, "POLL_SECONDS", 0.05)
+    project_dir, project = ready_project
+    runner, job = _start(project_dir, project, **{A2: "hang"})
+    _wait(runner, project_dir, job, lambda j: j.case_status[A2] is CaseState.RUNNING)
+    history = history_writer(project_dir / "runs" / A2, [0.5] * 10)
+    try:
+        await _open(user, project_dir)
+        assert _element(user, "monitor-case").value == A2
+        kept = {m: _element(user, m) for m in ("monitor-case", "monitor-columns", "chart-residuals",
+                                                "chart-coefficients", "monitor-verdict", "monitor-log")}
+        assert len(kept["chart-residuals"].options["series"][0]["data"]) == 10
+        with history.open("a") as fh:
+            for i in range(10, 15):
+                fh.write(f"{i:8d}, {-2 - 0.1 * i:12.6f}, {0.5:12.8f}, {0.02:12.8f}, {-0.1:12.8f}\n")
+        deadline = time.monotonic() + 5
+        while len(kept["chart-residuals"].options["series"][0]["data"]) != 15:
+            assert time.monotonic() < deadline, "the residuals chart never showed the new rows"
+            await asyncio.sleep(0.05)
+        assert len(kept["chart-coefficients"].options["series"][0]["data"]) == 15
+        assert {m: _element(user, m) for m in kept} == kept  # the very same elements, updated in place
+    finally:
+        runner.cancel(project_dir, job)
+
+
+def _spy(started):
+    calls = []
+
+    def call(job):
+        calls.append(job.id)
+        return started[job.id]
+
+    return call, calls
+
+
+def test_data_job_only_scans_jobs_that_include_the_case():
+    newest = JobRecord(id="2", backend="local", cases=[A0], log_path="job2.log",
+                       case_status={A0: CaseState.CONVERGED})
+    older = JobRecord(id="1", backend="local", cases=[A0, A2], log_path="job1.log",
+                      case_status={A0: CaseState.CONVERGED, A2: CaseState.CONVERGED})
+    rows = [CaseRow(A0, "CONVERGED", "2"), CaseRow(A2, "CONVERGED", "1"), CaseRow(A4, NOT_RUN, None)]
+    view = JobView(latest=newest, active=None, overview=CaseOverview(rows=rows, problems=[], jobs=[newest, older]))
+    started, calls = _spy({"2": [A0], "1": [A0, A2]})
+    assert data_job(view, A2, started) is older
+    assert calls == ["1"]  # job 2 never included A2: its log is not scanned
+    calls.clear()
+    assert data_job(view, A4, started) is None
+    assert calls == []  # a case that never ran scans no log at all
+
+
+def test_default_case_only_scans_jobs_that_include_a_current_case():
+    newest = JobRecord(id="2", backend="local", cases=["old_case"], log_path="job2.log",
+                       case_status={"old_case": CaseState.CONVERGED})
+    older = JobRecord(id="1", backend="local", cases=[A0, A2], log_path="job1.log",
+                      case_status={A0: CaseState.CONVERGED, A2: CaseState.CONVERGED})
+    view = JobView(latest=newest, active=None, overview=CaseOverview(rows=[], problems=[], jobs=[newest, older]))
+    started, calls = _spy({"2": ["old_case"], "1": [A0, A2]})
+    assert default_case(view, [A0, A2, A4], started) == A2
+    assert calls == ["1"]
