@@ -119,7 +119,9 @@ class RunPage:
             for label, statuses in SELECTORS:
                 ui.button(label, on_click=lambda s=statuses: self._select(view, s)).props(
                     "flat dense no-caps").mark(f"select-{label.lower().replace(' ', '-')}")
-        with ui.grid(columns=4).classes("w-full items-start gap-x-4 gap-y-1"):
+        with ui.grid(columns=4).classes("w-full items-center gap-x-4 gap-y-1").style(
+            "grid-template-columns: 2.5rem minmax(10rem, auto) minmax(10rem, auto) 1fr"
+        ):
             for heading in ("", "Case", "Status", "Last job"):
                 ui.label(heading).classes("text-bold")
             for row in view.overview.rows:
