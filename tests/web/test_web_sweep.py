@@ -136,6 +136,37 @@ async def test_a_stale_mach_edit_tells_the_user_to_enter_it_again(user: User, re
     assert project.sweep.mach == [0.8]
 
 
+async def test_browse_picks_a_case_folder(user: User, ready_project, tmp_path):
+    project_dir, _ = ready_project
+    folder = tmp_path / "earlier_study" / "runs" / "M0p8_a0_b0"
+    folder.mkdir(parents=True)
+    (folder / "restart_flow.dat").write_text("x")
+    await _open(user, project_dir)
+    with user:
+        _element(user, "restart-M0p8_a2_b0").set_value("custom")
+    user.find(marker="ref-browse-M0p8_a2_b0").click()
+    await user.should_see(marker="picker-choose-folder")
+    user.find(marker="picker-path").type(str(folder))
+    user.find(marker="picker-use").click()
+    await user.should_see(marker="problems-none")
+    case = open_project(project_dir).cases[1]
+    assert (case.restart, case.restart_ref) == ("custom", str(folder))
+
+
+async def test_browse_picks_a_restart_file(user: User, ready_project, tmp_path):
+    project_dir, _ = ready_project
+    solution = tmp_path / "restart_flow.dat"
+    solution.write_text("x")
+    await _open(user, project_dir)
+    with user:
+        _element(user, "restart-M0p8_a2_b0").set_value("custom")
+    user.find(marker="ref-browse-M0p8_a2_b0").click()
+    await user.should_see(marker="picker-entry-restart_flow.dat")  # the picker starts at tmp_path
+    user.find(marker="picker-entry-restart_flow.dat").click()
+    await user.should_see(marker="problems-none")
+    assert open_project(project_dir).cases[1].restart_ref == str(solution)
+
+
 async def test_generate_rechecks_files_deleted_while_the_page_was_open(user: User, ready_project):
     project_dir, project = ready_project
     await _open(user, project_dir)

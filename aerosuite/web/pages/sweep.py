@@ -11,6 +11,7 @@ from ...engine.naming import find_collisions, format_value
 from ..checks import render_checks
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session
+from ..picker import pick_path
 
 RESTART_OPTIONS = ["none", "previous", "custom"]
 NAMING = [
@@ -149,10 +150,14 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
                     frame, n, after, restart=e.value, restart_ref=None),
             ).mark(f"restart-{case.name}")
             if case.restart == "custom":
-                text_field("Restart file or case folder", case.restart_ref,
-                           lambda text, n=case.name: frame.save(
-                               lambda p: _change_ref(p, n, text.strip() or None), then=after),
-                           mark=f"ref-{case.name}")
+                with ui.row().classes("items-start no-wrap w-full"):
+                    with ui.column().classes("grow gap-0"):
+                        text_field("Restart file or case folder", case.restart_ref,
+                                   lambda text, n=case.name: frame.save(
+                                       lambda p: _change_ref(p, n, text.strip() or None), then=after),
+                                   mark=f"ref-{case.name}")
+                    ui.button("Browse", on_click=lambda n=case.name: _browse_ref(frame, n, after)).props(
+                        "flat dense").mark(f"ref-browse-{case.name}")
             else:
                 ui.label("")
 
@@ -162,3 +167,12 @@ def _change_ref(p: Project, name: str, ref) -> None:
     if case is None:
         raise ProjectError(f"Case {name} no longer exists")
     case.restart_ref = ref
+
+
+async def _browse_ref(frame: ProjectFrame, name: str, after: Callable[[], None]) -> None:
+    chosen = await pick_path("Restart file or case folder", mode="any")
+    if chosen is None:
+        return
+    message = frame.save(lambda p: _change_ref(p, name, str(chosen)), then=after)
+    if message:
+        ui.notify(message, type="negative")

@@ -12,7 +12,7 @@ from .files import list_entries, parent_of
 async def pick_path(
     title: str,
     *,
-    mode: Literal["file", "folder"],
+    mode: Literal["file", "folder", "any"],
     suffixes: Sequence[str] = (),
     start: Optional[Path] = None,
 ) -> Optional[Path]:
@@ -30,7 +30,7 @@ async def pick_path(
         listing = ui.column().classes("w-full gap-0 max-h-80 overflow-auto")
         with ui.row():
             ui.button("Up", icon="arrow_upward", on_click=lambda: go_up()).props("flat").mark("picker-up")
-            if mode == "folder":
+            if mode in ("folder", "any"):
                 ui.button("Choose this folder", on_click=lambda: dialog.submit(here["dir"])).mark(
                     "picker-choose-folder")
             ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat").mark("picker-cancel")
@@ -51,7 +51,7 @@ async def pick_path(
                     icon = "folder_special" if entry.is_project else "folder"
                     ui.button(entry.name, icon=icon, on_click=lambda e=entry: show(e.path)).props(
                         "flat no-caps align=left").classes("w-full").mark(f"picker-entry-{entry.name}")
-                elif mode == "file":
+                elif mode in ("file", "any"):
                     ui.button(entry.name, icon="description", on_click=lambda e=entry: dialog.submit(e.path)).props(
                         "flat no-caps align=left").classes("w-full").mark(f"picker-entry-{entry.name}")
 
@@ -67,14 +67,16 @@ async def pick_path(
             return
         path = Path(raw).expanduser()
         if path.is_dir():
-            if mode == "folder":
+            if mode in ("folder", "any"):
                 dialog.submit(path)
             else:
                 show(path)
-        elif mode == "file" and path.is_file() and (not wanted or path.name.lower().endswith(wanted)):
+        elif path.is_file() and (
+                mode == "any" or (mode == "file" and (not wanted or path.name.lower().endswith(wanted)))):
             dialog.submit(path)
         else:
-            error.text = f"Not a {'folder' if mode == 'folder' else 'matching file'}: {path}"
+            what = {"folder": "folder", "file": "matching file", "any": "file or folder"}[mode]
+            error.text = f"Not a {what}: {path}"
 
     show(here["dir"])
     result = await dialog
