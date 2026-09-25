@@ -61,19 +61,21 @@ async def test_duplicates_block_generate(user: User, ready_project):
     assert not _element(user, "generate").enabled
 
 
-async def test_restart_choices(user: User, ready_project):
+async def test_restart_choices(user: User, ready_project, tmp_path):
     project_dir, _ = ready_project
     await _open(user, project_dir)
+    await user.should_not_see(marker="initial-restart")
     select = _element(user, "restart-M0p8_a2_b0")
+    assert list(select.options) == ["none", "previous", "custom"]
     with user:
-        select.set_value("from_case")
-    assert open_project(project_dir).cases[1].restart == "from_case"
-    await user.should_see("'from_case' must reference an earlier case")
-    ref = _element(user, "ref-M0p8_a2_b0")
-    with user:
-        ref.set_value("M0p8_a0_b0")
+        select.set_value("custom")
+    assert open_project(project_dir).cases[1].restart == "custom"
+    await user.should_see("'custom' restart needs a restart file or case folder")
+    solution = tmp_path / "solution.dat"
+    solution.write_text("x")
+    user.find(marker="ref-M0p8_a2_b0").type(str(solution)).trigger("blur")
     case = open_project(project_dir).cases[1]
-    assert (case.restart, case.restart_ref) == ("from_case", "M0p8_a0_b0")
+    assert (case.restart, case.restart_ref) == ("custom", str(solution))
     await user.should_see(marker="problems-none")
 
 

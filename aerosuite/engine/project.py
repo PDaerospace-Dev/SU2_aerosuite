@@ -15,12 +15,13 @@ from . import models
 from .cfg import extract_markers, read_template
 from .errors import ProjectError, TemplateError
 from .models import Mesh, Project
+from .restarts import RUNS_DIR
 
 PROJECT_FILE = "project.json"
 TEMPLATE_FILE = "template.cfg"
 
 
-def _v1_to_v2(data: dict) -> dict:
+def _v1_to_v2(data: dict, directory: Optional[Path]) -> dict:
     """Schema 2 adds aircraft profiles and a sweep on/off switch; old projects keep their sweep."""
     data.setdefault("profile", None)
     sweep = data.setdefault("sweep", {})
@@ -29,8 +30,40 @@ def _v1_to_v2(data: dict) -> dict:
     return data
 
 
-# {from_version: function(data) -> data at from_version + 1}
-MIGRATIONS: dict[int, Callable[[dict], dict]] = {1: _v1_to_v2}
+def _v2_to_v3(data: dict, directory: Optional[Path]) -> dict:
+    """Schema 3 keeps three restart options: none, previous and custom (a restart file or case folder).
+
+    `initial` becomes `custom` with the old run.initial_restart; `from_case X` becomes `previous`
+    when X is the case just before it, else `custom` pointing at this project's runs/X/.
+    """
+    run = data.get("run")
+    initial = run.pop("initial_restart", None) if isinstance(run, dict) else None
+    cases = data.get("cases")
+    if not isinstance(cases, list):
+        return data
+    names = [case.get("name") if isinstance(case, dict) else None for case in cases]
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            continue
+        option = case.get("restart")
+        if option == "initial":
+            case["restart"], case["restart_ref"] = "custom", initial
+        elif option == "from_case":
+            ref = case.get("restart_ref")
+            if index > 0 and ref is not None and ref == names[index - 1]:
+                case["restart"], case["restart_ref"] = "previous", None
+            elif not ref:
+                case["restart"], case["restart_ref"] = "custom", None
+            else:
+                # Without the folder (e.g. text being edited elsewhere) the path stays relative,
+                # which preflight reports so the user can fix it.
+                folder = Path(directory).resolve() / RUNS_DIR / ref if directory is not None else Path(RUNS_DIR) / ref
+                case["restart"], case["restart_ref"] = "custom", str(folder)
+    return data
+
+
+# {from_version: function(data, project folder or None) -> data at from_version + 1}
+MIGRATIONS: dict[int, Callable[[dict, Optional[Path]], dict]] = {1: _v1_to_v2, 2: _v2_to_v3}
 
 
 def create_project(directory: Path, name: Optional[str] = None) -> Project:
@@ -46,7 +79,7 @@ def create_project(directory: Path, name: Optional[str] = None) -> Project:
     return project
 
 
-def migrate(data: dict) -> dict:
+def migrate(data: dict, directory: Optional[Path] = None) -> dict:
     if not isinstance(data, dict):
         raise ProjectError("project.json must contain a JSON object")
     try:
@@ -65,7 +98,7 @@ def migrate(data: dict) -> dict:
             raise ProjectError(
                 f"No migration registered from schema {version} to {version + 1}"
             )
-        data = step(data)
+        data = step(data, directory)
         version += 1
         data["schema_version"] = version
     return data
@@ -84,21 +117,21 @@ def read_project_text(directory: Path) -> str:
         raise ProjectError(f"Cannot read {path}: {exc}") from exc
 
 
-def parse_project(text: str, source: str = PROJECT_FILE) -> Project:
+def parse_project(text: str, source: str = PROJECT_FILE, directory: Optional[Path] = None) -> Project:
     """Validate project.json text (migrating old schemas) into a Project."""
     try:
         data = json.loads(text.lstrip("﻿"))  # some editors write a UTF-8 BOM
     except json.JSONDecodeError as exc:
         raise ProjectError(f"{source} is not valid JSON: {exc}") from exc
     try:
-        return Project.model_validate(migrate(data))
+        return Project.model_validate(migrate(data, directory))
     except ValidationError as exc:
         raise ProjectError(f"{source} is not a valid project:\n{exc}") from exc
 
 
 def open_project(directory: Path) -> Project:
     path = Path(directory) / PROJECT_FILE
-    return parse_project(read_project_text(directory), str(path))
+    return parse_project(read_project_text(directory), str(path), directory=Path(directory))
 
 
 def save_project(directory: Path, project: Project) -> None:

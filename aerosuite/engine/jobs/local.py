@@ -17,6 +17,7 @@ import psutil
 from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE
 from ..errors import JobError
 from ..models import Project
+from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
 from .runner import (
     FINAL_CASE_STATES,
@@ -30,7 +31,6 @@ from .runner import (
 )
 from .store import JOBS_DIR, active_lock, clear_lock, kill_tree, process_alive, save_job, write_lock
 
-RUNS_DIR = "runs"
 BANNER_RE = re.compile(r"Running Case\s+\d+/\d+:\s+(\S+?)\.cfg")
 TAIL_LINES = 50
 
@@ -115,8 +115,6 @@ class LocalRunner:
             resolve_sweep_python(project.run.sweep_python), str(sweep_script_path(project.run)),
             "-d", str(configs), "-c", str(control), "-n", str(project.run.partitions),
         ]
-        if project.run.initial_restart:
-            cmd += ["-r", project.run.initial_restart]
         if sys.platform == "win32":
             detach = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         else:

@@ -186,7 +186,7 @@ def edit(directory: ProjectDir) -> None:
         while True:
             _run_editor(tmp)
             try:
-                project = engine_project.parse_project(tmp.read_text(encoding="utf-8-sig"))
+                project = engine_project.parse_project(tmp.read_text(encoding="utf-8-sig"), directory=directory)
                 break
             except (ProjectError, UnicodeDecodeError) as exc:
                 message = "the edited file is not UTF-8 text" if isinstance(exc, UnicodeDecodeError) else exc

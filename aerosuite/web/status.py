@@ -66,7 +66,7 @@ def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
         setup = "attention"
     if not project.sweep.mach and not project.cases:
         sweep: Badge = "todo"
-    elif any(problem.severity == "error" for problem in sweep_problems(project)):
+    elif any(problem.severity == "error" for problem in sweep_problems(project, project_dir)):
         sweep = "attention"
     else:
         sweep = "done"

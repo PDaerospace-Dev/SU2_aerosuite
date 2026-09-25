@@ -21,8 +21,8 @@ def test_empty_sweep():
 def test_duplicates_and_restarts(ready_project):
     _, project = ready_project
     project.cases.append(project.cases[0].model_copy())
-    project.cases[1].restart = "from_case"
-    project.cases[1].restart_ref = "nope"
+    project.cases[1].restart = "custom"
+    project.cases[1].restart_ref = None
     messages = [m for _, m in _messages(sweep_problems(project))]
     assert any("Duplicate case names" in m for m in messages)
-    assert any("M0p8_a2_b0: 'from_case' must reference an earlier case" in m for m in messages)
+    assert any("M0p8_a2_b0: 'custom' restart needs a restart file or case folder" in m for m in messages)

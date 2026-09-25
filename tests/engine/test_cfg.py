@@ -120,15 +120,11 @@ def test_run_control_text():
         Case(name="c1", mach=0.8, alpha=0, beta=0),
         Case(name="c2", mach=0.8, alpha=2, beta=0, restart="previous"),
         Case(name="c3", mach=0.8, alpha=4, beta=0, restart="custom", restart_ref="/r/restart.dat"),
-        Case(name="c4", mach=0.8, alpha=6, beta=0, restart="from_case", restart_ref="c1"),
-        Case(name="c5", mach=0.8, alpha=8, beta=0, restart="initial"),
     ]
     assert run_control_text(cases) == (
         "c1.cfg, none\n"
         "c2.cfg, previous\n"
         "c3.cfg, custom, /r/restart.dat\n"
-        "c4.cfg, from_case, c1.cfg\n"
-        "c5.cfg, initial\n"
     )
 
 
@@ -169,10 +165,8 @@ def test_generate_configs_missing_template(tmp_path):
 def test_generate_configs_requires_restart_reference(tmp_path):
     (tmp_path / "template.cfg").write_text(TEMPLATE)
     project = _project(alpha=[0.0, 2.5])
-    project.cases[0].restart = "from_case"
-    project.cases[0].restart_ref = None
-    project.cases[1].restart = "custom"
-    project.cases[1].restart_ref = None
+    for case in project.cases:
+        case.restart, case.restart_ref = "custom", None
     with pytest.raises(GenerationError, match="M0p8_a0_b0.*M0p8_a2p5_b0"):
         generate_configs(tmp_path, project)
 

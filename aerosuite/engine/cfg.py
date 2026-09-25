@@ -163,14 +163,12 @@ def build_cases(project: Project) -> list[Case]:
 
 
 def run_control_text(cases: Sequence[Case]) -> str:
-    """run_control.txt in the format aoa_sweep_v8.py reads."""
+    """run_control.txt in the format aoa_sweep_v8.py reads (a job writes its own; see jobs/plan.py)."""
     lines = []
     for case in cases:
         fields = [f"{case.name}.cfg", case.restart]
         if case.restart == "custom":
             fields.append(case.restart_ref or "")
-        elif case.restart == "from_case":
-            fields.append(f"{case.restart_ref}.cfg")
         lines.append(", ".join(fields))
     return "\n".join(lines) + "\n"
 
@@ -192,7 +190,7 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
             "These case names occur more than once and would overwrite each other: "
             + ", ".join(duplicates)
         )
-    no_ref = [c.name for c in project.cases if c.restart in ("custom", "from_case") and not c.restart_ref]
+    no_ref = [c.name for c in project.cases if c.restart == "custom" and not c.restart_ref]
     if no_ref:
         raise GenerationError(
             "These cases need a restart reference for their restart option: "

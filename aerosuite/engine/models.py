@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class Mesh(BaseModel):
@@ -65,7 +65,7 @@ class SweepSpec(BaseModel):
     naming: Naming = Field(default_factory=Naming)
 
 
-RestartOption = Literal["none", "previous", "initial", "custom", "from_case"]
+RestartOption = Literal["none", "previous", "custom"]
 
 
 class Case(BaseModel):
@@ -74,7 +74,7 @@ class Case(BaseModel):
     alpha: float
     beta: float
     restart: RestartOption = "none"
-    # custom: restart file path; from_case: name of an earlier case
+    # custom: absolute path of a restart file, or of a case folder holding one
     restart_ref: Optional[str] = None
 
 
@@ -82,7 +82,6 @@ class RunSettings(BaseModel):
     partitions: int = Field(default=1, ge=1)
     sweep_script: str = ""  # empty = bundled resources/aoa_sweep_v8.py
     sweep_python: str = "python3"  # must be able to import SU2
-    initial_restart: Optional[str] = None  # passed as -r for cases with restart = "initial"
 
 
 class Project(BaseModel):

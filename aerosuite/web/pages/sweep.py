@@ -12,7 +12,7 @@ from ..checks import render_checks
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session
 
-RESTART_OPTIONS = ["none", "previous", "initial", "custom", "from_case"]
+RESTART_OPTIONS = ["none", "previous", "custom"]
 NAMING = [
     ("include_mach", "Mach"),
     ("include_altitude", "Altitude"),
@@ -102,11 +102,6 @@ def _sweep_fields(frame: ProjectFrame, after: Callable[[], None]) -> None:
         for flag, label in NAMING:
             ui.checkbox(label, value=getattr(sweep.naming, flag),
                         on_change=lambda e, f=flag: _set_naming(frame, f, e.value, after)).mark(f"naming-{flag}")
-    text_field(
-        "Initial restart file (used by cases with restart 'initial')", frame.session.project.run.initial_restart,
-        lambda text: frame.save(lambda p: setattr(p.run, "initial_restart", text.strip() or None), then=after),
-        mark="initial-restart",
-    )
 
 
 def _set_naming(frame: ProjectFrame, flag: str, value: bool, after: Callable[[], None]) -> None:
@@ -141,7 +136,6 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
     with ui.grid(columns=6).classes("w-full items-center gap-x-4 gap-y-1"):
         for heading in ("Case", "Mach", "Alpha", "Beta", "Restart", "Restart from"):
             ui.label(heading).classes("text-bold")
-        earlier: list[str] = []
         for case in project.cases:
             name_label = ui.label(case.name).mark(f"case-{case.name}")
             if case.name in duplicates:
@@ -154,19 +148,13 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
                 on_change=lambda e, n=case.name: _set_case(
                     frame, n, after, restart=e.value, restart_ref=None),
             ).mark(f"restart-{case.name}")
-            if case.restart == "from_case":
-                ui.select(
-                    list(earlier), value=case.restart_ref if case.restart_ref in earlier else None,
-                    on_change=lambda e, n=case.name: _set_case(frame, n, after, restart_ref=e.value),
-                ).mark(f"ref-{case.name}")
-            elif case.restart == "custom":
-                text_field("Restart file", case.restart_ref,
+            if case.restart == "custom":
+                text_field("Restart file or case folder", case.restart_ref,
                            lambda text, n=case.name: frame.save(
                                lambda p: _change_ref(p, n, text.strip() or None), then=after),
                            mark=f"ref-{case.name}")
             else:
                 ui.label("")
-            earlier.append(case.name)
 
 
 def _change_ref(p: Project, name: str, ref) -> None:

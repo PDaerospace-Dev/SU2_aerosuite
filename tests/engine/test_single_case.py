@@ -96,5 +96,5 @@ def test_schema_1_projects_upgrade_to_sweep_on_without_profile(tmp_path):
     del data["sweep"]["enabled"]
     (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
     project = open_project(tmp_path)
-    assert project.schema_version == 2
+    assert project.schema_version == 3
     assert project.profile is None and project.sweep.enabled is True

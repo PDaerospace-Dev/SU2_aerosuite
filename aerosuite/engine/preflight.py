@@ -6,7 +6,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Iterable, Literal, Optional
 
 from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE
 from .jobs.runner import (
@@ -16,9 +16,10 @@ from .jobs.runner import (
     sweep_script_path,
 )
 from .jobs.store import active_lock
-from .models import Project
+from .models import Case, Project
 from .naming import find_collisions
 from .project import template_warnings
+from .restarts import find_restart_file, own_case_of
 
 
 @dataclass(frozen=True)
@@ -60,41 +61,41 @@ def _marker_problems(project: Project) -> list[Problem]:
     return problems
 
 
-def _restart_problems(project: Project) -> list[Problem]:
+def _custom_problems(case: Case, names: list[str], project_dir: Optional[Path]) -> list[Problem]:
+    ref = case.restart_ref
+    if not ref:
+        return [Problem("error", f"{case.name}: 'custom' restart needs a restart file or case folder")]
+    if "," in ref:
+        return [Problem("error", f"{case.name}: restart path must not contain a comma "
+                                 f"(run_control.txt separates fields with commas): {ref}")]
+    path = Path(ref)
+    if not path.is_absolute():
+        return [_not_absolute(f"{case.name}: restart path", ref)]
+    if project_dir is not None and own_case_of(project_dir, ref, names) is not None:
+        return []  # a case of this project: its solution may come from the same job
+    if path.is_dir():
+        if find_restart_file(path) is None:
+            return [Problem("error", f"{case.name}: no restart file found in folder {ref}")]
+        return []
+    if not path.is_file():
+        return [Problem("error", f"{case.name}: restart path not found: {ref}")]
+    return []
+
+
+def _restart_problems(project: Project, project_dir: Optional[Path]) -> list[Problem]:
     problems = []
-    earlier: set[str] = set()
+    names = [case.name for case in project.cases]
     for index, case in enumerate(project.cases):
         if case.restart == "previous" and index == 0:
             problems.append(Problem(
                 "warning", f"{case.name}: 'previous' restart on the first case will start from scratch"
             ))
         elif case.restart == "custom":
-            if not case.restart_ref:
-                problems.append(Problem("error", f"{case.name}: 'custom' restart needs a restart file"))
-            elif not Path(case.restart_ref).is_absolute():
-                problems.append(_not_absolute(f"{case.name}: restart file", case.restart_ref))
-            elif not Path(case.restart_ref).is_file():
-                problems.append(Problem("error", f"{case.name}: restart file not found: {case.restart_ref}"))
-        elif case.restart == "from_case" and case.restart_ref not in earlier:
-            problems.append(Problem(
-                "error",
-                f"{case.name}: 'from_case' must reference an earlier case (got {case.restart_ref!r})",
-            ))
-        elif case.restart == "initial":
-            initial = project.run.initial_restart
-            if not initial:
-                problems.append(Problem(
-                    "error", f"{case.name}: 'initial' restart needs run.initial_restart to be set"
-                ))
-            elif not Path(initial).is_absolute():
-                problems.append(_not_absolute(f"{case.name}: initial restart file", initial))
-            elif not Path(initial).is_file():
-                problems.append(Problem("error", f"{case.name}: initial restart file not found: {initial}"))
-        earlier.add(case.name)
+            problems += _custom_problems(case, names, project_dir)
     return problems
 
 
-def sweep_problems(project: Project) -> list[Problem]:
+def sweep_problems(project: Project, project_dir: Optional[Path] = None) -> list[Problem]:
     """Problems with the sweep and its cases (the Sweep page shows these beside the case table)."""
     problems: list[Problem] = []
     if project.sweep.enabled and not project.sweep.mach:  # build_cases would silently fall back to Mach 0
@@ -106,7 +107,7 @@ def sweep_problems(project: Project) -> list[Problem]:
         problems.append(Problem(
             "error", "Duplicate case names (files would overwrite each other): " + ", ".join(duplicates)
         ))
-    problems += _restart_problems(project)
+    problems += _restart_problems(project, project_dir)
     return problems
 
 
@@ -165,7 +166,7 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
         problems.append(_not_absolute("Mesh", project.mesh.path))
     elif not Path(project.mesh.path).is_file():
         problems.append(Problem("error", f"Mesh not found: {project.mesh.path}"))
-    problems += sweep_problems(project)
+    problems += sweep_problems(project, project_dir)
     problems += _marker_problems(project)
     lock = active_lock(project_dir)
     if lock:
