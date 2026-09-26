@@ -3,19 +3,22 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
+from .ui_kit import field
+
 Commit = Callable[[str], Optional[str]]  # returns an error message, or None when saved
 
 
-def text_field(label: str, value: object, on_commit: Commit, *, mark: str, placeholder: str = "") -> ui.input:
-    field = ui.input(label, value="" if value is None else str(value), placeholder=placeholder)
-    field.classes("w-full").mark(mark)
+def text_field(label: str, value: object, on_commit: Commit, *, mark: str, placeholder: str = "",
+               mono: bool = False) -> ui.input:
+    box = field(ui.input(label, value="" if value is None else str(value), placeholder=placeholder), mono=mono)
+    box.classes("w-full").mark(mark)
     if placeholder:
-        field.props("stack-label")
-    error = ui.label("").classes("text-negative text-xs").mark(f"{mark}-error")
-    last = {"text": field.value or ""}
+        box.props("stack-label")  # keep the label floated so the placeholder hint stays visible
+    error = ui.label("").classes("as-error-text").mark(f"{mark}-error")
+    last = {"text": box.value or ""}
 
     def commit() -> None:
-        text = field.value or ""
+        text = box.value or ""
         if text == last["text"] and not error.text:
             return
         message = on_commit(text)
@@ -23,6 +26,6 @@ def text_field(label: str, value: object, on_commit: Commit, *, mark: str, place
         if message is None:
             last["text"] = text
 
-    field.on("blur", commit)
-    field.on("keydown.enter", commit)
-    return field
+    box.on("blur", commit)
+    box.on("keydown.enter", commit)
+    return box

@@ -58,4 +58,26 @@ def _test_reference_page() -> None:
         line.split("=")[0].strip() for line in state["text"].splitlines() if "=" in line})
 
 
+from aerosuite.web import ui_kit  # noqa: E402
+from aerosuite.web.theme import apply_theme  # noqa: E402
+
+
+@ui.page("/_test/kit")
+def _test_kit_page() -> None:
+    """Test-only page: one of each ui_kit building block."""
+    apply_theme()
+    for status in ("CONVERGED", "DONE", "RUNNING", "FAILED", "UNCONVERGED", "PENDING", "QUEUED", "NOT_RUN",
+                   "CANCELLED"):
+        ui_kit.pill(status).mark(f"t-pill-{status}")
+    for kind in ("info", "warning", "error", "success"):
+        ui_kit.banner(kind, f"{kind} text").mark(f"t-banner-{kind}")
+    ui_kit.ok_line("All good").mark("t-ok")
+    ui_kit.summary_tile("Converged", 3).mark("t-tile")
+    ui_kit.summary_tile("Needs attention", 2, "danger").mark("t-tile-danger")
+    with ui_kit.card("Title", "Subtitle") as box:
+        box.mark("t-card")
+        ui_kit.primary_button("Go").mark("t-primary")
+        ui_kit.danger_button("Stop").mark("t-danger")
+
+
 ui.run(reload=False, show=False)

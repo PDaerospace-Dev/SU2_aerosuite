@@ -161,3 +161,10 @@ async def test_picker_cancel_saves_nothing(user: User, ready_project):
     user.find(marker="picker-cancel").click()
     await asyncio.sleep(0.05)
     assert open_project(project_dir).run.sweep_script == before
+
+
+async def test_text_fields_have_the_field_look(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(_url(project_dir))
+    field = next(iter(user.find(marker="t-partitions").elements))
+    assert "as-field" in field.classes
