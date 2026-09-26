@@ -135,3 +135,12 @@ def test_process_we_cannot_inspect_counts_as_alive(monkeypatch):
 
     monkeypatch.setattr(store.psutil, "Process", Denied)
     assert process_alive(4242, 0.0)
+
+
+@pytest.mark.parametrize("text", ["[]", '"x"', "7", '{"pid": "x", "create_time": 0}', '{"pid": 1, "create_time": null}',
+                                  '{"pid": [1]}'])
+def test_a_lock_of_the_wrong_shape_is_stale(tmp_path, text):
+    # Valid JSON that is not a lock must not crash every caller (sidebar badges, preflight, the CLI).
+    (tmp_path / ".lock").write_text(text, encoding="utf-8")
+    assert active_lock(tmp_path) is None
+    assert not (tmp_path / ".lock").exists()

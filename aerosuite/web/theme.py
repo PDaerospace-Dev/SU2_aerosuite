@@ -78,6 +78,7 @@ html.as-mini .as-when-full, html:not(.as-mini) .as-when-mini { display: none; }
 .as-job { padding: 6px 12px; gap: 10px; cursor: pointer; align-items: center; flex-wrap: nowrap; }
 .as-job-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--as-running);
   box-shadow: 0 0 0 3px rgba(88, 166, 255, .25); }
+.as-job-text { max-width: 14rem; }
 .as-job-bar { width: 90px; height: 5px; border-radius: 3px; background: var(--as-topbar-border); overflow: hidden; }
 .as-job-fill { height: 100%; background: var(--as-running); }
 .as-switcher { padding: 4px 10px 4px 4px; gap: 8px; cursor: pointer; align-items: center; flex-wrap: nowrap;

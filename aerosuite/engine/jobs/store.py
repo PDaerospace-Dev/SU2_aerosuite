@@ -128,14 +128,23 @@ def write_lock(project_dir: Path, job_id: str, pid: int, create_time: float) -> 
         raise JobError("A job is already running for this project") from None
 
 
+STALE_LOCK = {"job_id": "?", "pid": -1, "create_time": 0.0}
+
+
 def read_lock(project_dir: Path) -> Optional[dict]:
+    """The lock as {"job_id", "pid": int, "create_time": float}; one that cannot be read is STALE_LOCK."""
     path = Path(project_dir) / LOCK_FILE
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return None
-    except (OSError, json.JSONDecodeError):
-        return {"job_id": "?", "pid": -1, "create_time": 0.0}  # unreadable: treated as stale
+    except (OSError, ValueError):
+        return dict(STALE_LOCK)  # unreadable: treated as stale
+    try:
+        # Valid JSON of the wrong shape (a list, a string pid) is as unreadable as broken JSON.
+        return {**data, "pid": int(data.get("pid", -1)), "create_time": float(data.get("create_time", 0.0))}
+    except (AttributeError, TypeError, ValueError):
+        return dict(STALE_LOCK)
 
 
 def clear_lock(project_dir: Path, job_id: Optional[str] = None) -> None:

@@ -105,6 +105,7 @@ async def test_the_job_indicator_follows_a_job_started_elsewhere(user: User, rea
     job = runner.submit(project_dir, project)  # like the CLI: not through this page
     await eventually(lambda: _shown(user, "job-indicator"), timeout=10)
     await eventually(lambda: re.fullmatch(rf"0 / 3( · {A0})?", _element(user, "job-progress").text), timeout=10)
+    assert "as-truncate" in _element(user, "job-progress").classes  # long case names end in "…"
     runner.cancel(project_dir, runner.refresh(project_dir, job))
     await eventually(lambda: not _shown(user, "job-indicator"), timeout=20)
 
@@ -127,3 +128,11 @@ async def test_the_projects_page_has_the_top_bar_without_a_switcher(user: User):
     await user.should_see("AeroSuite")
     await user.should_see(marker="help")
     await user.should_not_see(marker="project-switcher")
+
+
+async def test_a_lock_of_the_wrong_shape_does_not_break_the_page(user: User, ready_project):
+    project_dir, _ = ready_project
+    (project_dir / ".lock").write_text("[]", encoding="utf-8")
+    await user.open(project_url("setup", project_dir))
+    await user.should_see(marker="partitions")
+    await user.should_not_see(marker="job-indicator")

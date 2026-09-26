@@ -44,3 +44,10 @@ def test_failure_boxes_are_clamped_so_a_failed_sweep_stays_readable():
     rule = css[css.index(".as-failure {"):]
     rule = rule[:rule.index("}")]
     assert "max-height: 7.5em" in rule and "overflow: auto" in rule
+
+
+def test_the_job_indicator_text_has_a_width_cap():
+    # Generated case names can be long; uncapped, they push help and the switcher off the top bar.
+    css = theme.component_css()
+    rule = css[css.index(".as-job-text {"):]
+    assert "max-width: 14rem" in rule[:rule.index("}")]

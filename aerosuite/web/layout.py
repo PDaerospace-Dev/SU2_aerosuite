@@ -147,7 +147,7 @@ class ProjectFrame:
             with ui.row().classes("as-topbar-control as-job").mark("job-indicator") as self._job:
                 ui.element("span").classes("as-job-dot")
                 ui.label("Running")
-                self._job_text = ui.label("").classes("as-topbar-muted").mark("job-progress")
+                self._job_text = ui.label("").classes("as-topbar-muted as-job-text as-truncate").mark("job-progress")
                 with ui.element("span").classes("as-job-bar"):
                     self._job_fill = ui.element("div").classes("as-job-fill").style("width: 0%")
             self._job.on("click", lambda: ui.navigate.to(project_url("run", self.session.directory)))
