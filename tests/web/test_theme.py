@@ -36,3 +36,11 @@ def test_truncated_text_is_capped_at_its_parents_width():
     css = theme.component_css()
     rule = css[css.index(".as-truncate {"):]
     assert "max-width: 100%" in rule[:rule.index("}")]
+
+
+def test_failure_boxes_are_clamped_so_a_failed_sweep_stays_readable():
+    # A failure tail is up to 50 log lines: unclamped, a sweep where every case failed buries the page.
+    css = theme.component_css()
+    rule = css[css.index(".as-failure {"):]
+    rule = rule[:rule.index("}")]
+    assert "max-height: 7.5em" in rule and "overflow: auto" in rule

@@ -141,7 +141,8 @@ a.as-step:hover { background: #f6f8fa; }
   align-items: center; flex-wrap: nowrap; gap: 8px; }
 .as-td-failure { padding: 0 14px 8px; }
 .as-failure { background: #fff5f5; border: 1px solid #ffd7d5; border-radius: 6px; padding: 7px 10px;
-  font-family: var(--as-mono); font-size: 12px; color: #a40e26; white-space: pre-wrap; }
+  font-family: var(--as-mono); font-size: 12px; color: #a40e26; white-space: pre-wrap;
+  max-height: 7.5em; overflow: auto; }
 .as-dup { color: #a40e26; font-weight: 600; }
 .as-recent-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; color: inherit;
   text-decoration: none; border-top: 1px solid var(--as-hairline); width: 100%; box-sizing: border-box; }
