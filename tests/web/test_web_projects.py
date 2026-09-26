@@ -97,3 +97,20 @@ async def test_new_project_name_must_stay_inside_the_parent(user: User, tmp_path
     await user.should_see("Choose a plain folder name (no '.', '..', drive or separators)")
     assert sorted(tmp_path.rglob("*")) == before
     assert not (parent / name / PROJECT_FILE).exists()
+
+
+from aerosuite.web.recent import add_recent  # noqa: E402
+
+
+async def test_recent_rows_show_the_kind_and_the_latest_run(user: User, ready_project):
+    project_dir, project = ready_project
+    add_recent(project_dir)
+    await user.open("/")
+    await user.should_see(marker="recent-study")
+    await user.should_see("sweep · 3 cases")
+    await user.should_see(str(project_dir.resolve()))
+
+
+async def test_create_is_the_primary_action(user: User):
+    await user.open("/")
+    assert "as-btn-primary" in next(iter(user.find(marker="new-create").elements)).classes

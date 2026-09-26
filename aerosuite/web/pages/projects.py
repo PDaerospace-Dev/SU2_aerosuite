@@ -8,19 +8,23 @@ from ...engine.errors import AeroSuiteError
 from ...engine.profiles import list_profiles
 from ...engine.study import create_study
 from ..layout import header, project_url
-from ..picker import pick_path
-from ..recent import add_recent, load_recent
+from ..recent import add_recent, recent_projects
+from ..ui_kit import banner, card, card_head, field, path_field, pill, primary_button, secondary_button
 
 
 def register() -> None:
     @ui.page("/")
     def projects_page() -> None:
         header()
-        with ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-6"):
-            ui.label("Projects").classes("text-2xl")
-            _recent_list()
-            _open_form()
-            _new_form()
+        with ui.column().classes("as-page w-full"):
+            with ui.row().classes("as-crumbs w-full"):
+                ui.label("Projects").classes("as-crumb-current")
+            with ui.element("div").classes("as-columns as-columns-projects"):
+                with ui.column().classes("gap-4 w-full"):
+                    _recent_list()
+                with ui.column().classes("gap-4 w-full"):
+                    _open_form()
+                    _new_form()
 
 
 def _go_to(directory: Path) -> None:
@@ -29,30 +33,31 @@ def _go_to(directory: Path) -> None:
 
 
 def _recent_list() -> None:
-    ui.label("Recent").classes("text-lg")
-    recent = load_recent()
-    if not recent:
-        ui.label("No recent projects yet.").classes("text-grey-7").mark("recent-empty")
-        return
-    for directory in recent:
-        with ui.row().classes("items-baseline gap-3"):
-            ui.link(directory.name, project_url("setup", directory)).mark(f"recent-{directory.name}")
-            ui.label(str(directory)).classes("text-xs text-grey-7")
+    with card(flush=True):
+        card_head("Recent projects")
+        recent = recent_projects()
+        if not recent:
+            ui.label("No recent projects yet.").classes("as-muted px-4 pb-4").mark("recent-empty")
+            return
+        for item in recent:
+            with ui.link(target=project_url("setup", item.directory)).classes("as-recent-row").mark(
+                    f"recent-{item.directory.name}"):
+                with ui.column().classes("gap-0 grow min-w-0"):
+                    ui.label(item.name).classes("as-strong as-truncate")
+                    ui.label(str(item.directory)).classes("as-mono as-muted as-truncate")
+                if item.kind:
+                    ui.label(item.kind).classes("as-tag")
+                if item.latest:
+                    pill(item.latest)
 
 
 def _open_form() -> None:
-    ui.label("Open a project").classes("text-lg")
-    with ui.row().classes("w-full items-center no-wrap"):
-        path = ui.input("Project folder").classes("grow").mark("open-path")
-
-        async def browse() -> None:
-            chosen = await pick_path("Open a project folder", mode="folder")
-            if chosen is not None:
-                path.value = str(chosen)
-
-        ui.button("Browse", on_click=browse).props("flat").mark("open-browse")
-        ui.button("Open", on_click=lambda: open_it()).mark("open-button")
-    error = ui.label("").classes("text-negative text-sm").mark("open-error")
+    with card("Open a project"):
+        path = path_field("Project folder", mark="open-path", browse_mark="open-browse",
+                          title="Open a project folder", mode="folder")
+        error = ui.label("").classes("as-error-text").mark("open-error")
+        with ui.row().classes("w-full justify-end"):
+            secondary_button("Open", on_click=lambda: open_it()).mark("open-button")
 
     def open_it() -> None:
         text = (path.value or "").strip()
@@ -74,60 +79,51 @@ def _is_plain_name(name: str) -> bool:
     return Path(name).name == name and not Path(name).anchor  # anchor catches "C:x" on Windows
 
 
-def _kind_card(title: str, text: str, mark: str, on_choose) -> ui.card:
-    card = ui.card().classes("w-72 cursor-pointer").mark(mark)
-    card.on("click", lambda _: on_choose())
-    with card:
-        ui.label(title).classes("text-base font-medium")
-        ui.label(text).classes("text-xs text-grey-8")
-    return card
-
-
-def _path_row(label: str, mark: str, title: str, mode: str, suffixes=()) -> ui.input:
-    with ui.row().classes("w-full items-center no-wrap"):
-        box = ui.input(label).classes("grow").mark(mark)
-
-        async def browse() -> None:
-            chosen = await pick_path(title, mode=mode, suffixes=suffixes)
-            if chosen is not None:
-                box.value = str(chosen)
-
-        ui.button("Browse", on_click=browse).props("flat").mark(
-            "new-browse" if mark == "new-parent" else f"{mark}-browse")
-    return box
+def _kind_card(title: str, text: str, mark: str, on_choose) -> ui.column:
+    tile = ui.column().classes("as-choice-tile").mark(mark)
+    tile.on("click", lambda _: on_choose())
+    with tile:
+        ui.label(title).classes("as-strong")
+        ui.label(text).classes("as-muted")
+    return tile
 
 
 def _new_form() -> None:
-    ui.label("New project").classes("text-lg")
     profiles, problems = list_profiles()
-    for problem in problems:
-        ui.label(f"Profile skipped: {problem}").classes("text-warning text-xs").mark("profile-problem")
     state = {"kind": "general"}
 
     def choose(kind: str) -> None:
         state["kind"] = kind
-        general.classes(add="border-2 border-primary" if kind == "general" else "",
-                        remove="border-2 border-primary" if kind != "general" else "")
-        aircraft.classes(add="border-2 border-primary" if kind == "aircraft" else "",
-                         remove="border-2 border-primary" if kind != "aircraft" else "")
+        for tile, name in ((general, "general"), (aircraft, "aircraft")):
+            if name == kind:
+                tile.classes(add="as-choice-selected")
+            else:
+                tile.classes(remove="as-choice-selected")
         profile.set_visibility(kind == "aircraft")
         use_reference.set_visibility(kind == "general")
 
-    with ui.row().classes("gap-4"):
-        general = _kind_card("General case", "One config from a template, edited as text with SU2's "
-                             "reference beside it. One case.", "new-kind-general", lambda: choose("general"))
-        aircraft = _kind_card("Aircraft study", "Aircraft Aero form with profile defaults, "
-                              "placeholders and a Mach/alpha/beta sweep.", "new-kind-aircraft",
-                              lambda: choose("aircraft"))
-    profile = ui.select({p.id: p.name for p in profiles}, label="Aircraft profile",
-                        value=profiles[0].id if profiles else None).classes("w-64").mark("new-profile")
-    parent = _path_row("Parent folder", "new-parent", "Choose the parent folder", "folder")
-    name = ui.input("Project name").classes("w-full").mark("new-name")
-    template = _path_row("Template (.cfg)", "new-template", "Choose the template", "file", (".cfg",))
-    use_reference = ui.checkbox("Start from SU2's config_template.cfg").mark("new-use-reference")
-    mesh = _path_row("Mesh (.su2, optional)", "new-mesh", "Choose the mesh", "file", (".su2", ".cgns"))
-    ui.button("Create", on_click=lambda: create()).mark("new-create")
-    error = ui.label("").classes("text-negative text-sm").mark("new-error")
+    with card("New project"):
+        for problem in problems:
+            banner("warning", f"Profile skipped: {problem}").mark("profile-problem")
+        with ui.element("div").classes("as-grid-2"):
+            general = _kind_card("General case", "One config from a template, edited as text with SU2's "
+                                 "reference beside it. One case.", "new-kind-general", lambda: choose("general"))
+            aircraft = _kind_card("Aircraft study", "Aircraft Aero form with profile defaults, "
+                                  "placeholders and a Mach/alpha/beta sweep.", "new-kind-aircraft",
+                                  lambda: choose("aircraft"))
+        profile = field(ui.select({p.id: p.name for p in profiles}, label="Aircraft profile",
+                                  value=profiles[0].id if profiles else None)).classes("w-full").mark("new-profile")
+        parent = path_field("Parent folder", mark="new-parent", browse_mark="new-browse",
+                            title="Choose the parent folder", mode="folder")
+        name = field(ui.input("Project name")).classes("w-full").mark("new-name")
+        template = path_field("Template (.cfg)", mark="new-template", browse_mark="new-template-browse",
+                              title="Choose the template", mode="file", suffixes=(".cfg",))
+        use_reference = ui.checkbox("Start from SU2's config_template.cfg").mark("new-use-reference")
+        mesh = path_field("Mesh (.su2, optional)", mark="new-mesh", browse_mark="new-mesh-browse",
+                          title="Choose the mesh", mode="file", suffixes=(".su2", ".cgns"))
+        error = ui.label("").classes("as-error-text").mark("new-error")
+        with ui.row().classes("w-full justify-end"):
+            primary_button("Create project", on_click=lambda: create()).mark("new-create")
     choose("general")
 
     def create() -> None:

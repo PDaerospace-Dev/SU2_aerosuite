@@ -35,3 +35,20 @@ def test_corrupt_store_is_ignored(tmp_path):
     assert load_recent() == []
     store_path().write_text(json.dumps([1, None, str(tmp_path / "nowhere")]))
     assert load_recent() == []
+
+
+from aerosuite.engine.project import PROJECT_FILE
+from aerosuite.web.recent import RecentProject, add_recent, recent_projects
+
+
+def test_recent_projects_summarise_each_project(ready_project):
+    project_dir, _ = ready_project
+    add_recent(project_dir)
+    assert recent_projects() == [RecentProject(project_dir.resolve(), "study", "sweep · 3 cases", None)]
+
+
+def test_recent_projects_survives_an_unreadable_project(ready_project):
+    project_dir, _ = ready_project
+    add_recent(project_dir)
+    (project_dir / PROJECT_FILE).write_text('{"name": "half-typed", ')
+    assert recent_projects() == [RecentProject(project_dir.resolve(), project_dir.name, "", None)]

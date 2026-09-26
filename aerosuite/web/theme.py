@@ -60,7 +60,7 @@ body { background: var(--as-page); color: var(--as-text); font-family: var(--as-
 .as-error-text { color: #a40e26; font-size: 12px; }
 .as-strong { font-weight: 500; }
 .as-label { font-size: 12px; color: var(--as-muted); }
-.as-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.as-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 100%; }
 
 .as-topbar { position: sticky; top: 0; z-index: 2000; height: 52px; padding: 0 16px; gap: 14px;
   background: var(--as-topbar); color: #fff; flex-wrap: nowrap; align-items: center; }
@@ -144,7 +144,8 @@ a.as-step:hover { background: #f6f8fa; }
   font-family: var(--as-mono); font-size: 12px; color: #a40e26; white-space: pre-wrap; }
 .as-dup { color: #a40e26; font-weight: 600; }
 .as-recent-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; color: inherit;
-  text-decoration: none; border-top: 1px solid var(--as-hairline); }
+  text-decoration: none; border-top: 1px solid var(--as-hairline); width: 100%; box-sizing: border-box; }
+.as-recent-row > .as-tag, .as-recent-row > .as-pill { flex: none; }
 .as-recent-row:hover { background: #f6f8fa; }
 
 .as-btn { text-transform: none; border-radius: 8px; font-weight: 500; min-height: 32px; padding: 0 14px; }

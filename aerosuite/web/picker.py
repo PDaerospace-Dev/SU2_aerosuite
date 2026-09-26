@@ -7,6 +7,7 @@ from nicegui import ui
 from ..engine.errors import AeroSuiteError
 from . import config
 from .files import list_entries, parent_of
+from .ui_kit import field, flat_button, primary_button, secondary_button
 
 
 async def pick_path(
@@ -21,19 +22,20 @@ async def pick_path(
     here = {"dir": Path(start) if start is not None and Path(start).is_dir() else config.root()}
 
     with ui.dialog() as dialog, ui.card().classes("w-[40rem] max-w-full"):
-        ui.label(title).classes("text-lg")
-        location = ui.label("").classes("text-xs text-grey-7").mark("picker-location")
-        with ui.row().classes("w-full items-center no-wrap"):
-            pasted = ui.input("Paste a path").classes("grow").mark("picker-path")
-            ui.button("Use", on_click=lambda: use_pasted()).mark("picker-use")
-        error = ui.label("").classes("text-negative text-xs").mark("picker-error")
+        ui.label(title).classes("as-dialog-title")
+        location = ui.label("").classes("as-mono as-muted").mark("picker-location")
+        with ui.row().classes("w-full items-center no-wrap gap-2"):
+            pasted = field(ui.input("Paste a path"), mono=True).classes("grow").mark("picker-path")
+            secondary_button("Use", on_click=lambda: use_pasted()).mark("picker-use")
+        error = ui.label("").classes("as-error-text").mark("picker-error")
         listing = ui.column().classes("w-full gap-0 max-h-80 overflow-auto")
-        with ui.row():
-            ui.button("Up", icon="arrow_upward", on_click=lambda: go_up()).props("flat").mark("picker-up")
+        with ui.row().classes("w-full items-center gap-2"):
+            flat_button("Up", on_click=lambda: go_up(), icon="arrow_upward").mark("picker-up")
+            ui.space()
+            secondary_button("Cancel", on_click=lambda: dialog.submit(None)).mark("picker-cancel")
             if mode in ("folder", "any"):
-                ui.button("Choose this folder", on_click=lambda: dialog.submit(here["dir"])).mark(
+                primary_button("Choose this folder", on_click=lambda: dialog.submit(here["dir"])).mark(
                     "picker-choose-folder")
-            ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat").mark("picker-cancel")
 
     def show(directory: Path) -> None:
         try:

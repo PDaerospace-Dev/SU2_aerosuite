@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
-from ..engine.project import PROJECT_FILE
+from ..engine.errors import AeroSuiteError
+from ..engine.jobs.store import scan_jobs
+from ..engine.project import PROJECT_FILE, open_project
+from .status import project_kind
 
 MAX_RECENT = 15
 
@@ -36,3 +41,29 @@ def add_recent(directory: Path) -> None:
         path.write_text(json.dumps(items[:MAX_RECENT], indent=2), encoding="utf-8")
     except OSError:
         pass
+
+
+@dataclass(frozen=True)
+class RecentProject:
+    directory: Path
+    name: str
+    kind: str  # "sweep · 3 cases" / "single case"; "" when project.json cannot be read
+    latest: Optional[str]  # the newest job's state, None without jobs or when unreadable
+
+
+def recent_projects() -> list[RecentProject]:
+    """The recent list with each project's name, kind and latest run; unreadable projects still listed."""
+    items = []
+    for directory in load_recent():
+        try:
+            project = open_project(directory)
+        except (AeroSuiteError, OSError, ValueError):
+            items.append(RecentProject(directory, directory.name, "", None))
+            continue
+        try:
+            jobs, _ = scan_jobs(directory)
+        except (AeroSuiteError, OSError):
+            jobs = []
+        items.append(RecentProject(directory, project.name, project_kind(project),
+                                   jobs[0].state.value if jobs else None))
+    return items
