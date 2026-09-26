@@ -11,6 +11,7 @@ from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session
 from ..preview import preview_section
 from ..reference_panel import reference_panel
+from ..ui_kit import banner, card, field
 
 ADDED_HEADING = "% --- added from reference ---"
 
@@ -67,7 +68,7 @@ def _build(frame: ProjectFrame, state: dict) -> None:
         box.clear()
         with box:
             for warning in warnings:
-                ui.label(warning).classes("text-warning text-xs").mark("config-warning")
+                banner("warning", warning).mark("config-warning")
 
     def render_checks_box() -> None:
         box = holders.get("checks")
@@ -130,23 +131,20 @@ def _build(frame: ProjectFrame, state: dict) -> None:
     if not frame.session.project.sweep.enabled:
         with frame.actions:
             holders["generate"] = generate_button(frame, render_checks_box)
-    with ui.row().classes("w-full no-wrap items-start gap-6"):
-        with ui.column().classes("w-1/2 gap-2"):
-            editor = ui.textarea("Template (template.cfg)", value=initial).props(
-                'outlined input-class=font-mono input-style="height: 70vh"').classes("w-full").mark("config-text")
+        holders["checks"] = ui.column().classes("w-full gap-2").mark("config-checks")
+    holders["warnings"] = ui.column().classes("w-full gap-2")
+    with ui.element("div").classes("as-columns"):
+        with card("Template", "Saved automatically · template.cfg"):
+            editor = field(ui.textarea(value=initial), mono=True).props('input-style="height: 70vh"').classes(
+                "w-full").mark("config-text")
             if load_error:
                 editor.props("readonly")
             holders["editor"] = editor
             state["editor"] = editor
-            holders["error"] = ui.label(load_error or "").classes("text-negative text-xs").mark(
-                "config-text-error")
-            holders["warnings"] = ui.column().classes("gap-0")
+            holders["error"] = ui.label(load_error or "").classes("as-error-text").mark("config-text-error")
             editor.on("blur", commit)
             holders["preview"] = preview_section(frame)
-            if not frame.session.project.sweep.enabled:
-                ui.label("Checks").classes("text-lg")
-                holders["checks"] = ui.column().classes("w-full gap-2").mark("config-checks")
-        with ui.column().classes("w-1/2 gap-2"):
+        with card("SU2 reference"):
             holders["reference"] = reference_panel(
                 on_insert=insert, in_config=lambda: keys_in(holders["editor"].value or ""))
     show_warnings(template_warnings(initial))

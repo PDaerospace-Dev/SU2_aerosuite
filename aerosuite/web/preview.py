@@ -6,6 +6,7 @@ from nicegui import ui
 from ..engine.cfg import read_template, render_case
 from ..engine.errors import AeroSuiteError
 from .layout import ProjectFrame
+from .ui_kit import banner, field
 
 
 def preview_section(frame: ProjectFrame) -> Callable[[], None]:
@@ -36,15 +37,15 @@ def preview_section(frame: ProjectFrame) -> Callable[[], None]:
             if state["case"] not in names:
                 state["case"] = names[0]
             if len(names) > 1:
-                ui.select(names, value=state["case"], label="Case",
-                          on_change=lambda e: choose(e.value)).mark("preview-case")
+                field(ui.select(names, value=state["case"], label="Case",
+                                on_change=lambda e: choose(e.value))).mark("preview-case")
             try:
                 template = read_template(frame.session.directory, project)
             except AeroSuiteError as exc:
-                ui.label(f"Error: {exc}").classes("text-negative").mark("preview-error")
+                banner("error", f"Error: {exc}").mark("preview-error")
                 return
             case = next(case for case in project.cases if case.name == state["case"])
-            ui.code(render_case(template, project, case), language="ini").classes("w-full").mark("preview")
+            ui.code(render_case(template, project, case), language="ini").classes("w-full as-mono").mark("preview")
 
     render()
     return render

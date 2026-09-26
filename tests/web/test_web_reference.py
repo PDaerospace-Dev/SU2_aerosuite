@@ -59,3 +59,10 @@ async def test_load_another_reference(user: User, tmp_path, eventually):
     user.find(marker="picker-entry-empty.cfg").click()
     await eventually(lambda: "no SU2 options" in _element(user, "ref-error").text)
     assert _element(user, "ref-source").text == "old_su2.cfg"
+
+
+async def test_in_config_is_a_done_pill(user: User):
+    await user.open("/_test/reference")
+    user.find(marker="ref-search").type("SOLVER")
+    label = next(iter(user.find(marker="ref-in-config-SOLVER").elements))
+    assert "as-pill-done" in label.classes

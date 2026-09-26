@@ -7,6 +7,7 @@ from nicegui import ui
 from ..engine.errors import AeroSuiteError
 from ..engine.reference import RefOption, find_lines, load_reference, read_reference_text, search
 from .picker import pick_path
+from .ui_kit import field, flat_button, hint, secondary_button
 
 WINDOW = 8  # lines shown on each side of a Find match
 
@@ -32,11 +33,10 @@ def reference_panel(
     state = {"options": load_reference(), "text": read_reference_text(),
              "query": "", "find": "", "matches": [], "index": -1}
 
-    ui.label("Reference").classes("text-lg")
-    source = ui.label("config_template.cfg").classes("text-xs text-grey-8").mark("ref-source")
-    error = ui.label("").classes("text-negative text-xs").mark("ref-error")
-    ui.input("Search options", on_change=lambda e: on_search(e.value)).classes("w-full").mark("ref-search")
-    note = ui.label("").classes("text-xs text-grey-8").mark("ref-insert-note")
+    source = hint("config_template.cfg").mark("ref-source")
+    error = ui.label("").classes("as-error-text").mark("ref-error")
+    field(ui.input("Search options", on_change=lambda e: on_search(e.value))).classes("w-full").mark("ref-search")
+    note = hint("").mark("ref-insert-note")
     results = ui.column().classes("w-full gap-1")
 
     def render_results() -> None:
@@ -45,20 +45,21 @@ def reference_panel(
         present = in_config()
         with results:
             if state["query"].strip() and not found:
-                ui.label("No options match").classes("text-grey-7").mark("ref-no-results")
+                ui.label("No options match").classes("as-muted").mark("ref-no-results")
             for option in found:
-                with ui.row().classes("w-full items-start no-wrap gap-2"):
+                with ui.row().classes("w-full items-start no-wrap gap-2 py-2").style(
+                        "border-top: 1px solid var(--as-hairline)"):
                     with ui.column().classes("grow gap-0"):
-                        ui.label(option.line).classes("font-mono text-xs").mark(f"ref-result-{option.key}")
-                        ui.label(option.description or "(no description)").classes("text-xs text-grey-8")
+                        ui.label(option.line).classes("as-mono").mark(f"ref-result-{option.key}")
+                        ui.label(option.description or "(no description)").classes("as-hint")
                         if option.section:
-                            ui.label(option.section).classes("text-xs text-grey-6").mark(
+                            ui.label(option.section).classes("as-hint").mark(
                                 f"ref-section-{option.key}")
                     if option.key in present:
-                        ui.label("In config").classes("text-positive text-xs").mark(f"ref-in-config-{option.key}")
+                        ui.label("In config").classes("as-pill as-pill-done").mark(f"ref-in-config-{option.key}")
                     else:
-                        ui.button("Insert", icon="add", on_click=lambda o=option: insert(o)).props(
-                            "flat dense").mark(f"ref-insert-{option.key}")
+                        secondary_button("Insert", on_click=lambda o=option: insert(o), icon="add").props(
+                            "dense").mark(f"ref-insert-{option.key}")
 
     def on_search(value: Optional[str]) -> None:
         state["query"] = value or ""
@@ -70,11 +71,11 @@ def reference_panel(
         render_results()
         note.text = message or f"Inserted {option.key}"
 
-    ui.label("Find in the full file").classes("text-sm")
+    ui.label("Find in the full file").classes("as-label mt-2")
     with ui.row().classes("w-full items-center no-wrap"):
-        find_box = ui.input("Find").classes("grow").mark("ref-find")
-        ui.button("Find next", on_click=lambda: find_next()).props("flat").mark("ref-find-next")
-    status = ui.label("").classes("text-xs").mark("ref-find-status")
+        find_box = field(ui.input("Find")).classes("grow").mark("ref-find")
+        flat_button("Find next", on_click=lambda: find_next()).mark("ref-find-next")
+    status = hint("").mark("ref-find-status")
     window = ui.html("", sanitize=False).classes("w-full").mark("ref-window")
 
     def find_next() -> None:
@@ -109,6 +110,6 @@ def reference_panel(
         window.content = ""
         render_results()
 
-    ui.button("Load another reference…", on_click=load_other).props("flat").mark("ref-load")
+    flat_button("Load another reference…", on_click=load_other).mark("ref-load")
     render_results()
     return render_results

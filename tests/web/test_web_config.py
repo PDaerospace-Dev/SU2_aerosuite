@@ -144,3 +144,12 @@ async def test_config_generate_sits_in_the_actions_when_the_sweep_is_off(user: U
     await user.open(project_url("config", project_dir))
     generate = next(iter(user.find(marker="generate").elements))
     assert generate.parent_slot.parent is next(iter(user.find(marker="page-actions").elements))
+
+
+async def test_template_warnings_are_banners_above_the_editor(user: User, ready_project):
+    project_dir, _ = ready_project
+    (project_dir / "template.cfg").write_text("AOA= 0.0\nAOA= 2.0\n")
+    await user.open(project_url("config", project_dir))
+    label = next(iter(user.find(marker="config-warning").elements))
+    assert "as-banner-warning" in label.parent_slot.parent.classes
+    assert "as-field" in next(iter(user.find(marker="config-text").elements)).classes
