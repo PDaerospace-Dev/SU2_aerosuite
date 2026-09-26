@@ -399,3 +399,31 @@ def test_default_case_only_scans_jobs_that_include_a_current_case():
     started, calls = _spy({"2": ["old_case"], "1": [A0, A2]})
     assert default_case(view, [A0, A2, A4], started) == A2
     assert calls == ["1"]
+
+
+from aerosuite.web.pages.monitor import column_colors
+from aerosuite.web.theme import SERIES_COLORS
+
+
+def test_column_colours_cycle_and_stay_with_their_column():
+    columns = [f"rms[{i}]" for i in range(10)]
+    colors = column_colors(columns)
+    assert colors["rms[0]"] == SERIES_COLORS[0]
+    assert colors["rms[8]"] == SERIES_COLORS[0]  # past the palette: cycle
+    df = pd.DataFrame({"Inner_Iter": [0, 1], "CL": [0.1, 0.2], "CD": [0.01, 0.02]})
+    series = line_options([0, 1], df, ["CD"], colors=column_colors(["CL", "CD"]))["series"]
+    assert series[0]["color"] == SERIES_COLORS[1]  # CD keeps its colour with CL unticked
+
+
+async def test_lines_match_their_swatches_and_the_source_has_a_status_pill(user: User, ready_project):
+    project_dir, project = ready_project
+    runner, job = _start(project_dir, project)
+    _wait(runner, project_dir, job, lambda j: not j.is_active)
+    await _open(user, project_dir)
+    series = _element(user, "chart-history").options["series"]
+    assert [s["color"] for s in series] == SERIES_COLORS[:3]
+    _element(user, "monitor-col-CL").set_value(False)
+    series = _element(user, "chart-history").options["series"]
+    assert [(s["name"], s["color"]) for s in series] == [("rms[Rho]", SERIES_COLORS[0]), ("CD", SERIES_COLORS[2])]
+    status = _element(user, "monitor-status")
+    assert status.visible and status.text == "CONVERGED" and "as-pill-done" in status.classes

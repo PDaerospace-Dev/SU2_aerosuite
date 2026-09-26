@@ -13,6 +13,8 @@ from ...engine.jobs.runner import CaseState, JobRecord
 from ..jobs import WATCHER, JobView
 from ..layout import ProjectFrame, open_session
 from ..picker import pick_path
+from ..theme import HAIRLINE, SERIES_COLORS
+from ..ui_kit import card, card_head, field, pill, secondary_button, set_pill
 
 POLL_SECONDS = 2.0
 ITERATION_COLUMNS = ("Inner_Iter", "Outer_Iter")
@@ -44,6 +46,11 @@ def filtered_columns(df) -> list:
     return [column for column in df.columns if COLUMN_PATTERN.search(column)]
 
 
+def column_colors(columns: Sequence[str]) -> dict:
+    """Each plottable column's line (and swatch) colour, by its position; the palette cycles."""
+    return {column: SERIES_COLORS[i % len(SERIES_COLORS)] for i, column in enumerate(columns)}
+
+
 def normalize_series(values: list) -> list:
     """The old app's normalize_data: 1 + value - v0, where v0 is the first value from index 1
     onwards with |value| > 1e-6. Unchanged if there are fewer than 2 points or no such value."""
@@ -59,9 +66,10 @@ def normalize_series(values: list) -> list:
     return [value if math.isnan(value) else 1 + value - v0 for value in values]
 
 
-def line_options(x: list, df, columns: list, normalize: bool = False) -> dict:
+def line_options(x: list, df, columns: list, normalize: bool = False, colors: Optional[dict] = None) -> dict:
     """ECharts options: one line per column against iteration, thinned to MAX_POINTS; NaN is a
-    gap. `normalize` applies the old app's normalize_data to each series first."""
+    gap. `normalize` applies the old app's normalize_data to each series first. `colors` maps a
+    column to its line colour."""
     count = len(x)
     step = max(1, math.ceil(count / MAX_POINTS))
     indices = list(range(0, count, step))  # length <= MAX_POINTS, since step >= count / MAX_POINTS
@@ -76,7 +84,10 @@ def line_options(x: list, df, columns: list, normalize: bool = False) -> dict:
         if normalize:
             values = normalize_series(values)
         data = [[x[i], None if math.isnan(values[i]) else values[i]] for i in indices]
-        series.append({"name": column, "type": "line", "showSymbol": False, "data": data})
+        item = {"name": column, "type": "line", "showSymbol": False, "data": data}
+        if colors and column in colors:
+            item["color"] = colors[column]
+        series.append(item)
     return {
         "animation": False,
         "tooltip": {"trigger": "axis"},
@@ -84,8 +95,9 @@ def line_options(x: list, df, columns: list, normalize: bool = False) -> dict:
         # onZero False keeps the axis line at the bottom of the grid instead of at y = 0, where
         # ECharts puts a value axis by default (residuals are negative, so that's mid-chart).
         "xAxis": {"type": "value", "name": "Iteration", "nameLocation": "middle", "nameGap": 30,
-                  "axisLine": {"onZero": False}},
-        "yAxis": {"type": "value", "name": "residuals", "scale": True},
+                  "axisLine": {"onZero": False}, "splitLine": {"lineStyle": {"color": HAIRLINE}}},
+        "yAxis": {"type": "value", "name": "residuals", "scale": True,
+                  "splitLine": {"lineStyle": {"color": HAIRLINE}}},
         "series": series,
     }
 
@@ -132,6 +144,7 @@ class _Content(NamedTuple):
     source_text: str
     source_tooltip: str  # only set in file mode
     message: str = ""  # the label text for "no-columns"; "no-history"/"not-run" have fixed text
+    status: str = ""  # the case's status for the pill beside the source line; "" hides it
 
 
 def _replace_options(chart, options: dict) -> None:
@@ -157,17 +170,24 @@ class MonitorPage:
         # Built once; poll() updates these in place so it never closes an open dropdown or
         # resets a checkbox. Only the checkbox list and the chart-vs-message area are rebuilt,
         # and only when what they must show actually changes shape.
-        with ui.row().classes("w-full gap-4 items-start no-wrap"):
-            with ui.column().classes("gap-2").style("width: 16rem; min-width: 16rem;"):
-                self.select = ui.select([], label="Case", on_change=lambda e: self._choose_case(e.value)).classes(
-                    "w-full").mark("monitor-case")
-                ui.button("Open file…", on_click=self._open_file).props("flat no-caps").mark("monitor-open-file")
-                self.source_label = ui.label("").classes("text-xs text-grey-7").mark("monitor-source")
-                self.stop_button = ui.button("Stop", on_click=self._toggle_stop).props("flat no-caps").mark(
-                    "monitor-stop")
-                ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark("monitor-normalize")
+        with ui.element("div").classes("as-monitor"):
+            with card():
+                self.select = field(ui.select([], label="Case", on_change=lambda e: self._choose_case(e.value)))
+                self.select.classes("w-full").mark("monitor-case")
+                secondary_button("Open file…", on_click=self._open_file).classes("w-full").mark("monitor-open-file")
+                with ui.row().classes("items-center gap-2"):
+                    self.status_pill = pill("PENDING").mark("monitor-status")
+                    self.source_label = ui.label("").classes("as-hint").mark("monitor-source")
+                self.status_pill.set_visibility(False)
+                with ui.row().classes("w-full items-center no-wrap gap-2"):
+                    self.stop_button = secondary_button("Stop", on_click=self._toggle_stop).mark("monitor-stop")
+                    ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark(
+                        "monitor-normalize")
+                ui.label("Columns").classes("as-label")
                 self.checkbox_holder = ui.column().classes("gap-1")
-            self.chart_holder = ui.column().classes("grow")
+            with card():
+                card_head("Convergence", f"updates every {POLL_SECONDS:g} s")
+                self.chart_holder = ui.column().classes("w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
 
@@ -211,7 +231,7 @@ class MonitorPage:
                 view = WATCHER.state(self.directory, self.frame.session.project)
             except AeroSuiteError as exc:
                 self.select.set_visibility(False)
-                self._show_message(f"Error: {exc}", "text-negative")
+                self._show_message(f"Error: {exc}", "as-error-text")
                 return
         names = [case.name for case in self.frame.session.project.cases]
         if self.mode == "case":
@@ -221,7 +241,7 @@ class MonitorPage:
         self.select.set_options(names, value=self.case if self.mode == "case" else None)
         self.select.set_visibility(bool(names))
         if self.mode == "case" and not names:
-            self._show_message("No cases yet: set up the sweep first.", "text-grey-7")
+            self._show_message("No cases yet: set up the sweep first.", "as-muted")
             return
         content = self._case_content(view) if self.mode == "case" else self._file_content()
         self._apply(content, rebuild=True)
@@ -243,14 +263,14 @@ class MonitorPage:
             # The case appears in a job's case_status (e.g. CANCELLED before it started) but its
             # "Running Case" banner is in no job's log: there is no run to show data for.
             text = f"{self.case} · job {status_job.id} · {row.status}" if status_job is not None else ""
-            return _Content(None, "not-run", text, "")
+            return _Content(None, "not-run", text, "", status=row.status if status_job is not None else "")
         df = WATCHER.history(self.directory, source.id, self.case)
         if status_job is not None and source.id != status_job.id:
             text = f"{row.status} in job {status_job.id} · showing job {source.id}"
         else:
             text = f"{self.case} · job {status_job.id} · {row.status}" if status_job is not None else ""
         state = "no-history" if df is None or df.empty else "chart"
-        return _Content(df, state, text, "")
+        return _Content(df, state, text, "", status=row.status)
 
     def _file_content(self) -> _Content:
         df = WATCHER.file_history(self.file_path)
@@ -268,6 +288,11 @@ class MonitorPage:
             self.source_label.props["title"] = content.source_tooltip
         else:
             self.source_label.props.pop("title", None)
+        if content.status:
+            set_pill(self.status_pill, content.status)
+            self.status_pill.set_visibility(True)
+        else:
+            self.status_pill.set_visibility(False)
         columns = tuple(filtered_columns(content.df)) if content.df is not None else ()
         if rebuild or columns != self.columns_shape:
             self.columns_shape = columns
@@ -281,23 +306,26 @@ class MonitorPage:
 
     def _build_checkboxes(self, columns: tuple) -> None:
         self.checkbox_holder.clear()
+        colors = column_colors(columns)
         with self.checkbox_holder:
             for column in columns:
                 checked = self.ticked.setdefault(column, True)  # unseen columns start ticked
-                ui.checkbox(column, value=checked, on_change=lambda e, c=column: self._toggle_column(
-                    c, e.value)).mark(f"monitor-col-{column}")
+                with ui.row().classes("items-center gap-2 no-wrap"):
+                    ui.element("span").classes("as-swatch").style(f"background: {colors[column]}")
+                    ui.checkbox(column, value=checked, on_change=lambda e, c=column: self._toggle_column(
+                        c, e.value)).mark(f"monitor-col-{column}")
 
     def _build_chart_area(self, state: str, message: str = "") -> None:
         self.chart_holder.clear()
         with self.chart_holder:
             if state == "not-run":
-                ui.label("This case has not run yet.").classes("text-grey-7").mark("monitor-not-run")
+                ui.label("This case has not run yet.").classes("as-muted").mark("monitor-not-run")
                 self.chart = None
             elif state == "no-history":
-                ui.label("No history yet for this case.").classes("text-grey-7").mark("monitor-no-history")
+                ui.label("No history yet for this case.").classes("as-muted").mark("monitor-no-history")
                 self.chart = None
             elif state == "no-columns":
-                ui.label(message).classes("text-grey-7").mark("monitor-no-columns")
+                ui.label(message).classes("as-muted").mark("monitor-no-columns")
                 self.chart = None
             else:
                 # ~70% of the viewport height, like the old app's plot filling its window.
@@ -307,7 +335,8 @@ class MonitorPage:
         return [column for column in filtered_columns(self.df) if self.ticked.get(column, True)]
 
     def _chart_options(self) -> dict:
-        return line_options(iteration_values(self.df), self.df, self._ticked_columns(), self.normalize)
+        return line_options(iteration_values(self.df), self.df, self._ticked_columns(), self.normalize,
+                            colors=column_colors(filtered_columns(self.df)))
 
     def _draw_chart(self) -> None:
         if self.chart is not None:
