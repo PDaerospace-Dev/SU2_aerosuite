@@ -177,3 +177,23 @@ async def test_generate_rechecks_files_deleted_while_the_page_was_open(user: Use
     assert not (project_dir / "configs").exists()
     await user.should_see(marker="problem-error")  # the checks were redrawn
     assert not _element(user, "generate").enabled
+
+
+async def test_generate_is_the_primary_action_and_checks_are_banners(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("sweep", project_dir))
+    generate = _element(user, "generate")
+    assert generate.parent_slot.parent is _element(user, "page-actions")
+    assert "as-btn-primary" in generate.classes
+    await user.should_see(marker="problems-none")
+    user.find(marker="sweep-mach").clear().type("abc").trigger("blur")
+    await user.should_see("'abc' in 'abc' is not a number")
+
+
+async def test_a_custom_restart_without_a_file_is_an_error_banner(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("sweep", project_dir))
+    _element(user, "restart-M0p8_a2_b0").set_value("custom")
+    label = _element(user, "problem-error")
+    assert "as-banner-error" in label.parent_slot.parent.classes
+    assert not _element(user, "generate").enabled

@@ -7,7 +7,7 @@ from nicegui import ui
 from ...engine.errors import AeroSuiteError
 from ...engine.project import TEMPLATE_FILE, read_template_text, set_template_text, template_warnings
 from ...engine.reference import RefOption, keys_in
-from ..checks import render_checks
+from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session
 from ..preview import preview_section
 from ..reference_panel import reference_panel
@@ -75,7 +75,7 @@ def _build(frame: ProjectFrame, state: dict) -> None:
             return
         box.clear()
         with box:
-            render_checks(frame, render_checks_box)
+            render_checks(frame, holders.get("generate"))
 
     def after_save() -> None:
         holders["preview"]()
@@ -126,6 +126,10 @@ def _build(frame: ProjectFrame, state: dict) -> None:
         holders["error"].text = message or ""
         return message
 
+    frame.actions.clear()
+    if not frame.session.project.sweep.enabled:
+        with frame.actions:
+            holders["generate"] = generate_button(frame, render_checks_box)
     with ui.row().classes("w-full no-wrap items-start gap-6"):
         with ui.column().classes("w-1/2 gap-2"):
             editor = ui.textarea("Template (template.cfg)", value=initial).props(

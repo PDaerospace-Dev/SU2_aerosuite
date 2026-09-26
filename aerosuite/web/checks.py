@@ -1,5 +1,5 @@
 """Checks and the Generate button: shared by the Config page (sweep off) and the Sweep page."""
-from typing import Callable
+from typing import Callable, Optional
 
 from nicegui import ui
 
@@ -7,16 +7,24 @@ from ..engine.cfg import generate_configs
 from ..engine.errors import AeroSuiteError
 from ..engine.preflight import has_errors, preflight
 from .layout import ProjectFrame
+from .ui_kit import banner, ok_line, primary_button
 
 
-def render_checks(frame: ProjectFrame, refresh: Callable[[], None]) -> None:
+def render_checks(frame: ProjectFrame, button: Optional[ui.button] = None) -> None:
+    """The generate checks as banners (or one green line); `button` is enabled only when none is an error."""
     found = preflight(frame.session.directory, frame.session.project, "generate")
     if not found:
-        ui.label("No problems found.").classes("text-positive").mark("problems-none")
+        ok_line("No problems found.").mark("problems-none")
     for problem in found:
-        style = "text-negative" if problem.severity == "error" else "text-warning"
+        kind = "error" if problem.severity == "error" else "warning"
         prefix = "Error" if problem.severity == "error" else "Warning"
-        ui.label(f"{prefix}: {problem.message}").classes(style).mark(f"problem-{problem.severity}")
+        banner(kind, f"{prefix}: {problem.message}").mark(f"problem-{problem.severity}")
+    if button is not None:
+        button.set_enabled(not has_errors(found))
+
+
+def generate_button(frame: ProjectFrame, refresh: Callable[[], None]) -> ui.button:
+    """The page's primary "Generate configs" button; `refresh` redraws the checks afterwards."""
 
     def generate() -> None:
         stale = frame.ensure_current(notify=False)  # one toast, worded for Generate, not two
@@ -43,5 +51,4 @@ def render_checks(frame: ProjectFrame, refresh: Callable[[], None]) -> None:
         frame.refresh()
         refresh()
 
-    button = ui.button("Generate configs", on_click=generate).mark("generate")
-    button.set_enabled(not has_errors(found))
+    return primary_button("Generate configs", on_click=generate).mark("generate")

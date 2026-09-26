@@ -134,3 +134,13 @@ async def test_single_case_preview_checks_and_generate(user: User, ready_project
     await user.should_see("Wrote 1 config")
     index = json.loads((project_dir / "configs" / "cases.json").read_text())
     assert index == {"study": {"mach": 0.3, "alpha": 0.0, "beta": 0.0}}
+
+
+async def test_config_generate_sits_in_the_actions_when_the_sweep_is_off(user: User, ready_project):
+    project_dir, project = ready_project
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    save_project(project_dir, project)
+    await user.open(project_url("config", project_dir))
+    generate = next(iter(user.find(marker="generate").elements))
+    assert generate.parent_slot.parent is next(iter(user.find(marker="page-actions").elements))
