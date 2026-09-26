@@ -157,7 +157,7 @@ a.as-step:hover { background: #f6f8fa; }
 .as-chip:hover { background: var(--as-accent-tint); color: var(--as-accent-text); }
 
 .as-field .q-field__control { border-radius: 8px; }
-.as-field.as-mono input, .as-field.as-mono textarea { font-family: var(--as-mono); font-size: 12px; }
+.as-field-mono input, .as-field-mono textarea { font-family: var(--as-mono); font-size: 12px; }
 .as-readonly { border: 1px solid var(--as-border); border-radius: 8px; padding: 8px 10px; background: #fafbfc;
   min-height: 36px; word-break: break-all; }
 .as-choice { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; }

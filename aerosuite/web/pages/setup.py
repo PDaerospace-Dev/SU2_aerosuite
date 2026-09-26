@@ -14,6 +14,7 @@ from ..fields import text_field
 from ..layout import ProjectFrame, open_session
 from ..picker import pick_path
 from ..session import parse_int
+from ..ui_kit import banner, card, field, hint, primary_button, readonly, secondary_button
 
 MESH_SUFFIXES = (".su2", ".cgns")
 TEMPLATE_SUFFIXES = (".cfg",)
@@ -29,21 +30,31 @@ def register() -> None:
 
         @ui.refreshable
         def body() -> None:
+            _project_card(frame)
+            with card("Mesh and template"):
+                _mesh_section(frame)
+                _template_section(frame)
             _study_section(frame)
-            _mesh_section(frame)
-            _template_section(frame)
             _run_section(frame)
 
         with frame.content:
             body()
 
 
+def _project_card(frame: ProjectFrame) -> None:
+    with card("Project"):
+        with ui.element("div").classes("as-grid-2"):
+            with ui.column().classes("gap-1"):
+                ui.label("Name").classes("as-label")
+                readonly(frame.session.project.name).mark("setup-project-name")
+            with ui.column().classes("gap-1"):
+                ui.label("Folder").classes("as-label")
+                readonly(str(frame.session.directory), mono=True).mark("setup-folder")
+
+
 def _study_section(frame: ProjectFrame) -> None:
     project = frame.session.project
     profiles, problems = list_profiles()
-    ui.label("Study").classes("text-lg")
-    for problem in problems:
-        ui.label(f"Profile skipped: {problem}").classes("text-warning text-xs").mark("setup-profile-problem")
     options = {"": "None (general case)", **{p.id: p.name for p in profiles}}
     if project.profile and project.profile not in options:
         options[project.profile] = f"{project.profile} (not found)"
@@ -52,13 +63,6 @@ def _study_section(frame: ProjectFrame) -> None:
         message = frame.save(lambda p: setattr(p, "profile", value or None))
         if message:
             ui.notify(message, type="negative")
-
-    with ui.row().classes("w-full items-center no-wrap gap-4"):
-        select = ui.select(options, value=project.profile or "", label="Aircraft profile",
-                           on_change=lambda e: choose(e.value)).classes("w-64").mark("setup-profile")
-        ui.button("Apply profile defaults", on_click=lambda: apply_defaults()).props("flat").mark(
-            "setup-apply-profile")
-        ui.button("Save as profile…", on_click=lambda: save_as()).props("flat").mark("setup-save-profile")
 
     def sweep(on: bool) -> None:
         def change(p) -> None:
@@ -69,8 +73,17 @@ def _study_section(frame: ProjectFrame) -> None:
         if message:
             ui.notify(message, type="negative")
 
-    ui.switch("Sweep (Mach / alpha / beta cases)", value=project.sweep.enabled,
-              on_change=lambda e: sweep(e.value)).mark("setup-sweep")
+    with card("Study"):
+        for problem in problems:
+            banner("warning", f"Profile skipped: {problem}").mark("setup-profile-problem")
+        ui.radio({True: "Sweep · a grid of Mach, α and β cases", False: "Single case · the template as it is"},
+                 value=project.sweep.enabled, on_change=lambda e: sweep(e.value)).props("inline").classes(
+            "as-choice").mark("setup-sweep")
+        with ui.row().classes("w-full items-center no-wrap gap-2"):
+            select = field(ui.select(options, value=project.profile or "", label="Aircraft profile",
+                                     on_change=lambda e: choose(e.value))).classes("w-64").mark("setup-profile")
+            secondary_button("Apply profile defaults", on_click=lambda: apply_defaults()).mark("setup-apply-profile")
+            secondary_button("Save as profile…", on_click=lambda: save_as()).mark("setup-save-profile")
 
     async def apply_defaults() -> None:
         profile_id = frame.session.project.profile
@@ -87,9 +100,9 @@ def _study_section(frame: ProjectFrame) -> None:
             text += " template.cfg will be replaced by the profile's template."
         with ui.dialog() as dialog, ui.card():
             ui.label(text)
-            with ui.row():
-                ui.button("Apply", on_click=lambda: dialog.submit(True)).mark("confirm-apply")
-                ui.button("Cancel", on_click=lambda: dialog.submit(False)).props("flat").mark("confirm-cancel")
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Cancel", on_click=lambda: dialog.submit(False)).mark("confirm-cancel")
+                primary_button("Apply", on_click=lambda: dialog.submit(True)).mark("confirm-apply")
         confirmed = await dialog
         dialog.delete()
         if not confirmed:
@@ -104,15 +117,16 @@ def _study_section(frame: ProjectFrame) -> None:
 
     async def save_as() -> None:
         with ui.dialog() as dialog, ui.card().classes("w-96"):
-            ui.label("Save this project's template and settings as a profile").classes("text-lg")
-            id_box = ui.input("Profile id (letters, digits, - and _)").classes("w-full").mark("profile-id")
-            name_box = ui.input("Name").classes("w-full").mark("profile-name")
-            description_box = ui.input("Description").classes("w-full").mark("profile-description")
-            error = ui.label("").classes("text-negative text-xs").mark("profile-error")
-            with ui.row():
-                ui.button("Save", on_click=lambda: attempt(False)).mark("profile-save")
-                replace = ui.button("Replace existing", on_click=lambda: attempt(True)).mark("profile-replace")
-                ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat").mark("profile-cancel")
+            ui.label("Save this project's template and settings as a profile").classes("as-dialog-title")
+            id_box = field(ui.input("Profile id (letters, digits, - and _)")).classes("w-full").mark("profile-id")
+            name_box = field(ui.input("Name")).classes("w-full").mark("profile-name")
+            description_box = field(ui.input("Description")).classes("w-full").mark("profile-description")
+            error = ui.label("").classes("as-error-text").mark("profile-error")
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Cancel", on_click=lambda: dialog.submit(None)).mark("profile-cancel")
+                replace = secondary_button("Replace existing", on_click=lambda: attempt(True)).mark(
+                    "profile-replace")
+                primary_button("Save", on_click=lambda: attempt(False)).mark("profile-save")
             replace.set_visibility(False)
 
         def attempt(overwrite: bool) -> None:
@@ -148,21 +162,21 @@ def _path_setter(
     then: Callable[[], None],
 ) -> None:
     """A path box with Browse and Set; Set applies `apply(project, path)` through the session."""
-    with ui.row().classes("w-full items-center no-wrap"):
-        field = ui.input(label).classes("grow").mark(f"{mark}-input")
+    with ui.row().classes("w-full items-center no-wrap gap-2"):
+        box = field(ui.input(label), mono=True).classes("grow").mark(f"{mark}-input")
 
         async def browse() -> None:
             chosen = await pick_path(title, mode="file", suffixes=suffixes)
             if chosen is not None:
-                field.value = str(chosen)
+                box.value = str(chosen)
                 commit()
 
-        ui.button("Browse", on_click=browse).props("flat").mark(f"{mark}-browse")
-        ui.button("Set", on_click=lambda: commit()).mark(f"{mark}-set")
-    error = ui.label("").classes("text-negative text-xs").mark(f"{mark}-error")
+        secondary_button("Browse", on_click=browse).mark(f"{mark}-browse")
+        secondary_button("Set", on_click=lambda: commit()).mark(f"{mark}-set")
+    error = ui.label("").classes("as-error-text").mark(f"{mark}-error")
 
     def commit() -> None:
-        text = (field.value or "").strip()
+        text = (box.value or "").strip()
         if not text:
             error.text = "Choose or paste a file"
             return
@@ -174,16 +188,15 @@ def _mesh_section(frame: ProjectFrame) -> None:
     @ui.refreshable
     def summary() -> None:
         mesh = frame.session.project.mesh
-        ui.label(mesh.path or "No mesh selected").mark("mesh-path")
+        ui.label(mesh.path or "No mesh selected").classes("as-mono as-muted").mark("mesh-path")
         markers = ", ".join(mesh.markers) if mesh.markers else "(none found)"
-        ui.label(f"Markers: {markers}").classes("text-sm").mark("mesh-markers")
+        hint(f"Markers: {markers}").mark("mesh-markers")
 
-    ui.label("Mesh").classes("text-lg")
-    summary()
     _path_setter(
         frame, label="Mesh file (.su2)", mark="mesh", title="Choose the mesh", suffixes=MESH_SUFFIXES,
         apply=lambda p, path: engine_project.set_mesh(p, path), then=summary.refresh,
     )
+    summary()
 
 
 def _template_section(frame: ProjectFrame) -> None:
@@ -191,52 +204,59 @@ def _template_section(frame: ProjectFrame) -> None:
     def summary() -> None:
         present = (frame.session.directory / frame.session.project.template).is_file()
         text = f"{frame.session.project.template} (copied into the project)" if present else "No template yet"
-        ui.label(text).mark("template-status")
+        ui.label(text).classes("as-hint").mark("template-status")
 
-    ui.label("Master template").classes("text-lg")
-    summary()
+    ui.label("Config template").classes("as-label mt-2")
     _path_setter(
         frame, label="Template (.cfg)", mark="template", title="Choose the master template",
         suffixes=TEMPLATE_SUFFIXES,
         apply=lambda p, path: engine_project.set_template(frame.session.directory, p, path),
         then=summary.refresh,
     )
+    summary()
 
 
 def _run_section(frame: ProjectFrame) -> None:
     run = frame.session.project.run
-    ui.label("Run settings").classes("text-lg")
-    text_field(
-        "MPI partitions per case", run.partitions,
-        lambda text: frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Partitions"))),
-        mark="partitions",
-    )
 
     @ui.refreshable
     def python_info() -> None:
         resolved = resolve_sweep_python(frame.session.project.run.sweep_python)
         text = f"Runs as: {resolved}"
-        if is_aerosuite_python(resolved):
+        own = is_aerosuite_python(resolved)
+        if own:
             text += "  ⚠ This is AeroSuite's own Python; SU2 is normally importable only from the system Python."
-        ui.label(text).classes("text-xs text-grey-8").mark("sweep-python-info")
-
-    text_field(
-        "Python for the sweep script (must import SU2)", run.sweep_python,
-        lambda text: frame.save(
-            lambda p: setattr(p.run, "sweep_python", text.strip() or "python3"), then=python_info.refresh),
-        mark="sweep-python",
-    )
-    python_info()
+        label = hint(text).mark("sweep-python-info")
+        if own:
+            label.classes("as-hint-warning")
 
     @ui.refreshable
     def script_info() -> None:
         script = frame.session.project.run.sweep_script
         text = script if script else f"bundled {BUNDLED_SWEEP_SCRIPT.name}"
-        ui.label(f"Script: {text}").classes("text-xs text-grey-8").mark("sweep-script-info")
+        hint(f"Script: {text}").mark("sweep-script-info")
 
-    text_field(
-        "Sweep script (empty = bundled)", run.sweep_script,
-        lambda text: frame.save(lambda p: setattr(p.run, "sweep_script", text.strip()), then=script_info.refresh),
-        mark="sweep-script",
-    )
-    script_info()
+    with card("Run settings"):
+        with ui.element("div").classes("as-grid-3"):
+            with ui.column().classes("gap-1"):
+                text_field(
+                    "Python for the sweep script (must import SU2)", run.sweep_python,
+                    lambda text: frame.save(
+                        lambda p: setattr(p.run, "sweep_python", text.strip() or "python3"), then=python_info.refresh),
+                    mark="sweep-python", mono=True,
+                )
+                python_info()
+            with ui.column().classes("gap-1"):
+                text_field(
+                    "Sweep script (empty = bundled)", run.sweep_script,
+                    lambda text: frame.save(lambda p: setattr(p.run, "sweep_script", text.strip()),
+                                            then=script_info.refresh),
+                    mark="sweep-script", mono=True,
+                )
+                script_info()
+            with ui.column().classes("gap-1"):
+                text_field(
+                    "MPI partitions per case", run.partitions,
+                    lambda text: frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Partitions"))),
+                    mark="partitions",
+                )

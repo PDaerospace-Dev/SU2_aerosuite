@@ -136,3 +136,12 @@ async def test_sweep_switch(user: User, ready_project):
     with user:
         _element(user, "setup-sweep").set_value(True)
     assert len(open_project(project_dir).cases) == 3
+
+
+async def test_the_study_type_is_two_tiles(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("setup", project_dir))
+    choice = _element(user, "setup-sweep")
+    assert choice.value is True
+    assert "as-choice" in choice.classes
+    assert list(choice.options) == [True, False]

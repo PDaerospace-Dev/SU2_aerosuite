@@ -98,7 +98,7 @@ def summary_tile(label: str, value: object, tone: Optional[Literal["danger"]] = 
 
 def field(widget, *, mono: bool = False):
     """Style an input, select or textarea as a form field (outlined box; the label floats above a value)."""
-    widget.props("outlined dense").classes("as-field" + (" as-mono" if mono else ""))
+    widget.props("outlined dense").classes("as-field" + (" as-field-mono" if mono else ""))
     return widget
 
 

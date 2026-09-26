@@ -74,3 +74,23 @@ async def test_sweep_script_blank_means_bundled(user: User, ready_project):
     user.find(marker="sweep-script").clear().trigger("blur")
     await user.should_see("bundled aoa_sweep_v8.py")
     assert open_project(project_dir).run.sweep_script == ""
+
+
+def _element(user, marker):
+    return next(iter(user.find(marker=marker).elements))
+
+
+async def test_setup_shows_the_project_card(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("setup", project_dir))
+    assert _element(user, "setup-project-name").text == "study"
+    assert _element(user, "setup-folder").text == str(project_dir)
+    assert "as-mono" in _element(user, "setup-folder").classes
+
+
+async def test_mono_fields_keep_their_label_in_the_body_font(user: User, ready_project):
+    # Only the typed path is monospace: the generic as-mono class on the field would change its label too.
+    project_dir, _ = ready_project
+    await user.open(project_url("setup", project_dir))
+    classes = _element(user, "mesh-input").classes
+    assert "as-field-mono" in classes and "as-mono" not in classes
