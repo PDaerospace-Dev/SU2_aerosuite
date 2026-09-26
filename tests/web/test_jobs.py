@@ -111,3 +111,26 @@ def test_log_tail_reads_only_the_end_of_a_big_log(ready_project):
     assert JobWatcher().log_tail(project_dir, job).splitlines() == [f"line {i}" for i in range(60, 100)]
     missing = JobRecord(id="k", backend="local", cases=[A0], log_path="jobs/k.log")
     assert JobWatcher().log_tail(project_dir, missing) is None
+
+
+from aerosuite.engine.jobs.overview import CaseOverview
+from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
+from aerosuite.web.jobs import JobProgress, JobView, job_progress
+
+
+def _job(**status):
+    return JobRecord(id="j1", backend="local", cases=list(status), log_path="runs/j1.log",
+                     state=JobState.RUNNING, case_status={k: CaseState(v) for k, v in status.items()})
+
+
+def test_job_progress_counts_finished_cases_and_names_the_running_one():
+    job = _job(a="CONVERGED", b="FAILED", c="RUNNING", d="PENDING")
+    progress = job_progress(JobView(job, job, CaseOverview([], [], [job])))
+    assert progress == JobProgress(2, 4, "c")
+    assert progress.text == "2 / 4 · c"
+    assert progress.percent == 50
+
+
+def test_no_active_job_no_progress():
+    assert job_progress(JobView(None, None, CaseOverview([], [], []))) is None
+    assert JobProgress(0, 3, None).text == "0 / 3"

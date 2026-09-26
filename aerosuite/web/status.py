@@ -36,6 +36,14 @@ def visible_steps(project: Project) -> list[tuple[str, str]]:
     ]
 
 
+def project_kind(project: Project) -> str:
+    """The switcher's and the recent list's second line: "sweep · 3 cases" or "single case"."""
+    if not project.sweep.enabled:
+        return "single case"
+    count = len(project.cases)
+    return f"sweep · {count} case{'' if count == 1 else 's'}"
+
+
 def _configs_badge(project_dir: Path, project: Project) -> Badge:
     if not (project_dir / CONFIGS_DIR / CASE_INDEX_FILE).is_file():
         return "todo"

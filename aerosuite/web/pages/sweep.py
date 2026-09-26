@@ -76,7 +76,6 @@ def register() -> None:
             render_problems()
 
         with frame.content:
-            ui.label("Sweep").classes("text-2xl")
             body()
 
 

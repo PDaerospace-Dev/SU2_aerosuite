@@ -98,3 +98,22 @@ def test_configs_badge_follows_the_sweep(ready_project):
     assert step_badges(project_dir, project)["configs"] == "attention"
     (project_dir / CONFIGS_DIR / CASE_INDEX_FILE).write_text("{broken")
     assert step_badges(project_dir, project)["configs"] == "attention"
+
+
+from aerosuite.engine.cfg import build_cases
+from aerosuite.engine.models import Project
+from aerosuite.web.status import project_kind
+
+
+def test_project_kind():
+    project = Project(name="p")
+    project.sweep.mach = [0.8]
+    project.sweep.alpha = [0.0, 2.0]
+    project.sweep.beta = [0.0]
+    project.cases = build_cases(project)
+    assert project_kind(project) == "sweep · 2 cases"
+    project.sweep.alpha = [0.0]
+    project.cases = build_cases(project)
+    assert project_kind(project) == "sweep · 1 case"
+    project.sweep.enabled = False
+    assert project_kind(project) == "single case"

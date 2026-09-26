@@ -15,7 +15,7 @@ from typing import Callable, Iterable, Optional, Sequence
 
 from ..engine.jobs.local import RUNS_DIR, LocalRunner
 from ..engine.jobs.overview import CaseOverview, case_overview
-from ..engine.jobs.runner import JobRecord
+from ..engine.jobs.runner import FINAL_CASE_STATES, CaseState, JobRecord
 from ..engine.models import Project
 from ..engine.results import HISTORY_FILE, HistoryBuffer
 
@@ -30,6 +30,32 @@ class JobView:
     latest: Optional[JobRecord]  # the newest job, active or not
     active: Optional[JobRecord]  # the running job, if any
     overview: CaseOverview
+
+
+@dataclass(frozen=True)
+class JobProgress:
+    finished: int
+    total: int
+    current: Optional[str]  # the case running now, if any
+
+    @property
+    def text(self) -> str:
+        text = f"{self.finished} / {self.total}"
+        return f"{text} · {self.current}" if self.current else text
+
+    @property
+    def percent(self) -> int:
+        return round(100 * self.finished / self.total) if self.total else 0
+
+
+def job_progress(view: JobView) -> Optional[JobProgress]:
+    """How far the active job is, for the top bar's job indicator; None when no job is active."""
+    job = view.active
+    if job is None:
+        return None
+    finished = sum(1 for name in job.cases if job.case_status.get(name) in FINAL_CASE_STATES)
+    current = next((name for name in job.cases if job.case_status.get(name) is CaseState.RUNNING), None)
+    return JobProgress(finished, len(job.cases), current)
 
 
 class JobWatcher:

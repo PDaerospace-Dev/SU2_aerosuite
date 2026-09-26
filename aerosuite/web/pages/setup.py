@@ -35,7 +35,6 @@ def register() -> None:
             _run_section(frame)
 
         with frame.content:
-            ui.label("Setup").classes("text-2xl")
             body()
 
 

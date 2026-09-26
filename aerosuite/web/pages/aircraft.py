@@ -57,7 +57,6 @@ def register() -> None:
             _build(frame)
 
         with frame.content:
-            ui.label("Aircraft").classes("text-2xl")
             body()
 
 

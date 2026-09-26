@@ -41,7 +41,6 @@ def register() -> None:
             _build(frame, state)
 
         with frame.content:
-            ui.label("Config").classes("text-2xl")
             body()
 
 

@@ -1,4 +1,7 @@
-"""Shared page parts: header, project frame (sidebar with badges), outside-change watcher."""
+"""Shared page parts: the top bar, the project frame (collapsible sidebar, breadcrumbs with the page's
+actions slot, job indicator, project switcher) and the outside-change watcher."""
+import re
+import zlib
 from pathlib import Path
 from typing import Callable, Optional
 from urllib.parse import quote
@@ -6,28 +9,21 @@ from urllib.parse import quote
 from nicegui import ui
 
 from ..engine.errors import AeroSuiteError
-from .recent import add_recent
+from ..engine.jobs.store import active_lock
+from .guide import app_version, web_ui_guide
+from .jobs import WATCHER, job_progress
+from .recent import add_recent, load_recent
 from .session import Change, ProjectSession
-from .status import step_badges, visible_steps
+from .status import STEPS, project_kind, step_badges, visible_steps
+from .theme import BADGE_COLORS, TOGGLE_SIDEBAR, apply_theme
+from .ui_kit import banner, status_dot
 
 WATCH_SECONDS = 2.0
-BADGE_ICONS = {
-    "done": ("check_circle", "positive"),
-    "attention": ("error", "warning"),
-    "todo": ("radio_button_unchecked", "grey-6"),
-    "later": ("schedule", "grey-4"),
-    "running": ("autorenew", "primary"),
-    "plain": ("insights", "grey-6"),
-}
 PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep", "run": "run",
-                 "monitor": "monitor"}
-PAGE_CSS = "body { background-color: #f7f7f7; color: #1f1f1f; }"
-
-
-def apply_theme() -> None:
-    """Paint our own background so text stays readable in browsers that use a dark canvas."""
-    ui.add_css(PAGE_CSS)
-
+                "monitor": "monitor"}
+PAGE_TITLES = dict(STEPS)
+STEP_ICONS = {"setup": "tune", "config": "description", "aircraft": "flight", "sweep": "grid_on",
+              "configs": "inventory_2", "run": "play_arrow", "monitor": "show_chart", "results": "bar_chart"}
 
 RELOADED_MESSAGE = "Project changed on disk; reloaded"
 STALE_MESSAGE = "Project changed on disk and was reloaded — your last change was not saved; enter it again"
@@ -37,68 +33,193 @@ def project_url(page: str, directory) -> str:
     return f"/{page}?project={quote(str(directory), safe='')}"
 
 
+def initials(name: str) -> str:
+    """Two letters for the switcher badge: the first letters of the first two words, else the first two."""
+    words = [word for word in re.split(r"[\s_\-.]+", name) if word]
+    if not words:
+        return "?"
+    if len(words) == 1:
+        return words[0][:2].upper()
+    return (words[0][0] + words[1][0]).upper()
+
+
+def badge_color(name: str) -> str:
+    return BADGE_COLORS[zlib.crc32(name.encode("utf-8")) % len(BADGE_COLORS)]
+
+
+def _brand() -> None:
+    with ui.link(target="/").classes("as-brand row"):
+        with ui.element("span").classes("as-logo-mark"):
+            ui.icon("flight", size="18px")
+        ui.label("AeroSuite").classes("as-logo-text")
+
+
+def _help_button() -> None:
+    """A help icon with the version and "Web UI guide" (the README's web UI section in a dialog)."""
+    # Built outside the menu: a dialog created inside a menu item would be unmounted as the menu closes.
+    with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
+        with ui.row().classes("w-full items-center no-wrap"):
+            ui.label("Web UI guide").classes("as-dialog-title grow")
+            ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense").mark("guide-close")
+        guide = ui.markdown("").classes("w-full").mark("guide-text")
+
+    def show_guide() -> None:
+        guide.set_content(web_ui_guide())
+        dialog.open()
+
+    with ui.button(icon="help_outline", color=None).props("flat dense").classes(
+            "as-topbar-icon as-round").mark("help"):
+        with ui.menu().mark("help-menu"):
+            ui.menu_item(f"AeroSuite {app_version()}").props("disable").mark("help-version")
+            ui.menu_item("Web UI guide", on_click=show_guide).mark("help-guide")
+
+
 def header() -> None:
+    """The top bar of pages outside a project (Projects, or a project that cannot be opened)."""
     apply_theme()
-    with ui.header().classes("items-center gap-4"):
-        ui.link("AeroSuite", "/").classes("text-white text-xl no-underline")
+    with ui.row().classes("as-topbar w-full"):
+        _brand()
+        ui.space()
+        _help_button()
 
 
 def open_session(project: str) -> Optional[ProjectSession]:
     """Open the project named in the URL, or show why not and return None."""
     if not project:
         header()
-        ui.label("No project selected.")
-        ui.link("Choose a project", "/")
+        with ui.column().classes("as-page w-full"):
+            ui.label("No project selected.")
+            ui.link("Choose a project", "/")
         return None
     try:
         session = ProjectSession(Path(project))
     except AeroSuiteError as exc:
         header()
-        ui.label(f"Error: {exc}").classes("text-negative")
-        ui.link("Back to projects", "/")
+        with ui.column().classes("as-page w-full"):
+            banner("error", f"Error: {exc}")
+            ui.link("Back to projects", "/")
         return None
     add_recent(session.directory)
     return session
 
 
+def _toggle_sidebar() -> None:
+    ui.run_javascript(TOGGLE_SIDEBAR)  # fire and forget: the browser flips and remembers it
+
+
 class ProjectFrame:
-    """Header, sidebar and content column of a project page."""
+    """Top bar, sidebar, breadcrumb row and content column of a project page.
+
+    `actions` (right of the breadcrumbs) holds the page's buttons, at most one of them primary;
+    `content` holds its cards.
+    """
 
     def __init__(self, session: ProjectSession, active: str, on_reload: Callable[[], None]) -> None:
         self.session = session
         self.active = active
         self._on_reload = on_reload
         apply_theme()
-        with ui.header().classes("items-center gap-4"):
-            ui.link("AeroSuite", "/").classes("text-white text-xl no-underline")
-            self._name = ui.label("").classes("text-lg").mark("project-name")
-            ui.label(str(session.directory)).classes("text-xs opacity-80")
-        with ui.left_drawer(value=True).classes("bg-grey-1"):
-            self._sidebar = ui.column().classes("gap-2")
-        self.content = ui.column().classes("w-full p-4 gap-4")
+        self._top_bar()
+        with ui.row().classes("as-body w-full"):
+            self._sidebar = ui.column().classes("as-sidebar").mark("sidebar")
+            with ui.column().classes("as-main"):
+                with ui.row().classes("as-crumbs w-full"):
+                    ui.link("Projects", "/").classes("as-crumb-link").mark("crumb-projects")
+                    ui.label("›").classes("as-crumb-sep")
+                    self._crumb_project = ui.link("", project_url("setup", session.directory)).classes(
+                        "as-crumb-link as-crumb-project as-truncate").mark("crumb-project")
+                    ui.label("›").classes("as-crumb-sep")
+                    ui.label(PAGE_TITLES.get(active, active.title())).classes("as-crumb-current").mark("crumb-page")
+                    ui.space()
+                    self.actions = ui.row().classes("items-center gap-2 no-wrap").mark("page-actions")
+                self.content = ui.column().classes("as-content w-full")
         self.refresh()
-        ui.timer(WATCH_SECONDS, self._check_disk)
+        ui.timer(WATCH_SECONDS, self._tick)
+
+    def _top_bar(self) -> None:
+        with ui.row().classes("as-topbar w-full"):
+            _brand()
+            with ui.button(on_click=_toggle_sidebar, color=None).props("flat dense").classes(
+                    "as-topbar-icon").mark("sidebar-toggle"):
+                ui.icon("keyboard_double_arrow_left").classes("as-when-full")
+                ui.icon("keyboard_double_arrow_right").classes("as-when-mini")
+            ui.space()
+            with ui.row().classes("as-topbar-control as-job").mark("job-indicator") as self._job:
+                ui.element("span").classes("as-job-dot")
+                ui.label("Running")
+                self._job_text = ui.label("").classes("as-topbar-muted").mark("job-progress")
+                with ui.element("span").classes("as-job-bar"):
+                    self._job_fill = ui.element("div").classes("as-job-fill").style("width: 0%")
+            self._job.on("click", lambda: ui.navigate.to(project_url("run", self.session.directory)))
+            self._job.set_visibility(False)
+            _help_button()
+            with ui.row().classes("as-topbar-control as-switcher").mark("project-switcher"):
+                self._initials = ui.label("").classes("as-initials")
+                with ui.column().classes("gap-0 min-w-0"):
+                    self._name = ui.label("").classes("as-switcher-name as-truncate").mark("project-name")
+                    self._kind = ui.label("").classes("as-switcher-kind as-topbar-muted").mark("project-kind")
+                ui.icon("expand_more").classes("as-topbar-muted")
+                with ui.menu().mark("project-menu"):
+                    ui.menu_item("All projects", on_click=lambda: ui.navigate.to("/")).mark("menu-all-projects")
+                    here = Path(self.session.directory).resolve()
+                    for directory in load_recent():
+                        if directory.resolve() != here:
+                            ui.menu_item(directory.name, on_click=lambda d=directory: ui.navigate.to(
+                                project_url("setup", d))).mark(f"menu-recent-{directory.name}")
 
     def refresh(self) -> None:
-        """Redraw the header name and the sidebar badges."""
-        self._name.text = self.session.project.name
-        badges = step_badges(self.session.directory, self.session.project)
+        """Redraw the project name, the sidebar's steps and badges, and the job indicator."""
+        project = self.session.project
+        self._name.text = project.name
+        self._kind.text = project_kind(project)
+        self._initials.text = initials(project.name)
+        self._initials.style(f"background: {badge_color(project.name)}")
+        self._crumb_project.text = project.name
+        badges = step_badges(self.session.directory, project)
         self._sidebar.clear()
         with self._sidebar:
-            for key, label in visible_steps(self.session.project):
-                badge = badges[key]
-                icon, color = BADGE_ICONS[badge]
-                with ui.row().classes("items-center gap-2 no-wrap"):
-                    ui.icon(icon, color=color).mark(f"badge-{key}-{badge}")
-                    page = PAGE_OF_STEP.get(key)
-                    if key == "configs":
-                        page = "sweep" if self.session.project.sweep.enabled else "config"
-                    if page is None:
-                        ui.label(label).classes("text-grey-5")
-                    else:
-                        link = ui.link(label, project_url(page, self.session.directory))
-                        if key == self.active:
-                            link.classes("font-bold")
+            for key, label in visible_steps(project):
+                self._step(key, label, badges[key])
+        self._update_job()
+
+    def _step(self, key: str, label: str, badge: str) -> None:
+        page = PAGE_OF_STEP.get(key)
+        if key == "configs":
+            page = "sweep" if self.session.project.sweep.enabled else "config"
+        if page is None:
+            item = ui.row().classes("as-step as-step-later")
+        else:
+            item = ui.link(target=project_url(page, self.session.directory)).classes("as-step row")
+            if key == self.active:
+                item.classes("as-step-current")
+        item.mark(f"step-{key}")
+        with item:
+            ui.icon(STEP_ICONS[key], size="20px")
+            status_dot(badge).mark(f"badge-{key}-{badge}")
+            ui.label(label).classes("as-step-name")
+            ui.tooltip(label).classes("as-step-tip")
+
+    def _tick(self) -> None:
+        self._check_disk()
+        self._update_job()
+
+    def _update_job(self) -> None:
+        """Show the job indicator while a job of this project runs (started here, in another tab or the CLI).
+
+        With nothing shown only the cheap lock check runs; job state is read only while a job is active.
+        """
+        try:
+            if not self._job.visible and active_lock(self.session.directory) is None:
+                return
+            progress = job_progress(WATCHER.state(self.session.directory, self.session.project))
+        except (AeroSuiteError, OSError):
+            progress = None  # a broken job record must never break navigation
+        if progress is None:
+            self._job.set_visibility(False)
+            return
+        self._job_text.set_text(progress.text)
+        self._job_fill.style(f"width: {progress.percent}%")
+        self._job.set_visibility(True)
 
     def ensure_current(self, notify: bool = True) -> Optional[str]:
         """Reload from disk if the project changed there since it was last read.

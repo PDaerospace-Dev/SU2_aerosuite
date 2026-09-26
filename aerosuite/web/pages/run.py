@@ -31,7 +31,6 @@ def register() -> None:
         pages: list = []
         frame = ProjectFrame(session, "run", on_reload=lambda: pages[0].render() if pages else None)
         with frame.content:
-            ui.label("Run").classes("text-2xl")
             pages.append(RunPage(frame))
 
 
