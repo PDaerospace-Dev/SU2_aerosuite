@@ -123,3 +123,17 @@ async def test_insert_from_the_reference(user: User, ready_project):
     user.find(marker="ref-insert-MARKER_EULER").click()
     assert open_project(project_dir).settings.markers["MARKER_EULER"] == "( airfoil )"
     await user.should_see(marker="marker-MARKER_EULER-value")
+
+
+async def test_aircraft_sections_are_cards(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    await user.should_see("Mesh markers: farfield, wall")
+    assert "as-field" in _element(user, "numerics-conv_method").classes
+
+
+async def test_no_profile_is_an_info_banner(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    assert "as-banner-info" in _element(user, "aircraft-none").parent_slot.parent.classes

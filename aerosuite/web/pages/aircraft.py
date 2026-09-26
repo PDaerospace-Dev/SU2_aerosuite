@@ -15,6 +15,7 @@ from ..layout import ProjectFrame, open_session
 from ..preview import preview_section
 from ..reference_panel import reference_panel
 from ..session import parse_optional_int, parse_optional_number
+from ..ui_kit import banner, card, field, secondary_button, table, td, td_box, th
 
 # (label, settings group, field, kind) — kind: "float" | "int"
 NUMBER_FIELDS = {
@@ -51,8 +52,8 @@ def register() -> None:
         @ui.refreshable
         def body() -> None:
             if not frame.session.project.profile:
-                ui.label("This project has no aircraft profile. Choose one in Setup "
-                         "to use the Aircraft Aero form.").mark("aircraft-none")
+                banner("info", "This project has no aircraft profile. Choose one in Setup "
+                       "to use the Aircraft Aero form.").mark("aircraft-none")
                 return
             _build(frame)
 
@@ -87,21 +88,27 @@ def _build(frame: ProjectFrame) -> None:
         holders["preview"]()
         holders["reference"]()
 
-    with ui.row().classes("w-full no-wrap items-start gap-6"):
-        with ui.column().classes("w-1/2 gap-2"):
+    with ui.element("div").classes("as-columns"):
+        with ui.column().classes("gap-4 w-full"):
             for title, rows in NUMBER_FIELDS.items():
-                ui.label(title).classes("text-lg")
-                for label, group, name, kind in rows:
-                    _number_field(frame, hints, label, group, name, kind, after)
-            ui.label("Numerics").classes("text-lg")
-            for label, name, options in DROPDOWNS:
-                _dropdown(frame, label, name, options, after)
-            for label, name, kind in NUMERIC_TEXT:
-                _number_field(frame, hints, label, "numerics", name, kind, after)
+                with card(title):
+                    with ui.element("div").classes("as-grid-3"):
+                        for label, group, name, kind in rows:
+                            with ui.column().classes("gap-1"):
+                                _number_field(frame, hints, label, group, name, kind, after)
+            with card("Numerics"):
+                with ui.element("div").classes("as-grid-3"):
+                    for label, name, options in DROPDOWNS:
+                        with ui.column().classes("gap-1"):
+                            _dropdown(frame, label, name, options, after)
+                    for label, name, kind in NUMERIC_TEXT:
+                        with ui.column().classes("gap-1"):
+                            _number_field(frame, hints, label, "numerics", name, kind, after)
             holders["markers"] = _markers(frame, hints, after)
             holders["overrides"] = _placeholders(frame, after)
-            holders["preview"] = preview_section(frame)
-        with ui.column().classes("w-1/2 gap-2"):
+            with card("Preview"):
+                holders["preview"] = preview_section(frame)
+        with card("SU2 reference"):
             holders["reference"] = reference_panel(
                 on_insert=lambda option: _insert(frame, option, holders, after),
                 in_config=lambda: _rendered_keys(frame))
@@ -130,15 +137,14 @@ def _dropdown(frame, label, name, choices, after) -> None:
         if message:
             ui.notify(message, type="negative")
 
-    ui.select(options, value=current or "", label=label,
-              on_change=lambda e: change(e.value)).classes("w-full").mark(f"numerics-{name}")
+    field(ui.select(options, value=current or "", label=label,
+                    on_change=lambda e: change(e.value))).classes("w-full").mark(f"numerics-{name}")
 
 
 def _markers(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
-    ui.label("Markers").classes("text-lg")
     mesh = ", ".join(frame.session.project.mesh.markers) or "(no .su2 mesh markers)"
-    ui.label(f"Mesh markers: {mesh}").classes("text-xs text-grey-8")
-    box = ui.column().classes("w-full gap-2")
+    with card("Markers", f"Mesh markers: {mesh}"):
+        box = ui.column().classes("w-full gap-2")
 
     def render() -> None:
         # Plain synchronous rebuild: tests read these rows right after a change.
@@ -146,14 +152,15 @@ def _markers(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], Non
         markers = frame.session.project.settings.markers
         keys = MARKER_ROWS + sorted(k for k in markers if k not in MARKER_ROWS)
         with box:
-            for key in keys:
-                value = markers.get(key, "")
-                with ui.row().classes("w-full items-center no-wrap"):
+            with ui.element("div").classes("as-grid-form"):
+                for key in keys:
+                    value = markers.get(key, "")
                     ui.checkbox(key, value=value is not None,
-                                on_change=lambda e, k=key: include(k, e.value)).classes("w-56").mark(
-                        f"marker-{key}-include")
-                    text_field("Value", value or "", lambda text, k=key: set_value(k, text),
-                               mark=f"marker-{key}-value", placeholder=hints.get(key, "template value"))
+                                on_change=lambda e, k=key: include(k, e.value)).mark(f"marker-{key}-include")
+                    with ui.column().classes("gap-0"):
+                        text_field("Value", value or "", lambda text, k=key: set_value(k, text),
+                                   mark=f"marker-{key}-value", placeholder=hints.get(key, "template value"),
+                                   mono=True)
 
     def both() -> None:
         render()
@@ -182,22 +189,34 @@ def _markers(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], Non
 
 
 def _placeholders(frame: ProjectFrame, after: Callable[[], None]) -> Callable[[], None]:
-    ui.label("Placeholders").classes("text-lg")
-    ui.label("Any other SU2 option, written into every config.").classes("text-xs text-grey-8")
-    box = ui.column().classes("w-full gap-2")
+    with card("Placeholders", "Any other SU2 option, written into every config.", flush=True):
+        box = ui.column().classes("w-full gap-0")
+        with ui.row().classes("w-full items-start no-wrap gap-2 px-4 pt-3 pb-2"):
+            key_box = field(ui.input("Option"), mono=True).classes("w-48").mark("override-new-key")
+            value_box = field(ui.input("Value")).classes("grow").mark("override-new-value")
+            secondary_button("Add", on_click=lambda: add()).mark("override-add")
+        error = ui.label("").classes("as-error-text px-4 pb-3").mark("override-add-error")
 
     def render() -> None:
         box.clear()
+        items = sorted(frame.session.project.settings.overrides.items())
+        if not items:
+            return
         with box:
-            for key, value in sorted(frame.session.project.settings.overrides.items()):
-                with ui.row().classes("w-full items-center no-wrap"):
-                    ui.label(key).classes("w-48")
-                    text_field("Value", value,
-                               lambda text, k=key: frame.save(
-                                   lambda p: set_parameter(p.settings, k, text), then=after),
-                               mark=f"override-{key}-value")
-                    ui.button(icon="delete", on_click=lambda k=key: forget(k)).props("flat").mark(
-                        f"override-{key}-delete")
+            with table("minmax(10rem, 14rem) minmax(0, 1fr) 56px"):
+                for heading in ("Option", "Value", ""):
+                    th(heading)
+                for key, value in items:
+                    td(key, mono=True)
+                    with td_box():
+                        with ui.column().classes("grow gap-0"):
+                            text_field("Value", value,
+                                       lambda text, k=key: frame.save(
+                                           lambda p: set_parameter(p.settings, k, text), then=after),
+                                       mark=f"override-{key}-value", mono=True)
+                    with td_box():
+                        ui.button(icon="delete", on_click=lambda k=key: forget(k), color=None).props(
+                            "flat round dense").mark(f"override-{key}-delete")
 
     def both() -> None:
         render()
@@ -207,12 +226,6 @@ def _placeholders(frame: ProjectFrame, after: Callable[[], None]) -> Callable[[]
         message = frame.save(lambda p: unset_parameter(p.settings, key), then=both)
         if message:
             ui.notify(message, type="negative")
-
-    with ui.row().classes("w-full items-center no-wrap"):
-        key_box = ui.input("Option").classes("w-48").mark("override-new-key")
-        value_box = ui.input("Value").classes("grow").mark("override-new-value")
-        ui.button("Add", on_click=lambda: add()).mark("override-add")
-    error = ui.label("").classes("text-negative text-xs").mark("override-add-error")
 
     def add() -> None:
         name = (key_box.value or "").strip().upper()
