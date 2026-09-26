@@ -153,3 +153,28 @@ async def test_a_poll_with_nothing_new_does_not_rebuild_the_page(user: User, rea
     await user.should_see(marker="cancel-confirm")
     user.find(marker="cancel-confirm").click()
     await eventually(lambda: _text(user, f"status-{A0}") == "CANCELLED", timeout=20)
+
+
+from aerosuite.engine.jobs.overview import CaseRow
+from aerosuite.web.pages.run import tile_counts
+
+
+def test_tile_counts_group_the_statuses():
+    rows = [CaseRow(n, s, None) for n, s in [("a", "CONVERGED"), ("b", "RUNNING"), ("c", "FAILED"),
+                                             ("d", "UNCONVERGED"), ("e", "CANCELLED"), ("f", "PENDING"),
+                                             ("g", "NOT_RUN"), ("h", "CONVERGED")]]
+    assert tile_counts(rows) == (2, 1, 3, 2)
+
+
+async def test_tiles_pills_and_the_failure_box(user: User, ready_project, su2_env):
+    project_dir, project = ready_project
+    _run_to_end(project_dir, project, **{A2: "fail"})
+    await _open(user, project_dir)
+    assert (_text(user, "tile-converged"), _text(user, "tile-running"), _text(user, "tile-attention"),
+            _text(user, "tile-pending")) == ("2", "0", "1", "0")
+    assert "as-pill-failed" in _element(user, f"status-{A2}").classes
+    assert "as-pill-done" in _element(user, f"status-{A0}").classes
+    assert "as-failure" in _element(user, f"tail-{A2}").classes
+    actions = _element(user, "page-actions")
+    assert _element(user, "submit").parent_slot.parent is actions
+    assert "as-btn-primary" in _element(user, "submit").classes

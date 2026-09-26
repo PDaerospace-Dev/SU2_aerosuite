@@ -1,5 +1,5 @@
 """Run: checks, each case's latest status, rerun selection, Submit / Cancel and job history."""
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from nicegui import ui
 
@@ -7,10 +7,13 @@ from ...engine.cfg import generate_configs
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.plan import plan_restarts
+from ...engine.naming import format_value
 from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import restart_file
 from ..jobs import WATCHER, JobView
 from ..layout import ProjectFrame, open_session
+from ..ui_kit import (banner, card, card_head, chip_button, danger_button, failure_row, ok_line, pill, primary_button,
+                      secondary_button, summary_tile, table, td, td_box, th)
 
 POLL_SECONDS = 2.0
 SELECTORS = [  # (label, statuses to tick; None = every case)
@@ -55,6 +58,22 @@ def _answer(dialog: ui.dialog, value: bool) -> None:
     dialog.delete()
 
 
+def tile_counts(rows) -> tuple[int, int, int, int]:
+    """(converged, running, needs attention, pending) for the summary tiles."""
+    statuses = [row.status for row in rows]
+    converged = statuses.count("CONVERGED")
+    running = statuses.count("RUNNING")
+    attention = sum(statuses.count(s) for s in ("FAILED", "UNCONVERGED", "CANCELLED"))
+    pending = sum(statuses.count(s) for s in ("PENDING", NOT_RUN))
+    return converged, running, attention, pending
+
+
+class _Selection(NamedTuple):
+    ticked: list[str]  # ticked case names, in case order
+    chosen: bool  # "Continue from each case's last solution" is ticked
+    no_solution: list[str]  # ticked cases with nothing to continue from
+
+
 class RunPage:
     def __init__(self, frame: ProjectFrame) -> None:
         self.frame = frame
@@ -65,7 +84,7 @@ class RunPage:
         self.was_active = False
         self.shown: Optional[tuple] = None  # _snapshot() of the view on screen
         self.dialogs_open = 0  # a re-render while Cancel's confirm dialog awaits would orphan it
-        self.holder = ui.column().classes("w-full gap-4")
+        self.holder = ui.column().classes("as-content w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
 
@@ -98,95 +117,127 @@ class RunPage:
                 view = WATCHER.state(self.directory, self.project)
             except AeroSuiteError as exc:
                 self.holder.clear()
+                self.frame.actions.clear()
                 with self.holder:
-                    ui.label(f"Error: {exc}").classes("text-negative").mark("run-error")
+                    banner("error", f"Error: {exc}").mark("run-error")
                 return
         self.was_active = view.active is not None
         self.shown = _snapshot(view)
         self.ticked &= {case.name for case in self.project.cases}  # the cases may have been rebuilt
         self.holder.clear()
+        self.frame.actions.clear()
         with self.holder:
             self._checks(view)
-            self._cases(view)
-            self._actions(view)
+            selection = self._selection(view)
+            self._plan(view, selection)
+            self._tiles(view)
+            self._cases(view, selection)
             self._history(view)
+        with self.frame.actions:
+            self._actions(view, selection)
 
     def _checks(self, view: JobView) -> None:
-        ui.label("Checks").classes("text-lg")
         problems = preflight(self.directory, self.project, "submit")
         if view.active is not None:  # "job ... is still running" is what the table already shows
             problems = [p for p in problems if not p.message.startswith(f"Job {view.active.id} ")]
         self.has_errors = has_errors(problems)
         found = [(p.severity, p.message) for p in problems] + [("warning", m) for m in view.overview.problems]
         if not found:
-            ui.label("No problems found.").classes("text-positive").mark("run-problems-none")
+            ok_line("No problems found.").mark("run-problems-none")
         for severity, message in found:
-            style = "text-negative" if severity == "error" else "text-warning"
+            kind = "error" if severity == "error" else "warning"
             prefix = "Error" if severity == "error" else "Warning"
-            ui.label(f"{prefix}: {message}").classes(style).mark(f"run-problem-{severity}")
+            banner(kind, f"{prefix}: {message}").mark(f"run-problem-{severity}")
 
-    def _cases(self, view: JobView) -> None:
-        ui.label("Cases").classes("text-lg")
-        if not view.overview.rows:
-            ui.label("No cases yet: set up the sweep first.").classes("text-grey-7")
-            return
-        with ui.row().classes("gap-2 items-center"):
-            ui.label("Select:")
-            for label, statuses in SELECTORS:
-                ui.button(label, on_click=lambda s=statuses: self._select(view, s)).props(
-                    "flat dense no-caps").mark(f"select-{label.lower().replace(' ', '-')}")
-        with ui.grid(columns=4).classes("w-full items-center gap-x-4 gap-y-1").style(
-            "grid-template-columns: 2.5rem minmax(10rem, auto) minmax(10rem, auto) 1fr"
-        ):
-            for heading in ("", "Case", "Status", "Last job"):
-                ui.label(heading).classes("text-bold")
-            for row in view.overview.rows:
-                ui.checkbox(value=row.name in self.ticked,
-                            on_change=lambda e, n=row.name: self._tick(n, e.value)).mark(f"tick-{row.name}")
-                ui.label(row.name)
-                with ui.column().classes("gap-0"):
-                    ui.label("Not run" if row.status == NOT_RUN else row.status).mark(f"status-{row.name}")
-                    if row.status == "FAILED" and row.failure_tail:
-                        with ui.expansion("Why it failed").mark(f"tail-{row.name}"):
-                            ui.label(row.failure_tail).classes("font-mono text-xs whitespace-pre-wrap")
-                ui.label(row.job_id or "—").mark(f"job-{row.name}")
-
-    def _actions(self, view: JobView) -> None:
+    def _selection(self, view: JobView) -> _Selection:
         ticked = [case.name for case in self.project.cases if case.name in self.ticked]
         status = {row.name: row.status for row in view.overview.rows}
         no_solution = [name for name in ticked if restart_file(self.directory, name) is None]
         default = bool(ticked) and not no_solution and all(status.get(n) == "UNCONVERGED" for n in ticked)
         chosen = (default if self.continue_choice is None else self.continue_choice) and not no_solution
         self.continue_cases = ticked if chosen else []
-        box = ui.checkbox("Continue from each case's last solution", value=chosen,
-                          on_change=lambda e: self._set_continue(e.value)).mark("continue")
-        if no_solution:
-            box.disable()
-            ui.label("No solution to continue from: " + ", ".join(no_solution)).classes(
-                "text-xs text-grey-7").mark("continue-missing")
-        if ticked and view.active is None:
-            try:
-                plan = plan_restarts(self.directory, self.project, ticked, self.continue_cases)
-            except AeroSuiteError as exc:
-                ui.label(f"Error: {exc}").classes("text-negative").mark("plan-error")
-            else:
-                for warning in plan.warnings:
-                    ui.label(f"Warning: {warning}").classes("text-warning").mark("plan-warning")
-        with ui.row().classes("gap-2"):
-            submit = ui.button(f"Submit {_plural(len(ticked), 'case')}", on_click=self.submit).mark("submit")
-            submit.set_enabled(view.active is None and bool(ticked) and not self.has_errors)
-            if view.active is not None:
-                ui.button("Cancel", on_click=self.confirm_cancel).props("color=negative").mark("cancel")
+        return _Selection(ticked, chosen, no_solution)
+
+    def _plan(self, view: JobView, selection: _Selection) -> None:
+        if not selection.ticked or view.active is not None:
+            return
+        try:
+            plan = plan_restarts(self.directory, self.project, selection.ticked, self.continue_cases)
+        except AeroSuiteError as exc:
+            banner("error", f"Error: {exc}").mark("plan-error")
+        else:
+            for warning in plan.warnings:
+                banner("warning", f"Warning: {warning}").mark("plan-warning")
+
+    def _tiles(self, view: JobView) -> None:
+        converged, running, attention, pending = tile_counts(view.overview.rows)
+        with ui.element("div").classes("as-tiles"):
+            summary_tile("Converged", converged).mark("tile-converged")
+            summary_tile("Running", running).mark("tile-running")
+            summary_tile("Needs attention", attention, "danger" if attention else None).mark("tile-attention")
+            summary_tile("Pending", pending).mark("tile-pending")
+
+    def _cases(self, view: JobView, selection: _Selection) -> None:
+        with card(flush=True):
+            with card_head("Cases"):
+                if view.overview.rows:
+                    for label, statuses in SELECTORS:
+                        chip_button(label, on_click=lambda s=statuses: self._select(view, s)).mark(
+                            f"select-{label.lower().replace(' ', '-')}")
+                    ui.space()
+                    box = ui.checkbox("Continue from each case's last solution", value=selection.chosen,
+                                      on_change=lambda e: self._set_continue(e.value)).mark("continue")
+                    if selection.no_solution:
+                        box.disable()
+            if not view.overview.rows:
+                ui.label("No cases yet: set up the sweep first.").classes("as-muted px-4 pb-4")
+                return
+            if selection.no_solution:
+                ui.label("No solution to continue from: " + ", ".join(selection.no_solution)).classes(
+                    "as-hint px-4 pb-2").mark("continue-missing")
+            cases = {case.name: case for case in self.project.cases}
+            with table("36px minmax(10rem, 1.4fr) repeat(3, minmax(3.5rem, .5fr)) minmax(8rem, 1fr) "
+                       "minmax(9rem, 1fr)"):
+                for heading in ("", "Case", "Mach", "α", "β", "Status", "Last job"):
+                    th(heading)
+                for row in view.overview.rows:
+                    case = cases.get(row.name)
+                    with td_box():
+                        ui.checkbox(value=row.name in self.ticked,
+                                    on_change=lambda e, n=row.name: self._tick(n, e.value)).mark(f"tick-{row.name}")
+                    td(row.name, strong=True)
+                    td(format_value(case.mach) if case else "")
+                    td(format_value(case.alpha) if case else "")
+                    td(format_value(case.beta) if case else "")
+                    with td_box():
+                        pill(row.status).mark(f"status-{row.name}")
+                    td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
+                    if row.status == "FAILED" and row.failure_tail:
+                        failure_row(row.failure_tail).mark(f"tail-{row.name}")
+
+    def _actions(self, view: JobView, selection: _Selection) -> None:
+        if view.active is not None:
+            danger_button("Cancel job", on_click=self.confirm_cancel).mark("cancel")
+        submit = primary_button(f"Submit {_plural(len(selection.ticked), 'case')}", on_click=self.submit)
+        submit.mark("submit").set_enabled(view.active is None and bool(selection.ticked) and not self.has_errors)
 
     def _history(self, view: JobView) -> None:
-        ui.label("Job history").classes("text-lg")
-        if not view.overview.jobs:
-            ui.label("No jobs yet.").classes("text-grey-7").mark("history-none")
-            return
-        for job in view.overview.jobs:
-            finished = f", finished {job.finished:%Y-%m-%d %H:%M}" if job.finished else ""
-            ui.label(f"{job.id} — {job.state.value}, {_plural(len(job.cases), 'case')}, "
-                     f"started {job.created:%Y-%m-%d %H:%M}{finished}").mark(f"history-{job.id}")
+        with card(flush=True):
+            card_head("Job history")
+            if not view.overview.jobs:
+                ui.label("No jobs yet.").classes("as-muted px-4 pb-4").mark("history-none")
+                return
+            with table("minmax(10rem, 1fr) minmax(7rem, auto) minmax(5rem, auto) minmax(9rem, 1fr) "
+                       "minmax(9rem, 1fr)"):
+                for heading in ("Job", "State", "Cases", "Started", "Finished"):
+                    th(heading)
+                for job in view.overview.jobs:
+                    td(job.id, mono=True).mark(f"history-{job.id}")
+                    with td_box():
+                        pill(job.state)
+                    td(_plural(len(job.cases), "case"))
+                    td(f"{job.created:%Y-%m-%d %H:%M}")
+                    td(f"{job.finished:%Y-%m-%d %H:%M}" if job.finished else "—")
 
     def _select(self, view: JobView, statuses: Optional[set]) -> None:
         rows = view.overview.rows
@@ -239,16 +290,14 @@ class RunPage:
         try:
             with ui.dialog() as dialog, ui.card():
                 ui.label("Cancel the running job? Cases that have not finished are marked CANCELLED.")
-                with ui.row():
+                with ui.row().classes("w-full justify-end gap-2"):
                     # Delete the dialog the instant it is answered, in the same click, rather
                     # than after `await dialog` resumes (which needs a further event-loop tick):
                     # otherwise its buttons — "cancel-confirm" / "cancel-keep" — stay findable
                     # by marker, and a second Cancel click racing ahead of that tick can submit
                     # this (already-answered) dialog again instead of the new one it opens.
-                    ui.button("Cancel the job", on_click=lambda: _answer(dialog, True)).props(
-                        "color=negative").mark("cancel-confirm")
-                    ui.button("Keep running", on_click=lambda: _answer(dialog, False)).props(
-                        "flat").mark("cancel-keep")
+                    secondary_button("Keep running", on_click=lambda: _answer(dialog, False)).mark("cancel-keep")
+                    danger_button("Cancel the job", on_click=lambda: _answer(dialog, True)).mark("cancel-confirm")
             confirmed = await dialog
         finally:
             self.dialogs_open -= 1
