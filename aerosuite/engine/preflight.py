@@ -119,7 +119,7 @@ def _freestream_problems(project: Project, project_dir: Optional[Path]) -> list[
         for row in case_freestream(project, template or ""):
             if row.values is None:
                 reason = ("the template's MACH_NUMBER is missing or 0, so no Reynolds number can be computed"
-                          if not project.sweep.enabled else row.error)
+                          if not project.sweep.enabled and row.mach <= 0 else row.error)
                 problems.append(Problem("error", f"{row.name}: {reason}"))
     for key in FREESTREAM_KEYS:
         if key in project.settings.overrides:

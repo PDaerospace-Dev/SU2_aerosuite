@@ -93,3 +93,13 @@ def test_an_unreadable_template_does_not_also_report_a_missing_mach(ready_projec
     errors = _messages(preflight(project_dir, project, "generate"), "error")
     assert any(e.startswith("Template not found") for e in errors)
     assert not any("MACH_NUMBER" in e for e in errors)
+
+
+def test_a_single_case_reports_the_real_reason(ready_project):
+    project_dir, project = ready_project
+    (project_dir / "template.cfg").write_text("MACH_NUMBER= 0.1\n")
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    set_freestream(project, mode="altitude", altitude_km=100.0, reynolds_length=1e-6)
+    errors = _messages(sweep_problems(project, project_dir), "error")
+    assert any("below 1" in e for e in errors) and not any("MACH_NUMBER" in e for e in errors)
