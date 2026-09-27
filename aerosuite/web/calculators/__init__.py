@@ -25,6 +25,6 @@ class Calculator:
 
 
 def calculators() -> list[Calculator]:
-    from . import yplus  # here, not at the top: the calculator modules import this one
+    from . import isa, yplus  # here, not at the top: the calculator modules import this one
 
-    return [yplus.CALCULATOR]
+    return [isa.CALCULATOR, yplus.CALCULATOR]
