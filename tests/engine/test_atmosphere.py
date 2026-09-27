@@ -34,3 +34,21 @@ def test_yplus_turbulent_external():
 def test_legacy_imports_still_work():
     assert LegacyISA is ISACalculator
     assert legacy_yplus is yplus
+
+
+@pytest.mark.parametrize("domain, velocity, in_range", [
+    ("External", 1e5, True),          # laminar, Re < 5e5
+    ("External", 5e5, False),         # turbulent from 5e5; its range is 5e5 < Re (exclusive)
+    ("External", 500_001, True),
+    ("External", 9_999_999, True),
+    ("External", 1e7, False),
+    ("External", 3.4e7, False),
+    ("Internal", 2299, True),         # laminar pipe, Re < 2300
+    ("Internal", 2500, False),        # transitional: turbulent formula, valid from 3000
+    ("Internal", 3001, True),
+    ("Internal", 5e6, False),
+])
+def test_yplus_reports_whether_re_is_in_the_formulas_range(domain, velocity, in_range):
+    r = yplus(velocity=velocity, density=1.0, viscosity=1.0, length=1.0, y_plus=1.0, domain_type=domain)
+    assert r["Re"] == pytest.approx(velocity)
+    assert r["in_range"] is in_range
