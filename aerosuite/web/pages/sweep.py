@@ -4,16 +4,17 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
-from ...engine.cfg import build_cases
+from ...engine.cfg import build_cases, case_freestream, read_template
 from ...engine.editing import parse_value_list, update_sweep
-from ...engine.errors import ProjectError
+from ...engine.errors import AeroSuiteError, ProjectError
+from ...engine.freestream import naming_altitude
 from ...engine.models import Project
 from ...engine.naming import find_collisions, format_value
 from ..checks import generate_button, render_checks
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session
 from ..picker import pick_path
-from ..ui_kit import banner, card, card_head, chip_button, field, secondary_button, table, td, td_box, th
+from ..ui_kit import banner, card, card_head, chip_button, field, hint, sci, secondary_button, table, td, td_box, th
 
 RESTART_OPTIONS = ["none", "previous", "custom"]
 NAMING = [
@@ -100,9 +101,14 @@ def _sweep_fields(frame: ProjectFrame, after: Callable[[], None]) -> None:
                         mark=f"sweep-{name}", placeholder="e.g. 0.6, 0.8  or  -4:12:2",
                     )
             with ui.column().classes("gap-1"):
-                text_field("Altitude label", sweep.altitude,
-                           lambda text: frame.save(lambda p: update_sweep(p, altitude=text.strip()), then=after),
-                           mark="sweep-altitude")
+                if frame.session.project.settings.freestream.mode == "altitude":
+                    field(ui.input("Altitude label", value=naming_altitude(frame.session.project))).props(
+                        "readonly").classes("w-full").mark("sweep-altitude")
+                    hint("from the altitude on the Aircraft page").mark("sweep-altitude-note")
+                else:
+                    text_field("Altitude label", sweep.altitude,
+                               lambda text: frame.save(lambda p: update_sweep(p, altitude=text.strip()), then=after),
+                               mark="sweep-altitude")
             with ui.column().classes("gap-1"):
                 text_field("Base name", sweep.naming.base_name,
                            lambda text: frame.save(lambda p: update_sweep(p, base_name=text.strip()), then=after),
@@ -151,8 +157,23 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
         ui.label("No cases yet: enter Mach numbers above.").classes("as-muted px-4 pb-4")
         return
     duplicates = set(find_collisions(case.name for case in project.cases))
-    with table("minmax(10rem, 1.2fr) repeat(3, minmax(3.5rem, .4fr)) 11rem minmax(18rem, 2fr)"):
-        for heading in ("Case", "Mach", "α", "β", "Restart", "Restart from"):
+    altitude_mode = project.settings.freestream.mode == "altitude"
+    freestream = {}
+    if altitude_mode:
+        try:
+            template = read_template(frame.session.directory, project)
+        except AeroSuiteError:
+            template = ""
+        freestream = {row.name: row for row in case_freestream(project, template)}
+    columns = "minmax(10rem, 1.2fr) repeat(3, minmax(3.5rem, .4fr))"
+    headings = ["Case", "Mach", "α", "β"]
+    if altitude_mode:
+        columns += " minmax(6rem, .6fr) minmax(6rem, .6fr)"
+        headings += ["Temperature", "Reynolds"]
+    columns += " 11rem minmax(18rem, 2fr)"
+    headings += ["Restart", "Restart from"]
+    with table(columns):
+        for heading in headings:
             th(heading)
         for case in project.cases:
             name_label = td(case.name, strong=True).mark(f"case-{case.name}")
@@ -161,6 +182,11 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
             td(format_value(case.mach))
             td(format_value(case.alpha))
             td(format_value(case.beta))
+            if altitude_mode:
+                row = freestream.get(case.name)
+                values = row.values if row is not None else None
+                td(f"{format_value(round(values.temperature_K, 2))} K" if values else "—").mark(f"temp-{case.name}")
+                td(sci(values.reynolds) if values else "—").mark(f"re-{case.name}")
             with td_box():
                 field(ui.select(
                     RESTART_OPTIONS, value=case.restart,

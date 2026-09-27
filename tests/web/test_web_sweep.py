@@ -265,3 +265,49 @@ async def test_cancelling_set_all_custom_changes_nothing(user: User, ready_proje
     user.find(marker="picker-cancel").click()
     await user.should_not_see(marker="picker-cancel")
     assert _restarts(project_dir) == before
+
+
+from aerosuite.engine.editing import set_freestream
+
+
+def _altitude_mode(project_dir, altitude_km=11.0):
+    project = open_project(project_dir)
+    set_freestream(project, mode="altitude", altitude_km=altitude_km, reynolds_length=6.0)
+    save_project(project_dir, project)
+    return project
+
+
+async def test_altitude_mode_shows_the_derived_label_and_per_case_values(user: User, ready_project):
+    project_dir, _ = ready_project
+    project = _altitude_mode(project_dir)
+    await _open(user, project_dir)
+    label = _element(user, "sweep-altitude")
+    assert label.value == "11km" and "readonly" in label.props
+    await user.should_see(marker="sweep-altitude-note")
+    name = project.cases[0].name
+    assert _element(user, f"temp-{name}").text == "216.65 K"
+    assert _element(user, f"re-{name}").text == "3.48e7"
+
+
+async def test_reynolds_column_follows_a_mach_edit(user: User, ready_project):
+    project_dir, _ = ready_project
+    _altitude_mode(project_dir)
+    await _open(user, project_dir)
+    user.find(marker="sweep-mach").clear().type("0.6").trigger("blur")
+    name = open_project(project_dir).cases[0].name
+    assert _element(user, f"re-{name}").text == "2.61e7"
+
+
+async def test_an_invalid_altitude_shows_dashes(user: User, ready_project):
+    project_dir, _ = ready_project
+    project = _altitude_mode(project_dir, altitude_km=120.0)
+    await _open(user, project_dir)
+    assert _element(user, f"re-{project.cases[0].name}").text == "—"
+    await user.should_see(marker="problem-error")
+
+
+async def test_manual_mode_has_no_freestream_columns(user: User, ready_project):
+    project_dir, project = ready_project
+    await _open(user, project_dir)
+    await user.should_not_see(marker=f"re-{project.cases[0].name}")
+    assert "readonly" not in _element(user, "sweep-altitude").props
