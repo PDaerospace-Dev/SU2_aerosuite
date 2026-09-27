@@ -70,3 +70,14 @@ def test_a_general_project_already_in_altitude_mode_applies_to_its_settings():
     plan = plan_isa_apply(project, TEMPLATE, 11.0, 0.8, 6.0)
     assert plan.kind == "settings"
     assert ("Altitude", "—", "11 km") in plan.changes
+
+
+def test_template_apply_names_project_values_that_would_still_win():
+    project = _sweep()
+    project.sweep.enabled = False
+    project.settings.overrides["REYNOLDS_NUMBER"] = "5e6"
+    project.settings.freestream.temperature_K = 250.0
+    plan = plan_isa_apply(project, TEMPLATE, 11.0, 0.3, 6.0)
+    assert plan.kind == "template"
+    assert plan.note == ("This project also sets FREESTREAM_TEMPERATURE, REYNOLDS_NUMBER, which win over the template; "
+                         "remove them for these values to take effect")

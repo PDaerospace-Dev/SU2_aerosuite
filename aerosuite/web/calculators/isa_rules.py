@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal, NamedTuple, Optional
 
-from ...engine.cfg import template_case_values
+from ...engine.cfg import settings_parameters, template_case_values
 from ...engine.editing import set_freestream
 from ...engine.errors import ProjectError
 from ...engine.freestream import freestream_for, naming_altitude
@@ -96,7 +96,13 @@ def plan_isa_apply(project: Project, template: Optional[str], altitude_km: float
     except ProjectError as exc:
         return ApplyPlan("blocked", reason=str(exc))
     changes = [(key, _template_value(template, key), value) for key, value in params.items()]
-    note = ("" if run_mach == mach else
-            f"The Reynolds number is computed for Mach {format_value(run_mach)} (the template's), "
-            f"not {format_value(mach)}")
-    return ApplyPlan("template", changes, note, template_params=params)
+    notes = []
+    if run_mach != mach:
+        notes.append(f"The Reynolds number is computed for Mach {format_value(run_mach)} (the template's), "
+                     f"not {format_value(mach)}")
+    # Project-wide values (Placeholders, by-hand freestream) are written over the template in every config.
+    winning = [key for key in params if key in settings_parameters(project.settings)]
+    if winning:
+        notes.append(f"This project also sets {', '.join(winning)}, which win over the template; "
+                     "remove them for these values to take effect")
+    return ApplyPlan("template", changes, ". ".join(notes), template_params=params)
