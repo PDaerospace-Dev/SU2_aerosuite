@@ -1,5 +1,6 @@
 """Sweep: Mach/alpha/beta lists, naming, per-case restarts, problems and Generate."""
-from typing import Callable
+from pathlib import Path
+from typing import Callable, Optional
 
 from nicegui import ui
 
@@ -12,7 +13,7 @@ from ..checks import generate_button, render_checks
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session
 from ..picker import pick_path
-from ..ui_kit import banner, card, card_head, field, secondary_button, table, td, td_box, th
+from ..ui_kit import banner, card, card_head, chip_button, field, secondary_button, table, td, td_box, th
 
 RESTART_OPTIONS = ["none", "previous", "custom"]
 NAMING = [
@@ -139,7 +140,13 @@ def _set_case(frame: ProjectFrame, name: str, after: Callable[[], None], **field
 def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
     project = frame.session.project
     count = len(project.cases)
-    card_head("Cases", f"{count} case{'' if count == 1 else 's'}")
+    with card_head("Cases", f"{count} case{'' if count == 1 else 's'}"):
+        if project.cases:
+            ui.space()
+            ui.label("Set all restarts:").classes("as-label")
+            chip_button("None", on_click=lambda: _set_all(frame, "none", after)).mark("restart-all-none")
+            chip_button("Previous", on_click=lambda: _set_all(frame, "previous", after)).mark("restart-all-previous")
+            chip_button("Custom…", on_click=lambda: _set_all_custom(frame, after)).mark("restart-all-custom")
     if not project.cases:
         ui.label("No cases yet: enter Mach numbers above.").classes("as-muted px-4 pb-4")
         return
@@ -168,6 +175,33 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
                                    mark=f"ref-{case.name}", mono=True)
                     secondary_button("Browse", on_click=lambda n=case.name: _browse_ref(frame, n, after)).mark(
                         f"ref-browse-{case.name}")
+
+
+def set_all_restarts(project: Project, restart: str, folder: Optional[Path] = None) -> None:
+    """Give every case the same restart choice.
+
+    "previous" leaves the first case at "none" (it has no case before it); "custom" points each case at
+    `folder / <case name>`, e.g. another study's runs/ folder.
+    """
+    for index, case in enumerate(project.cases):
+        if restart == "previous" and index == 0:
+            case.restart, case.restart_ref = "none", None
+        elif restart == "custom":
+            case.restart, case.restart_ref = "custom", str(Path(folder) / case.name)
+        else:
+            case.restart, case.restart_ref = restart, None
+
+
+def _set_all(frame: ProjectFrame, restart: str, after: Callable[[], None], folder: Optional[Path] = None) -> None:
+    message = frame.save(lambda p: set_all_restarts(p, restart, folder), then=after)
+    if message:
+        ui.notify(message, type="negative")
+
+
+async def _set_all_custom(frame: ProjectFrame, after: Callable[[], None]) -> None:
+    chosen = await pick_path("Folder holding one folder per case (e.g. another study's runs/)", mode="folder")
+    if chosen is not None:
+        _set_all(frame, "custom", after, chosen)
 
 
 def _change_ref(p: Project, name: str, ref) -> None:

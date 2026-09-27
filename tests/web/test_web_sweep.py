@@ -197,3 +197,71 @@ async def test_a_custom_restart_without_a_file_is_an_error_banner(user: User, re
     label = _element(user, "problem-error")
     assert "as-banner-error" in label.parent_slot.parent.classes
     assert not _element(user, "generate").enabled
+
+
+A0, A2, A4 = "M0p8_a0_b0", "M0p8_a2_b0", "M0p8_a4_b0"
+
+
+def _restarts(project_dir):
+    return [(case.restart, case.restart_ref) for case in open_project(project_dir).cases]
+
+
+async def test_set_all_to_previous_keeps_the_first_case_fresh(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="restart-all-previous").click()
+    assert _restarts(project_dir) == [("none", None), ("previous", None), ("previous", None)]
+    assert _element(user, f"restart-{A4}").value == "previous"  # the table shows it at once
+    await user.should_see(marker="problems-none")
+
+
+async def test_set_all_to_none_clears_every_restart(user: User, ready_project):
+    project_dir, project = ready_project
+    for case in project.cases:
+        case.restart, case.restart_ref = "custom", "/somewhere/else"
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    user.find(marker="restart-all-none").click()
+    assert _restarts(project_dir) == [("none", None)] * 3
+
+
+async def test_set_all_to_custom_points_each_case_at_its_folder(user: User, ready_project, tmp_path, eventually):
+    project_dir, _ = ready_project
+    runs = tmp_path / "earlier_study" / "runs"
+    for name in (A0, A2, A4):
+        (runs / name).mkdir(parents=True)
+        (runs / name / "restart_flow.dat").write_text("x")
+    await _open(user, project_dir)
+    user.find(marker="restart-all-custom").click()
+    await user.should_see(marker="picker-choose-folder")
+    user.find(marker="picker-path").type(str(runs))
+    user.find(marker="picker-use").click()
+    expected = [("custom", str(runs / name)) for name in (A0, A2, A4)]
+    await eventually(lambda: _restarts(project_dir) == expected)  # the picker returns on a later tick
+    await user.should_see(marker="problems-none")
+
+
+async def test_set_all_to_custom_flags_cases_missing_from_the_folder(user: User, ready_project, tmp_path):
+    project_dir, _ = ready_project
+    runs = tmp_path / "earlier_study" / "runs"
+    (runs / A0).mkdir(parents=True)
+    (runs / A0 / "restart_flow.dat").write_text("x")
+    await _open(user, project_dir)
+    user.find(marker="restart-all-custom").click()
+    await user.should_see(marker="picker-choose-folder")
+    user.find(marker="picker-path").type(str(runs))
+    user.find(marker="picker-use").click()
+    await user.should_see(marker="problem-error")
+    assert _restarts(project_dir)[2] == ("custom", str(runs / A4))
+    assert not _element(user, "generate").enabled
+
+
+async def test_cancelling_set_all_custom_changes_nothing(user: User, ready_project):
+    project_dir, _ = ready_project
+    before = _restarts(project_dir)
+    await _open(user, project_dir)
+    user.find(marker="restart-all-custom").click()
+    await user.should_see(marker="picker-cancel")
+    user.find(marker="picker-cancel").click()
+    await user.should_not_see(marker="picker-cancel")
+    assert _restarts(project_dir) == before
