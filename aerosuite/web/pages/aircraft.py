@@ -3,8 +3,8 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
-from ...engine.cfg import read_template, render_case
-from ...engine.editing import MARKER_PREFIX, set_parameter, unset_parameter
+from ...engine.cfg import case_freestream, read_template, render_case
+from ...engine.editing import MARKER_PREFIX, set_freestream, set_parameter, unset_parameter
 from ...engine.errors import AeroSuiteError, ProjectError
 from ...engine.models import Project
 from ...engine.naming import format_value
@@ -15,15 +15,10 @@ from ..layout import ProjectFrame, open_session
 from ..preview import preview_section
 from ..reference_panel import reference_panel
 from ..session import parse_optional_int, parse_optional_number
-from ..ui_kit import banner, card, field, secondary_button, table, td, td_box, th
+from ..ui_kit import banner, card, field, hint, sci, secondary_button, stat, table, td, td_box, th
 
 # (label, settings group, field, kind) — kind: "float" | "int"
 NUMBER_FIELDS = {
-    "Freestream": [
-        ("Temperature (K)", "freestream", "temperature_K", "float"),
-        ("Reynolds number", "freestream", "reynolds", "float"),
-        ("Reynolds length", "freestream", "reynolds_length", "float"),
-    ],
     "Physical and reference": [
         ("Reference length", "reference", "ref_length", "float"),
         ("Reference area", "reference", "ref_area", "float"),
@@ -93,6 +88,7 @@ def _build(frame: ProjectFrame) -> None:
 
     with ui.element("div").classes("as-columns"):
         with ui.column().classes("gap-4 w-full"):
+            holders["freestream"] = _freestream(frame, hints, after)
             for title, rows in NUMBER_FIELDS.items():
                 with card(title):
                     with ui.element("div").classes("as-grid-3"):
@@ -115,6 +111,91 @@ def _build(frame: ProjectFrame) -> None:
             holders["reference"] = reference_panel(
                 on_insert=lambda option: _insert(frame, option, holders, after),
                 in_config=lambda: _rendered_keys(frame))
+
+
+MODE_CHOICES = {
+    "manual": "Set by hand · one temperature and Reynolds number for every case",
+    "altitude": "From altitude · each case gets ISA temperature and its own Reynolds number",
+}
+
+
+def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
+    with card("Freestream"):
+        box = ui.column().classes("w-full gap-3")
+
+    def both() -> None:
+        render()
+        after()
+
+    def choose(mode: str) -> None:
+        message = frame.save(lambda p: set_freestream(p, mode=mode), then=both)
+        if message:
+            ui.notify(message, type="negative")
+
+    def number(label: str, name: str, value, placeholder: str) -> None:
+        text_field(label, "" if value is None else format_value(value),
+                   lambda text: frame.save(
+                       lambda p: set_freestream(p, **{name: parse_optional_number(text, label)}), then=both),
+                   mark=f"freestream-{name}", placeholder=placeholder)
+
+    def render() -> None:
+        # Plain synchronous rebuild: tests read these fields right after a change.
+        box.clear()
+        fs = frame.session.project.settings.freestream
+        with box:
+            ui.radio(MODE_CHOICES, value=fs.mode, on_change=lambda e: choose(e.value)).props("inline").classes(
+                "as-choice").mark("freestream-mode")
+            if fs.mode == "manual":
+                with ui.element("div").classes("as-grid-3"):
+                    for label, name in (("Temperature (K)", "temperature_K"), ("Reynolds number", "reynolds"),
+                                        ("Reynolds length", "reynolds_length")):
+                        with ui.column().classes("gap-1"):
+                            _number_field(frame, hints, label, "freestream", name, "float", both)
+                return
+            with ui.element("div").classes("as-grid-2"):
+                with ui.column().classes("gap-1"):
+                    number("Altitude (km)", "altitude_km", fs.altitude_km, "ISA, 0–100 km")
+                with ui.column().classes("gap-1"):
+                    number("Reynolds length (m)", "reynolds_length", fs.reynolds_length,
+                           "characteristic length for the Reynolds number")
+            _summary(frame)
+            kept = [f"temperature {format_value(fs.temperature_K)} K" if fs.temperature_K is not None else "",
+                    f"Reynolds number {sci(fs.reynolds)}" if fs.reynolds is not None else ""]
+            kept = [part for part in kept if part]
+            if kept:
+                hint("Kept for Set by hand: " + ", ".join(kept)).mark("freestream-kept")
+
+    render()
+    return render
+
+
+def _summary(frame: ProjectFrame) -> None:
+    """Temperature and the Reynolds range the cases get, or why they can't be computed."""
+    project = frame.session.project
+    try:
+        template = read_template(frame.session.directory, project)
+    except AeroSuiteError:
+        template = ""
+    rows = case_freestream(project, template)
+    with ui.row().classes("as-strip").mark("freestream-summary"):
+        if not rows:
+            ui.label("No cases yet").classes("as-muted")
+            return
+        failed = next((row for row in rows if row.values is None), None)
+        if failed is not None:
+            ui.label(failed.error).classes("as-error-text").mark("freestream-summary-error")
+            return
+        reynolds = sorted(row.values.reynolds for row in rows)
+        machs = sorted(row.mach for row in rows)
+        stat("Temperature", f"{format_value(round(rows[0].values.temperature_K, 2))} K")
+        span = sci(reynolds[0]) if sci(reynolds[0]) == sci(reynolds[-1]) else f"{sci(reynolds[0])} … {sci(reynolds[-1])}"
+        stat("Reynolds number", span)
+        if project.sweep.enabled:
+            where = (f"per case, from each case's Mach ({format_value(machs[0])} – {format_value(machs[-1])})"
+                     if machs[0] != machs[-1] else f"at Mach {format_value(machs[0])}")
+            ui.label(where + " · see the Sweep page").classes("as-muted")
+        else:
+            ui.label(f"at the template's Mach {format_value(machs[0])}").classes("as-muted")
 
 
 def _number_field(frame, hints, label, group, name, kind, after) -> None:

@@ -50,3 +50,11 @@ async def test_tiles_cards_and_buttons(user: User):
     assert "as-btn-primary" in _element(user, "t-primary").classes
     assert "as-btn-danger" in _element(user, "t-danger").classes
     assert _element(user, "t-ok").text == "All good"
+
+
+from aerosuite.web.ui_kit import sci
+
+
+def test_sci_is_three_significant_figures_with_a_plain_exponent():
+    assert (sci(34769586), sci(26077190), sci(0.00226), sci(5.134e-06), sci(216.65)) == (
+        "3.48e7", "2.61e7", "0.00226", "5.13e-6", "217")

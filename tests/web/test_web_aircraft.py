@@ -137,3 +137,45 @@ async def test_no_profile_is_an_info_banner(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
     assert "as-banner-info" in _element(user, "aircraft-none").parent_slot.parent.classes
+
+
+from aerosuite.engine.freestream import naming_altitude
+from aerosuite.engine.project import open_project as _open_project
+
+
+def _shown(user, marker) -> bool:
+    try:
+        return bool(user.find(marker=marker).elements)
+    except AssertionError:
+        return False
+
+
+async def test_freestream_switches_to_altitude_and_back_keeping_the_hand_values(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    user.find(marker="freestream-temperature_K").clear().type("250").trigger("blur")
+    _element(user, "freestream-mode").set_value("altitude")
+    assert _open_project(project_dir).settings.freestream.mode == "altitude"
+    await user.should_see(marker="freestream-altitude_km")
+    assert not _shown(user, "freestream-temperature_K")
+    user.find(marker="freestream-altitude_km").clear().type("11").trigger("blur")
+    user.find(marker="freestream-reynolds_length").clear().type("6").trigger("blur")
+    project = _open_project(project_dir)
+    # (the ready project leaves the altitude out of case names, so check the label, not the names)
+    assert project.settings.freestream.altitude_km == 11.0 and naming_altitude(project) == "11km"
+    await user.should_see("216.65 K")
+    await user.should_see(marker="freestream-kept")
+    _element(user, "freestream-mode").set_value("manual")
+    await user.should_see(marker="freestream-temperature_K")
+    assert _element(user, "freestream-temperature_K").value == "250"
+
+
+async def test_the_summary_shows_the_error_for_a_bad_altitude(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    _element(user, "freestream-mode").set_value("altitude")
+    user.find(marker="freestream-altitude_km").clear().type("120").trigger("blur")
+    await user.should_see(marker="freestream-summary-error")
+    assert "outside the standard atmosphere" in _element(user, "freestream-summary-error").text

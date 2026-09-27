@@ -171,6 +171,11 @@ a.as-step:hover { background: #f6f8fa; }
   cursor: pointer; gap: 2px; }
 .as-choice-selected { border: 2px solid var(--as-accent); padding: 11px; }
 
+.as-strip { background: #f6f8fa; border-radius: 8px; padding: 10px 12px; gap: 28px; align-items: center;
+  flex-wrap: wrap; width: 100%; }
+.as-stat-label { font-size: 11px; color: var(--as-muted); }
+.as-stat-value { font-weight: 600; }
+
 .as-grid-2, .as-grid-3, .as-grid-form, .as-columns, .as-monitor { display: grid; gap: 14px; width: 100%;
   align-items: start; }
 .as-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -179,3 +179,19 @@ def flat_button(text: str, on_click: Optional[Callable] = None, *, icon: Optiona
 def chip_button(text: str, on_click: Optional[Callable] = None) -> ui.button:
     """A small filter chip (Run's All / Failed / ... selectors)."""
     return ui.button(text, on_click=on_click, color=None).props("unelevated no-caps dense").classes("as-chip")
+
+
+def sci(value: float) -> str:
+    """Three significant figures with a plain exponent: 34769586 -> '3.48e7', 0.00226 -> '0.00226'."""
+    text = f"{value:.3g}"
+    if "e" in text:
+        mantissa, exponent = text.split("e")
+        text = f"{mantissa}e{int(exponent)}"
+    return text
+
+
+def stat(label: str, value: str) -> ui.label:
+    """A small caption over a bold value, for summary strips; returns the value label."""
+    with ui.column().classes("gap-0"):
+        ui.label(label).classes("as-stat-label")
+        return ui.label(value).classes("as-stat-value")
