@@ -82,3 +82,14 @@ def test_reynolds_initialisation_gives_no_such_warning(ready_project):
     for template in ("SOLVER= RANS\nINIT_OPTION= REYNOLDS\n", "SOLVER= RANS\n"):
         warnings = _warnings_for(project_dir, project, template)
         assert not any("INIT_OPTION" in w or "SOLVER" in w for w in warnings)
+
+
+def test_an_unreadable_template_does_not_also_report_a_missing_mach(ready_project):
+    project_dir, project = ready_project
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    (project_dir / "template.cfg").unlink()
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert any(e.startswith("Template not found") for e in errors)
+    assert not any("MACH_NUMBER" in e for e in errors)

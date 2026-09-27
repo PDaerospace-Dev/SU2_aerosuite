@@ -97,14 +97,15 @@ def _restart_problems(project: Project, project_dir: Optional[Path]) -> list[Pro
     return problems
 
 
-def _template_text(project: Project, project_dir: Optional[Path]) -> str:
-    """The template text for per-case checks; "" when there is no folder or it cannot be read."""
+def _template_text(project: Project, project_dir: Optional[Path]) -> Optional[str]:
+    """The template text for per-case checks; None when there is no folder or it cannot be read
+    (preflight reports that itself)."""
     if project_dir is None:
-        return ""
+        return None
     try:
         return (Path(project_dir) / project.template).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return ""
+        return None
 
 
 def _freestream_problems(project: Project, project_dir: Optional[Path]) -> list[Problem]:
@@ -112,8 +113,10 @@ def _freestream_problems(project: Project, project_dir: Optional[Path]) -> list[
     if fs.mode != "altitude":
         return []
     problems = [Problem("error", message) for message in freestream_setup_errors(fs)]
-    if not problems:
-        for row in case_freestream(project, _template_text(project, project_dir)):
+    template = _template_text(project, project_dir)
+    # A single case runs at the template's Mach: with no readable template there is nothing to check yet.
+    if not problems and (project.sweep.enabled or template is not None):
+        for row in case_freestream(project, template or ""):
             if row.values is None:
                 reason = ("the template's MACH_NUMBER is missing or 0, so no Reynolds number can be computed"
                           if not project.sweep.enabled else row.error)
@@ -121,7 +124,7 @@ def _freestream_problems(project: Project, project_dir: Optional[Path]) -> list[
     for key in FREESTREAM_KEYS:
         if key in project.settings.overrides:
             problems.append(Problem("warning", f"{key} ignored: freestream comes from the altitude"))
-    problems += _unused_reynolds_problems(project, _template_text(project, project_dir))
+    problems += _unused_reynolds_problems(project, template or "")
     return problems
 
 
