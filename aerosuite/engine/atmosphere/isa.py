@@ -16,10 +16,11 @@ class ISACalculator:
     R = 287.0528  # J/(kg·K) - gas constant for dry air
     GAMMA = 1.4  # ratio of specific heats
     
-    # Sutherland's Law constants
-    MU_0 = 1.7894e-5  # kg/(m·s) - reference dynamic viscosity
-    T_0 = 273.11  # K - reference temperature
-    S = 110.56  # K - Sutherland constant
+    # Sutherland's Law constants (US76 / SU2 defaults): 1.789e-5 Pa·s at 288.15 K.
+    # The desktop app paired the sea-level 1.7894e-5 with a 273.11 K reference, 4% too high.
+    MU_0 = 1.716e-5  # kg/(m·s) - reference dynamic viscosity at T_0
+    T_0 = 273.15  # K - reference temperature
+    S = 110.4  # K - Sutherland constant
     
     # ISA atmospheric layers: (h_base [km], lapse_rate [K/km], T_base [K], P_base [Pa])
     LAYERS = [

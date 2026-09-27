@@ -144,11 +144,13 @@ def _apply(ctx: CalcContext, plan: ApplyPlan, inputs: tuple[float, float, float]
     else:
         # Like the Config page: template.cfg is written directly, not through project.json.
         try:
+            # Decided before writing: set_template_text points the in-memory project at template.cfg.
+            needs_field_update = frame.session.project.template != TEMPLATE_FILE
             text = read_template(frame.session.directory, frame.session.project)
             set_template_text(frame.session.directory, frame.session.project,
                               apply_parameters(text, plan.template_params))
             message = None
-            if frame.session.project.template != TEMPLATE_FILE:
+            if needs_field_update:
                 message = frame.save(lambda p: setattr(p, "template", TEMPLATE_FILE))
             else:
                 frame.refresh()

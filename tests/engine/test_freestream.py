@@ -35,8 +35,8 @@ def test_manual_mode_adds_nothing():
 
 def test_values_for_known_inputs():
     assert freestream_for(_altitude(), 0.8) == {
-        "FREESTREAM_TEMPERATURE": "216.65", "REYNOLDS_NUMBER": "34769586", "REYNOLDS_LENGTH": "6"}
-    assert freestream_for(_altitude(), 0.6)["REYNOLDS_NUMBER"] == "26077190"
+        "FREESTREAM_TEMPERATURE": "216.65", "REYNOLDS_NUMBER": "36258390", "REYNOLDS_LENGTH": "6"}
+    assert freestream_for(_altitude(), 0.6)["REYNOLDS_NUMBER"] == "27193793"
 
 
 @pytest.mark.parametrize("altitude, length, mach, message", [
@@ -73,7 +73,7 @@ def test_each_case_gets_its_own_reynolds_number_over_an_override():
     project.settings.overrides["REYNOLDS_NUMBER"] = "5"
     project.settings.freestream.reynolds = 1.2e7  # the kept by-hand value
     texts = [render_case(TEMPLATE, project, case) for case in project.cases]
-    assert "REYNOLDS_NUMBER= 26077190" in texts[0] and "REYNOLDS_NUMBER= 34769586" in texts[1]
+    assert "REYNOLDS_NUMBER= 27193793" in texts[0] and "REYNOLDS_NUMBER= 36258390" in texts[1]
     assert "FREESTREAM_TEMPERATURE= 216.65" in texts[1] and "REYNOLDS_LENGTH= 6" in texts[1]
 
 
@@ -81,7 +81,7 @@ def test_a_single_case_uses_the_templates_mach():
     project = _sweep_project(mode="altitude", altitude_km=11.0, reynolds_length=6.0)
     project.sweep.enabled = False
     project.cases = build_cases(project)
-    assert "REYNOLDS_NUMBER= 13038595" in render_case(TEMPLATE, project, project.cases[0])
+    assert "REYNOLDS_NUMBER= 13596896" in render_case(TEMPLATE, project, project.cases[0])
 
 
 def test_manual_mode_renders_as_before():
@@ -94,7 +94,7 @@ def test_case_freestream_rows_carry_values_or_the_error():
     project = _sweep_project(mode="altitude", altitude_km=11.0, reynolds_length=6.0)
     rows = case_freestream(project, TEMPLATE)
     assert [(r.name, r.mach, round(r.values.reynolds)) for r in rows] == [
-        ("M0p6_11km_a0_b0", 0.6, 26077190), ("M0p8_11km_a0_b0", 0.8, 34769586)]
+        ("M0p6_11km_a0_b0", 0.6, 27193793), ("M0p8_11km_a0_b0", 0.8, 36258390)]
     project.settings.freestream.altitude_km = 120.0
     assert all(r.values is None and "outside" in r.error for r in case_freestream(project, TEMPLATE))
 
@@ -151,3 +151,13 @@ def test_applying_a_profile_rebuilds_the_case_names(tmp_path, monkeypatch):
     assert other.settings.freestream.mode == "altitude"
     assert [c.name for c in other.cases] == [c.name for c in build_cases(other)]
     assert "_11km_" in other.cases[0].name
+
+
+def test_renaming_cases_keeps_their_restart_choices():
+    # Setting the altitude renames every case (sl -> 11km); their restart setup must survive.
+    project = _sweep_project()
+    project.cases[0].restart, project.cases[0].restart_ref = "custom", "/data/a.dat"
+    project.cases[1].restart = "previous"
+    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    assert [(c.name, c.restart, c.restart_ref) for c in project.cases] == [
+        ("M0p6_11km_a0_b0", "custom", "/data/a.dat"), ("M0p8_11km_a0_b0", "previous", None)]

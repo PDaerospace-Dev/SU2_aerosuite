@@ -286,7 +286,7 @@ async def test_altitude_mode_shows_the_derived_label_and_per_case_values(user: U
     await user.should_see(marker="sweep-altitude-note")
     name = project.cases[0].name
     assert _element(user, f"temp-{name}").text == "216.65 K"
-    assert _element(user, f"re-{name}").text == "3.48e7"
+    assert _element(user, f"re-{name}").text == "3.63e7"
 
 
 async def test_reynolds_column_follows_a_mach_edit(user: User, ready_project):
@@ -295,7 +295,7 @@ async def test_reynolds_column_follows_a_mach_edit(user: User, ready_project):
     await _open(user, project_dir)
     user.find(marker="sweep-mach").clear().type("0.6").trigger("blur")
     name = open_project(project_dir).cases[0].name
-    assert _element(user, f"re-{name}").text == "2.61e7"
+    assert _element(user, f"re-{name}").text == "2.72e7"
 
 
 async def test_an_invalid_altitude_shows_dashes(user: User, ready_project):

@@ -99,7 +99,7 @@ async def test_isa_results_for_known_inputs(user: User):
     await user.open("/calculators")
     _isa_inputs(user)
     assert _element(user, "isa-temperature").text == "216.65 K"
-    assert _element(user, "isa-re").text == "3.48e7"
+    assert _element(user, "isa-re").text == "3.63e7"
     assert not _shown(user, "isa-apply")  # no project
 
 
@@ -146,7 +146,7 @@ async def test_apply_to_a_general_single_case_writes_the_template(user: User, re
     user.find(marker="isa-apply").click()
     await user.should_see(marker="apply-confirm")
     user.find(marker="apply-confirm").click()
-    await eventually(lambda: "REYNOLDS_NUMBER= 13038595" in (project_dir / "template.cfg").read_text())
+    await eventually(lambda: "REYNOLDS_NUMBER= 13596896" in (project_dir / "template.cfg").read_text())
 
 
 async def test_apply_is_disabled_for_a_general_sweep(user: User, ready_project):
@@ -180,3 +180,20 @@ async def test_a_long_project_name_is_shortened_on_the_apply_button(user: User, 
     await user.open(calculators_url(project_dir))
     text = _element(user, "isa-apply").text
     assert text.startswith("Apply to x07-high-alpha") and len(text) <= 40 and text.endswith("…")
+
+
+async def test_apply_moves_a_project_on_another_template_file_to_template_cfg(user: User, ready_project, eventually):
+    # set_template_text writes template.cfg; project.json must be saved to point at it too.
+    project_dir, project = ready_project
+    (project_dir / "old.cfg").write_text("MACH_NUMBER= 0.3\n")
+    project.template = "old.cfg"
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    save_project(project_dir, project)
+    await user.open(calculators_url(project_dir))
+    _isa_inputs(user, mach="0.3")
+    user.find(marker="isa-apply").click()
+    await user.should_see(marker="apply-confirm")
+    user.find(marker="apply-confirm").click()
+    await eventually(lambda: open_project(project_dir).template == "template.cfg")
+    assert "REYNOLDS_NUMBER= 13596896" in (project_dir / "template.cfg").read_text()

@@ -149,9 +149,12 @@ def case_freestream(project: Project, template: str) -> list[CaseFreestream]:
 
 
 def build_cases(project: Project) -> list[Case]:
-    """Expand the sweep into cases, keeping restart choices of cases that still exist."""
+    """Expand the sweep into cases, keeping the restart choices of cases that still exist (same name, or
+    same Mach/alpha/beta under a new name)."""
     sweep, naming = project.sweep, project.sweep.naming
     previous = {case.name: case for case in project.cases}
+    # A case whose name changed (e.g. the altitude label or a naming option) keeps its restart setup.
+    by_values = {(case.mach, case.alpha, case.beta): case for case in project.cases}
     if not sweep.enabled:
         name = single_case_name(project)
         old = previous.get(name)
@@ -174,7 +177,7 @@ def build_cases(project: Project) -> list[Case]:
                     include_altitude=naming.include_altitude,
                     include_base=naming.include_base,
                 )
-                old = previous.get(name)
+                old = previous.get(name) or by_values.get((mach, alpha, beta))
                 cases.append(Case(
                     name=name, mach=mach, alpha=alpha, beta=beta,
                     restart=old.restart if old else "none",

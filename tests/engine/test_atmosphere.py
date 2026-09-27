@@ -52,3 +52,9 @@ def test_yplus_reports_whether_re_is_in_the_formulas_range(domain, velocity, in_
     r = yplus(velocity=velocity, density=1.0, viscosity=1.0, length=1.0, y_plus=1.0, domain_type=domain)
     assert r["Re"] == pytest.approx(velocity)
     assert r["in_range"] is in_range
+
+
+def test_isa_viscosity_matches_the_standard_atmosphere():
+    # Sutherland's law with the US76 / SU2 constants: 1.789e-5 Pa·s at sea level, 1.422e-5 at 11 km.
+    assert ISACalculator.calculate(0.0, 0.5, 1.0)["dynamic_viscosity"] == pytest.approx(1.7894e-5, rel=1e-3)
+    assert ISACalculator.calculate(11.0, 0.5, 1.0)["dynamic_viscosity"] == pytest.approx(1.4216e-5, rel=1e-3)
