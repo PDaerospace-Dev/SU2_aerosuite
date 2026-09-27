@@ -197,3 +197,11 @@ async def test_apply_moves_a_project_on_another_template_file_to_template_cfg(us
     user.find(marker="apply-confirm").click()
     await eventually(lambda: open_project(project_dir).template == "template.cfg")
     assert "REYNOLDS_NUMBER= 13596896" in (project_dir / "template.cfg").read_text()
+
+
+async def test_isa_refuses_non_finite_numbers(user: User):
+    await user.open("/calculators")
+    for text in ("inf", "nan", "1e400"):
+        _isa_inputs(user, mach=text)
+        assert _element(user, "isa-error").text == f"Mach: {text!r} is not a finite number"
+        assert _element(user, "isa-re").text == "—"

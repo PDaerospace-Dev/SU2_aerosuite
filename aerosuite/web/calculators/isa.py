@@ -1,6 +1,7 @@
 """ISA atmosphere: properties at an altitude, Apply to the project, and Send to y+."""
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 from nicegui import ui
@@ -71,9 +72,12 @@ def build(ctx: CalcContext) -> None:
         for key, text in INPUTS:
             raw = (boxes[key].value or "").strip()
             try:
-                values.append(float(raw))
+                value = float(raw)
             except ValueError:
                 raise ValueError(f"{text}: {raw!r} is not a number") from None
+            if not math.isfinite(value):
+                raise ValueError(f"{text}: {raw!r} is not a finite number")
+            values.append(value)
         return values[0], values[1], values[2]
 
     def plan() -> Optional[ApplyPlan]:
