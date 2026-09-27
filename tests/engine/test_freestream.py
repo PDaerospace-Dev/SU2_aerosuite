@@ -161,3 +161,9 @@ def test_renaming_cases_keeps_their_restart_choices():
     set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
     assert [(c.name, c.restart, c.restart_ref) for c in project.cases] == [
         ("M0p6_11km_a0_b0", "custom", "/data/a.dat"), ("M0p8_11km_a0_b0", "previous", None)]
+
+
+def test_a_reynolds_number_that_rounds_to_zero_is_refused():
+    # Near 100 km with a micrometre length the Reynolds number is far below 1: REYNOLDS_NUMBER= 0 is no config.
+    with pytest.raises(ProjectError, match="below 1"):
+        freestream_for(_altitude(100.0, 1e-6), 0.1)

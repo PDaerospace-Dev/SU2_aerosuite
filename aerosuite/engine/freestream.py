@@ -62,6 +62,9 @@ def freestream_values(fs: Freestream, mach: float) -> FreestreamValues:
     if not mach > 0:
         raise ProjectError(f"Mach {format_value(mach)} gives no Reynolds number; the Mach must be greater than 0")
     isa = ISACalculator.calculate(fs.altitude_km, mach, fs.reynolds_length)
+    if round(isa["reynolds_number"]) < 1:  # the config writes it as a whole number
+        raise ProjectError(f"The Reynolds number at {format_value(fs.altitude_km)} km, Mach {format_value(mach)} and "
+                           f"length {format_value(fs.reynolds_length)} m is below 1; check the altitude and length")
     return FreestreamValues(isa["temperature"], isa["reynolds_number"], fs.reynolds_length)
 
 
