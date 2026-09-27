@@ -7,7 +7,7 @@ from aerosuite.web.status import STEPS, step_badges, visible_steps
 
 def test_steps_order():
     assert [key for key, _ in STEPS] == [
-        "setup", "config", "aircraft", "sweep", "configs", "run", "monitor", "results"]
+        "setup", "aircraft", "config", "sweep", "configs", "run", "monitor", "results"]
 
 
 def test_ready_project(ready_project):
@@ -25,7 +25,7 @@ def test_visible_steps(ready_project):
     project.profile = "x07"
     project.sweep.enabled = False
     assert [k for k, _ in visible_steps(project)] == [
-        "setup", "config", "aircraft", "configs", "run", "monitor", "results"]
+        "setup", "aircraft", "config", "configs", "run", "monitor", "results"]
 
 
 def test_new_project(tmp_path):
