@@ -195,3 +195,10 @@ def stat(label: str, value: str) -> ui.label:
     with ui.column().classes("gap-0"):
         ui.label(label).classes("as-stat-label")
         return ui.label(value).classes("as-stat-value")
+
+
+def result(label: str, highlight: bool = False) -> ui.label:
+    """A calculator result tile; returns its value label."""
+    with ui.column().classes("as-result" + (" as-result-hi" if highlight else "")):
+        ui.label(label).classes("as-stat-label")
+        return ui.label("—").classes("as-result-value")

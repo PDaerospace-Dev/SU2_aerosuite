@@ -33,6 +33,20 @@ def project_url(page: str, directory) -> str:
     return f"/{page}?project={quote(str(directory), safe='')}"
 
 
+def calculators_url(directory=None, calc: Optional[str] = None) -> str:
+    query = []
+    if directory is not None:
+        query.append(f"project={quote(str(directory), safe='')}")
+    if calc:
+        query.append(f"calc={quote(calc, safe='')}")
+    return "/calculators" + ("?" + "&".join(query) if query else "")
+
+
+def _calculators_button(directory=None) -> None:
+    ui.button(icon="calculate", color=None, on_click=lambda: ui.navigate.to(calculators_url(directory))).props(
+        "flat dense").classes("as-topbar-icon").mark("calculators")
+
+
 def initials(name: str) -> str:
     """Two letters for the switcher badge: the first letters of the first two words, else the first two."""
     words = [word for word in re.split(r"[\s_\-.]+", name) if word]
@@ -80,6 +94,7 @@ def header() -> None:
     with ui.row().classes("as-topbar w-full"):
         _brand()
         ui.space()
+        _calculators_button()
         _help_button()
 
 
@@ -152,6 +167,7 @@ class ProjectFrame:
                     self._job_fill = ui.element("div").classes("as-job-fill").style("width: 0%")
             self._job.on("click", lambda: ui.navigate.to(project_url("run", self.session.directory)))
             self._job.set_visibility(False)
+            _calculators_button(self.session.directory)
             _help_button()
             with ui.row().classes("as-topbar-control as-switcher").mark("project-switcher"):
                 self._initials = ui.label("").classes("as-initials")
