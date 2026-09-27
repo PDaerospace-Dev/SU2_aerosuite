@@ -10,9 +10,11 @@ from typing import Annotated, List, Optional
 import typer
 
 from ..engine import project as engine_project
-from ..engine.cfg import build_cases, settings_parameters
-from ..engine.editing import parse_key_value, parse_value_list, set_parameter, unset_parameter, update_sweep
-from ..engine.errors import ProjectError, TemplateError
+from ..engine.cfg import build_cases, case_freestream, read_template, settings_parameters
+from ..engine.editing import (KEEP, parse_key_value, parse_value_list, set_freestream, set_parameter,
+                              unset_parameter, update_sweep)
+from ..engine.errors import AeroSuiteError, ProjectError, TemplateError
+from ..engine.freestream import naming_altitude
 from ..engine.jobs.runner import BUNDLED_SWEEP_SCRIPT
 from ..engine.models import Project
 from ..engine.naming import format_value
@@ -38,8 +40,17 @@ def describe(project_dir: Path, project: Project) -> list[str]:
         f"Mach:      {_values(sweep.mach)}",
         f"Alpha:     {_values(sweep.alpha)}",
         f"Beta:      {_values(sweep.beta)}",
-        f"Altitude:  {sweep.altitude}",
+        f"Altitude:  {naming_altitude(project)}",
     ]
+    fs = project.settings.freestream
+    if fs.mode == "altitude":
+        if fs.altitude_km is None:
+            lines.append("Freestream: from altitude (altitude not set)")
+        else:
+            length = "not set" if fs.reynolds_length is None else f"{format_value(fs.reynolds_length)} m"
+            lines.append(f"Freestream: from altitude {format_value(fs.altitude_km)} km, Reynolds length {length}")
+    else:
+        lines.append("Freestream: set by hand")
     params = settings_parameters(project.settings)
     if params:
         lines.append("Settings:")
@@ -47,13 +58,21 @@ def describe(project_dir: Path, project: Project) -> list[str]:
     run = project.run
     script = run.sweep_script or f"bundled {BUNDLED_SWEEP_SCRIPT.name}"
     lines.append(f"Run:       {run.partitions} partitions, python {run.sweep_python}, script {script}")
+    reynolds: dict[str, str] = {}
+    if fs.mode == "altitude":
+        try:
+            template = read_template(project_dir, project)
+        except AeroSuiteError:
+            template = ""
+        reynolds = {row.name: f"  Re={round(row.values.reynolds)}" if row.values else "  Re=—"
+                    for row in case_freestream(project, template)}
     lines.append(f"Cases ({len(project.cases)}):")
     for case in project.cases:
         if case.restart == "none":
-            lines.append(f"  {case.name}")
+            lines.append(f"  {case.name}{reynolds.get(case.name, '')}")
         else:
             detail = case.restart + (f" {case.restart_ref}" if case.restart_ref else "")
-            lines.append(f"  {case.name}  [restart: {detail}]")
+            lines.append(f"  {case.name}  [restart: {detail}]{reynolds.get(case.name, '')}")
     return lines
 
 
@@ -111,6 +130,10 @@ def set_(
         "--key", help="SU2 option KEY=VALUE (repeatable); MARKER_X=none removes that line")] = None,
     unset: Annotated[Optional[List[str]], typer.Option(
         "--unset", help="Forget an option so the template value applies again (repeatable)")] = None,
+    freestream: Annotated[Optional[str], typer.Option(
+        help="Freestream: 'manual' (set by hand) or 'altitude' (per case from --altitude-km)")] = None,
+    altitude_km: Annotated[Optional[float], typer.Option(help="ISA altitude in km for altitude mode (0–100)")] = None,
+    reynolds_length: Annotated[Optional[float], typer.Option(help="Reynolds length in m")] = None,
 ) -> None:
     """Change project settings; changing the sweep rebuilds the cases."""
     project = engine_project.open_project(directory)
@@ -121,6 +144,13 @@ def set_(
     pairs = [parse_key_value(item) for item in key or []]
 
     changes: list[str] = []
+    if set_freestream(
+        project,
+        mode=freestream if freestream is not None else KEEP,
+        altitude_km=altitude_km if altitude_km is not None else KEEP,
+        reynolds_length=reynolds_length if reynolds_length is not None else KEEP,
+    ):
+        changes.append("freestream")
     for k, v in pairs:
         set_parameter(project.settings, k, v)
         changes.append(k)
