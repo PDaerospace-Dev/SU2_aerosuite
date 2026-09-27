@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Literal, Optional
 
-from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE
+from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE, case_freestream
+from .freestream import FREESTREAM_KEYS, freestream_setup_errors
 from .jobs.runner import (
     is_aerosuite_python,
     resolve_sweep_python,
@@ -95,6 +96,33 @@ def _restart_problems(project: Project, project_dir: Optional[Path]) -> list[Pro
     return problems
 
 
+def _template_text(project: Project, project_dir: Optional[Path]) -> str:
+    """The template text for per-case checks; "" when there is no folder or it cannot be read."""
+    if project_dir is None:
+        return ""
+    try:
+        return (Path(project_dir) / project.template).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def _freestream_problems(project: Project, project_dir: Optional[Path]) -> list[Problem]:
+    fs = project.settings.freestream
+    if fs.mode != "altitude":
+        return []
+    problems = [Problem("error", message) for message in freestream_setup_errors(fs)]
+    if not problems:
+        for row in case_freestream(project, _template_text(project, project_dir)):
+            if row.values is None:
+                reason = ("the template's MACH_NUMBER is missing or 0, so no Reynolds number can be computed"
+                          if not project.sweep.enabled else row.error)
+                problems.append(Problem("error", f"{row.name}: {reason}"))
+    for key in FREESTREAM_KEYS:
+        if key in project.settings.overrides:
+            problems.append(Problem("warning", f"{key} ignored: freestream comes from the altitude"))
+    return problems
+
+
 def sweep_problems(project: Project, project_dir: Optional[Path] = None) -> list[Problem]:
     """Problems with the sweep and its cases (the Sweep page shows these beside the case table)."""
     problems: list[Problem] = []
@@ -107,6 +135,7 @@ def sweep_problems(project: Project, project_dir: Optional[Path] = None) -> list
         problems.append(Problem(
             "error", "Duplicate case names (files would overwrite each other): " + ", ".join(duplicates)
         ))
+    problems += _freestream_problems(project, project_dir)
     problems += _restart_problems(project, project_dir)
     return problems
 
