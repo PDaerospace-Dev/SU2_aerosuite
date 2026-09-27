@@ -311,3 +311,10 @@ async def test_manual_mode_has_no_freestream_columns(user: User, ready_project):
     await _open(user, project_dir)
     await user.should_not_see(marker=f"re-{project.cases[0].name}")
     assert "readonly" not in _element(user, "sweep-altitude").props
+
+
+async def test_without_a_profile_the_altitude_hint_points_at_the_cli(user: User, ready_project):
+    project_dir, _ = ready_project
+    _altitude_mode(project_dir)  # the ready project has no aircraft profile
+    await _open(user, project_dir)
+    assert "aerosuite set" in _element(user, "sweep-altitude-note").text

@@ -34,7 +34,7 @@ def test_prefill_single_case_uses_the_template_mach():
 
 def test_plan_for_an_aircraft_project_lists_changes_and_renames():
     plan = plan_isa_apply(_sweep(profile="x07"), TEMPLATE, 11.0, 0.8, 6.0)
-    assert plan.kind == "aircraft"
+    assert plan.kind == "settings"
     assert plan.changes[:3] == [("Freestream", "Set by hand", "From altitude"), ("Altitude", "—", "11 km"),
                                 ("Reynolds length", "—", "6 m")]
     assert plan.changes[3] == ("Altitude label (case names)", "sl", "11km")
@@ -60,3 +60,13 @@ def test_plan_is_blocked_for_a_general_sweep_and_a_template_without_mach():
     blocked = plan_isa_apply(project, "AOA= 0\n", 11.0, 0.8, 6.0)
     assert blocked.kind == "blocked" and "MACH_NUMBER" in blocked.reason
     assert plan_isa_apply(project, None, 11.0, 0.8, 6.0).kind == "blocked"
+
+
+def test_a_general_project_already_in_altitude_mode_applies_to_its_settings():
+    # Altitude mode set with the CLI on a project without a profile: the per-case values win over any
+    # template line, so Apply must change the project's altitude, not the template.
+    project = _sweep()
+    project.settings.freestream.mode = "altitude"
+    plan = plan_isa_apply(project, TEMPLATE, 11.0, 0.8, 6.0)
+    assert plan.kind == "settings"
+    assert ("Altitude", "—", "11 km") in plan.changes

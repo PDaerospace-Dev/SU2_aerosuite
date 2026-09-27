@@ -142,7 +142,7 @@ def build(ctx: CalcContext) -> None:
 def _apply(ctx: CalcContext, plan: ApplyPlan, inputs: tuple[float, float, float]) -> None:
     frame = ctx.frame
     altitude, _, length = inputs
-    if plan.kind == "aircraft":
+    if plan.kind == "settings":
         message = frame.save(lambda p: set_freestream(p, mode="altitude", altitude_km=altitude,
                                                       reynolds_length=length))
     else:

@@ -104,7 +104,9 @@ def _sweep_fields(frame: ProjectFrame, after: Callable[[], None]) -> None:
                 if frame.session.project.settings.freestream.mode == "altitude":
                     field(ui.input("Altitude label", value=naming_altitude(frame.session.project))).props(
                         "readonly").classes("w-full").mark("sweep-altitude")
-                    hint("from the altitude on the Aircraft page").mark("sweep-altitude-note")
+                    where = ("the Aircraft page" if frame.session.project.profile else
+                             "aerosuite set --altitude-km (the Aircraft page needs an aircraft profile)")
+                    hint(f"from the altitude set on {where}").mark("sweep-altitude-note")
                 else:
                     text_field("Altitude label", sweep.altitude,
                                lambda text: frame.save(lambda p: update_sweep(p, altitude=text.strip()), then=after),

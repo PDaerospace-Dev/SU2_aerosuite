@@ -26,7 +26,7 @@ class Prefill(NamedTuple):
 
 @dataclass(frozen=True)
 class ApplyPlan:
-    kind: Literal["aircraft", "template", "blocked"]
+    kind: Literal["settings", "template", "blocked"]  # settings: the project's freestream (Aircraft page)
     changes: list[tuple[str, str, str]] = field(default_factory=list)  # (what, old, new)
     note: str = ""
     reason: str = ""  # why Apply is not possible (kind "blocked")
@@ -65,7 +65,9 @@ def _template_value(template: str, key: str) -> str:
 
 def plan_isa_apply(project: Project, template: Optional[str], altitude_km: float, mach: float,
                    length_m: float) -> ApplyPlan:
-    if project.profile:
+    if project.profile or project.settings.freestream.mode == "altitude":
+        # With a profile, or already in altitude mode (e.g. set with the CLI), the per-case values come from
+        # the project's freestream settings, which also win over any template line.
         fs = project.settings.freestream
         new = project.model_copy(deep=True)
         try:
@@ -80,7 +82,7 @@ def plan_isa_apply(project: Project, template: Optional[str], altitude_km: float
         if old_label != new_label and project.sweep.enabled and project.sweep.naming.include_altitude:
             changes.append(("Altitude label (case names)", old_label, new_label))
         note = f"Renames {renamed} case{'' if renamed == 1 else 's'}" if renamed else ""
-        return ApplyPlan("aircraft", changes, note)
+        return ApplyPlan("settings", changes, note)
     if project.sweep.enabled:
         return ApplyPlan("blocked", reason=SWEEP_REASON)
     if template is None:
