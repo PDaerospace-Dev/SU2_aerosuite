@@ -62,8 +62,13 @@ def _v2_to_v3(data: dict, directory: Optional[Path]) -> dict:
     return data
 
 
+def _v3_to_v4(data: dict, directory: Optional[Path]) -> dict:
+    """Schema 4 adds freestream from altitude; older projects keep setting it by hand (the default)."""
+    return data
+
+
 # {from_version: function(data, project folder or None) -> data at from_version + 1}
-MIGRATIONS: dict[int, Callable[[dict, Optional[Path]], dict]] = {1: _v1_to_v2, 2: _v2_to_v3}
+MIGRATIONS: dict[int, Callable[[dict, Optional[Path]], dict]] = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4}
 
 
 def create_project(directory: Path, name: Optional[str] = None) -> Project:

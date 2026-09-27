@@ -70,7 +70,7 @@ def test_schema_2_restarts_migrate_to_three_options(tmp_path):
     ]
     (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
     project = open_project(tmp_path)
-    assert project.schema_version == 3
+    assert project.schema_version == models.SCHEMA_VERSION
     assert [(c.restart, c.restart_ref) for c in project.cases] == [
         ("custom", "/data/init.dat"),
         ("previous", None),
@@ -91,16 +91,17 @@ def test_initial_without_a_file_migrates_to_custom_without_a_path(tmp_path):
 
 def test_migrations_run_in_order(tmp_path, monkeypatch):
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 4)
+    current = models.SCHEMA_VERSION
+    monkeypatch.setattr(models, "SCHEMA_VERSION", current + 1)
 
     def v3_to_v4(data, directory):
         data["name"] = data["name"] + "-migrated"
         return data
 
-    monkeypatch.setattr(project_mod, "MIGRATIONS", {3: v3_to_v4})
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {current: v3_to_v4})
     opened = open_project(tmp_path)
     assert opened.name.endswith("-migrated")
-    assert opened.schema_version == 4
+    assert opened.schema_version == current + 1
 
 
 def test_set_template_copies_into_project(tmp_path):
@@ -136,7 +137,7 @@ def test_migrate_rejects_invalid_schema_version(tmp_path):
 
 def test_migrate_rejects_missing_migration(tmp_path, monkeypatch):
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(models, "SCHEMA_VERSION", models.SCHEMA_VERSION + 1)
     monkeypatch.setattr(project_mod, "MIGRATIONS", {})
     with pytest.raises(ProjectError, match="No migration"):
         open_project(tmp_path)
@@ -155,12 +156,13 @@ def test_migration_error_propagates(tmp_path, monkeypatch):
     from aerosuite.engine.project import migrate
 
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 4)
+    current = models.SCHEMA_VERSION
+    monkeypatch.setattr(models, "SCHEMA_VERSION", current + 1)
 
     def broken_migration(data, directory):
         raise KeyError("boom")
 
-    monkeypatch.setattr(project_mod, "MIGRATIONS", {3: broken_migration})
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {current: broken_migration})
     data = json.loads((tmp_path / PROJECT_FILE).read_text())
     with pytest.raises(KeyError, match="boom"):
         migrate(data)

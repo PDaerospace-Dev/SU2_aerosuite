@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from .cfg import build_cases
 from .errors import ProjectError
+from .freestream import naming_altitude
 from .models import Project, Settings
 
 MARKER_PREFIX = "MARKER_"
@@ -104,6 +105,32 @@ def unset_parameter(settings: Settings, key: str) -> None:
         raise ProjectError(f"{key} is not set in this project")
 
 
+KEEP: Any = object()  # set_freestream: leave this field as it is
+
+
+def set_freestream(project: Project, *, mode: Any = KEEP, altitude_km: Any = KEEP,
+                   reynolds_length: Any = KEEP) -> bool:
+    """Change how configs get their freestream (None clears a number); rebuild the cases when the altitude
+    label in their names changes. Returns whether anything changed."""
+    fs = project.settings.freestream
+    if mode is not KEEP and mode not in ("manual", "altitude"):
+        raise ProjectError(f"Freestream mode must be 'manual' or 'altitude', not {mode!r}")
+    for what, value in (("Altitude", altitude_km), ("Reynolds length", reynolds_length)):
+        if value is not KEEP and value is not None and not math.isfinite(value):
+            raise ProjectError(f"{what} must be a number")
+    before = (fs.mode, fs.altitude_km, fs.reynolds_length)
+    label = naming_altitude(project)
+    if mode is not KEEP:
+        fs.mode = mode
+    if altitude_km is not KEEP:
+        fs.altitude_km = altitude_km
+    if reynolds_length is not KEEP:
+        fs.reynolds_length = reynolds_length
+    if naming_altitude(project) != label:
+        project.cases = build_cases(project)
+    return (fs.mode, fs.altitude_km, fs.reynolds_length) != before
+
+
 def update_sweep(
     project: Project,
     *,
@@ -116,6 +143,9 @@ def update_sweep(
     """Apply the given sweep fields; rebuild the cases when anything changed."""
     if mach is not None and any(m <= 0 for m in mach):
         raise ProjectError("Mach numbers must be greater than 0")
+    if altitude is not None and project.settings.freestream.mode == "altitude":
+        raise ProjectError("The altitude label follows the altitude in altitude mode "
+                           "(set the altitude on the Aircraft page, or with --altitude-km)")
     sweep = project.sweep
     changed = False
     for field, value in (("mach", mach), ("alpha", alpha), ("beta", beta)):

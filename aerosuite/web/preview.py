@@ -41,11 +41,12 @@ def preview_section(frame: ProjectFrame) -> Callable[[], None]:
                                 on_change=lambda e: choose(e.value))).mark("preview-case")
             try:
                 template = read_template(frame.session.directory, project)
+                case = next(case for case in project.cases if case.name == state["case"])
+                text = render_case(template, project, case)
             except AeroSuiteError as exc:
                 banner("error", f"Error: {exc}").mark("preview-error")
                 return
-            case = next(case for case in project.cases if case.name == state["case"])
-            ui.code(render_case(template, project, case), language="ini").classes("w-full as-mono").mark("preview")
+            ui.code(text, language="ini").classes("w-full as-mono").mark("preview")
 
     render()
     return render

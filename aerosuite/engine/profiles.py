@@ -10,6 +10,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
+from .cfg import build_cases
 from .errors import ProjectError
 from .models import Naming, Project, Settings
 from .naming import format_value
@@ -161,6 +162,8 @@ def apply_profile(project_dir: Path, project: Project, profile: Profile, *, copy
     if copy_template and profile.template is not None:
         set_template(project_dir, project, profile.template)
     project.profile = profile.id
+    if project.cases:  # the profile's naming or altitude may rename them; an empty sweep stays empty
+        project.cases = build_cases(project)
 
 
 def save_profile(project_dir: Path, project: Project, profile_id: str, name: str,

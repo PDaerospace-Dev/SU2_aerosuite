@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from .errors import GenerationError, ProjectError, TemplateError
+from .freestream import CaseFreestream, freestream_for, freestream_values, naming_altitude
 from .jobs.store import active_lock
 from .models import Case, Project, Settings
 from .naming import case_name, find_collisions, format_value
@@ -120,11 +121,31 @@ def read_template(project_dir: Path, project: Project) -> str:
         raise TemplateError(f"Cannot read template {path}: {exc}") from exc
 
 
+def case_mach(project: Project, case: Case, template: str) -> float:
+    """The Mach a case runs at: its sweep Mach, or the template's MACH_NUMBER for a single case."""
+    return case.mach if project.sweep.enabled else template_case_values(template)[0]
+
+
 def render_case(template: str, project: Project, case: Case) -> str:
     """Template -> settings -> overrides -> case values; later layers win."""
     params = settings_parameters(project.settings)
     params.update(case_parameters(project, case))
+    freestream = freestream_for(project.settings, case_mach(project, case, template))
+    if freestream:
+        params.update(freestream)  # per case, so it wins over a by-hand value and an override
     return apply_parameters(template, params)
+
+
+def case_freestream(project: Project, template: str) -> list[CaseFreestream]:
+    """Each case's altitude-mode values, or why they cannot be computed (for checks and the pages)."""
+    rows = []
+    for case in project.cases:
+        mach = case_mach(project, case, template)
+        try:
+            rows.append(CaseFreestream(case.name, mach, freestream_values(project.settings.freestream, mach), ""))
+        except ProjectError as exc:
+            rows.append(CaseFreestream(case.name, mach, None, str(exc)))
+    return rows
 
 
 def build_cases(project: Project) -> list[Case]:
@@ -145,7 +166,7 @@ def build_cases(project: Project) -> list[Case]:
             for beta in sweep.beta or [0.0]:
                 name = case_name(
                     mach, alpha, beta,
-                    altitude=sweep.altitude,
+                    altitude=naming_altitude(project),
                     base_name=naming.base_name,
                     include_mach=naming.include_mach,
                     include_alpha=naming.include_alpha,

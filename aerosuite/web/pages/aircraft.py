@@ -77,7 +77,10 @@ def _rendered_keys(frame: ProjectFrame) -> set[str]:
         return set()
     if not project.cases:
         return keys_in(template)
-    return keys_in(render_case(template, project, project.cases[0]))
+    try:
+        return keys_in(render_case(template, project, project.cases[0]))
+    except AeroSuiteError:  # e.g. altitude mode without an altitude yet
+        return keys_in(template)
 
 
 def _build(frame: ProjectFrame) -> None:

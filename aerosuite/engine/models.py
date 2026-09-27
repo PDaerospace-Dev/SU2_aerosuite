@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class Mesh(BaseModel):
@@ -14,7 +14,14 @@ class Mesh(BaseModel):
     markers: list[str] = Field(default_factory=list)
 
 
+FreestreamMode = Literal["manual", "altitude"]
+
+
 class Freestream(BaseModel):
+    # "altitude": each case's temperature and Reynolds number come from the ISA at altitude_km and the
+    # case's own Mach; temperature_K and reynolds are then kept (unused) for switching back.
+    mode: FreestreamMode = "manual"
+    altitude_km: Optional[float] = None
     temperature_K: Optional[float] = None
     reynolds: Optional[float] = None
     reynolds_length: Optional[float] = None
