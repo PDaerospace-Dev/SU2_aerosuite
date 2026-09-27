@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,6 +121,29 @@ def _freestream_problems(project: Project, project_dir: Optional[Path]) -> list[
     for key in FREESTREAM_KEYS:
         if key in project.settings.overrides:
             problems.append(Problem("warning", f"{key} ignored: freestream comes from the altitude"))
+    problems += _unused_reynolds_problems(project, _template_text(project, project_dir))
+    return problems
+
+
+def _option(project: Project, template: str, key: str) -> Optional[str]:
+    """An SU2 option's value as the configs will have it: a project override, else the template's line."""
+    if key in project.settings.overrides:
+        return project.settings.overrides[key].strip()
+    match = re.search(rf"^\s*{key}\s*=\s*([^\s%]+)", template, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _unused_reynolds_problems(project: Project, template: str) -> list[Problem]:
+    """Altitude mode writes REYNOLDS_NUMBER; say so when SU2 will not use it."""
+    problems = []
+    init = _option(project, template, "INIT_OPTION")
+    if init is not None and init.upper() != "REYNOLDS":
+        problems.append(Problem("warning", f"INIT_OPTION= {init}: SU2 won't use the Reynolds number from the "
+                                           "altitude; set INIT_OPTION= REYNOLDS"))
+    solver = _option(project, template, "SOLVER")
+    if solver is not None and solver.upper().startswith("INC_"):
+        problems.append(Problem("warning", f"SOLVER= {solver}: the incompressible solver ignores the Reynolds "
+                                           "number and temperature from the altitude"))
     return problems
 
 

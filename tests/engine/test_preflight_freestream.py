@@ -51,3 +51,34 @@ def test_overrides_of_freestream_keys_are_a_warning(ready_project):
     project.settings.overrides["REYNOLDS_NUMBER"] = "5"
     warnings = _messages(sweep_problems(project, project_dir), "warning")
     assert "REYNOLDS_NUMBER ignored: freestream comes from the altitude" in warnings
+
+
+def _warnings_for(project_dir, project, template):
+    (project_dir / "template.cfg").write_text(template)
+    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    return _messages(sweep_problems(project, project_dir), "warning")
+
+
+def test_an_init_option_other_than_reynolds_is_a_warning(ready_project):
+    project_dir, project = ready_project
+    warnings = _warnings_for(project_dir, project, "MACH_NUMBER= 0.8\nINIT_OPTION= TD_CONDITIONS\n")
+    assert any("INIT_OPTION= TD_CONDITIONS" in w and "INIT_OPTION= REYNOLDS" in w for w in warnings)
+
+
+def test_an_override_of_init_option_counts_too(ready_project):
+    project_dir, project = ready_project
+    project.settings.overrides["INIT_OPTION"] = "TD_CONDITIONS"
+    assert any("INIT_OPTION= TD_CONDITIONS" in w for w in _warnings_for(project_dir, project, "INIT_OPTION= REYNOLDS\n"))
+
+
+def test_an_incompressible_solver_is_a_warning(ready_project):
+    project_dir, project = ready_project
+    warnings = _warnings_for(project_dir, project, "SOLVER= INC_RANS\n")
+    assert any("SOLVER= INC_RANS" in w and "ignores" in w for w in warnings)
+
+
+def test_reynolds_initialisation_gives_no_such_warning(ready_project):
+    project_dir, project = ready_project
+    for template in ("SOLVER= RANS\nINIT_OPTION= REYNOLDS\n", "SOLVER= RANS\n"):
+        warnings = _warnings_for(project_dir, project, template)
+        assert not any("INIT_OPTION" in w or "SOLVER" in w for w in warnings)
