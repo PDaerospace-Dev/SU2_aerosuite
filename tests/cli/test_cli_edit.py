@@ -101,3 +101,15 @@ def test_editor_command_from_environment(monkeypatch):
     monkeypatch.delenv("VISUAL")
     monkeypatch.delenv("EDITOR")
     assert project_cmds.editor_command() == (["notepad"] if sys.platform == "win32" else ["nano"])
+
+
+def test_a_freestream_edit_that_changes_the_altitude_label_rebuilds_case_names(edit_project):
+    folder = edit_project("altitude:11")
+    project = open_project(folder)
+    project.sweep.naming.include_altitude = True
+    update_sweep(project, alpha=[0.0])  # rebuild the names with the label in them
+    save_project(folder, project)
+    result = runner.invoke(app, ["edit", str(folder)])
+    assert result.exit_code == 0, result.output
+    assert "cases rebuilt" in result.output
+    assert [c.name for c in open_project(folder).cases] == ["M0p8_11km_a0_b0"]

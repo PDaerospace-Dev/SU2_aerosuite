@@ -227,7 +227,7 @@ def edit(directory: ProjectDir) -> None:
         if project == original:
             typer.echo("No changes.")
             return
-        if project.sweep != original.sweep:
+        if project.sweep != original.sweep or naming_altitude(project) != naming_altitude(original):
             project.cases = build_cases(project)
             typer.echo(f"The sweep changed; cases rebuilt ({len(project.cases)}).")
         engine_project.save_project(directory, project)
