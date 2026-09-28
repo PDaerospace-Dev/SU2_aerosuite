@@ -82,11 +82,11 @@ async def test_restart_choices(user: User, ready_project, tmp_path):
 async def test_generate_writes_configs_and_updates_the_badge(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
-    await user.should_see(marker="badge-configs-todo")
+    await user.should_see(marker="badge-sweep-todo")
     user.find(marker="generate").click()
     await user.should_see("Wrote 3 configs")
     assert (project_dir / "configs" / "M0p8_a4_b0.cfg").is_file()
-    await user.should_see(marker="badge-configs-done")
+    await user.should_see(marker="badge-sweep-done")
 
 
 async def test_generate_refuses_a_stale_project(user: User, ready_project):
