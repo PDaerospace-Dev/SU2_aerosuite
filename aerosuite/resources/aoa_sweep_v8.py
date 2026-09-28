@@ -310,6 +310,10 @@ def main():
         elif use_restart_file and config.get('RESTART_SOL', 'NO').upper() != 'YES':
             print(f"NOTE: Restart file specified but RESTART_SOL is not YES in {cfg_file}")
             print("      To enable restart, set RESTART_SOL = YES in the config file\n")
+        elif not use_restart_file:
+            # Starting from scratch: with RESTART_SOL = YES left in the config, SU2 would try to
+            # open its default solution file and fail (e.g. after the previous case failed)
+            config.RESTART_SOL = 'NO'
  
         # Set up output directory for the current case
         folderName = os.path.splitext(cfg_file)[0] + "/"

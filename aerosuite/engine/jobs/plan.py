@@ -11,6 +11,8 @@ restart never silently refers to a different case than the one the user chose:
 
 The sweep script uses a restart file only if the case cfg says RESTART_SOL= YES, so the job's copy of
 each cfg gets RESTART_SOL= YES when its line restarts (previous / from_case / custom), else NO.
+When the restart file turns out to be missing at run time (a `previous` case after a failed one),
+the script starts that case fresh and sets RESTART_SOL= NO itself.
 """
 from __future__ import annotations
 
