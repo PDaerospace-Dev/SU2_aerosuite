@@ -260,9 +260,12 @@ a.as-step:hover { background: #f6f8fa; }
 .as-grid-form { grid-template-columns: minmax(12rem, auto) minmax(0, 1fr); gap: 8px 14px; align-items: center; }
 .as-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .as-columns-projects { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.as-columns-profiles { grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); }
+.as-recent-row-on { background: var(--as-accent-tint); box-shadow: inset 3px 0 0 var(--as-accent); }
 .as-monitor { grid-template-columns: 250px minmax(0, 1fr); gap: 16px; }
 @media (max-width: 900px) {
-  .as-grid-2, .as-grid-3, .as-grid-4, .as-columns, .as-columns-projects, .as-monitor, .as-tiles { grid-template-columns: 1fr; }
+  .as-grid-2, .as-grid-3, .as-grid-4, .as-columns, .as-columns-projects, .as-columns-profiles, .as-monitor,
+  .as-tiles { grid-template-columns: 1fr; }
   .as-side { position: static; max-height: none; }
 }
 

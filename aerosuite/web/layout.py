@@ -182,6 +182,7 @@ class ProjectFrame:
                 ui.icon("expand_more").classes("as-topbar-muted")
                 with ui.menu().mark("project-menu"):
                     ui.menu_item("All projects", on_click=lambda: ui.navigate.to("/")).mark("menu-all-projects")
+                    ui.menu_item("Profiles", on_click=lambda: ui.navigate.to("/profiles")).mark("menu-profiles")
                     here = Path(self.session.directory).resolve()
                     for directory in load_recent():
                         if directory.resolve() != here:

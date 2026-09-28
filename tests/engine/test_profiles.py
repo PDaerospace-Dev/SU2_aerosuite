@@ -118,9 +118,11 @@ def test_save_profile(ready_project):
     assert data["settings"]["markers"] == {"MARKER_FAR": "( far )", "MARKER_PLOTTING": None}
     assert data["settings"]["overrides"] == {"CONV_FIELD": "LIFT"}
     assert data["naming"]["base_name"] == "jet"
-    assert set(data) == {"id", "name", "description", "settings", "hints", "naming"}
-    text = json.dumps(data)
-    assert "wing.su2" not in text and "M0p8" not in text  # no mesh, no cases
+    assert set(data) == {"id", "name", "description", "settings", "hints", "naming", "mesh", "sweep", "run"}
+    assert data["mesh"].endswith("wing.su2")  # the path on this machine, not a copy of the file
+    assert data["sweep"] == {"mach": [0.8], "alpha": [0.0, 2.0, 4.0], "beta": [0.0], "altitude": "sl"}
+    assert data["run"]["partitions"] == 1
+    assert "M0p8" not in json.dumps(data)  # the sweep, not its cases
     with pytest.raises(ProjectError, match="already exists"):
         save_profile(project_dir, project, "my_jet", "Again")
     assert save_profile(project_dir, project, "my_jet", "Again", overwrite=True).name == "Again"
@@ -148,3 +150,96 @@ def test_a_profile_keeps_its_templates_name(ready_project, tmp_path):
     fresh = Project(name="fresh")
     apply_profile(other, fresh, saved)
     assert fresh.template == "other.cfg" and (other / "other.cfg").is_file()
+
+
+def _full_profile(ready_project, profile_id="full"):
+    project_dir, project = ready_project
+    project.sweep.mach = [2.0, 3.0]
+    project.sweep.alpha = [-2.0, 0.0, 2.0]
+    project.run.partitions = 32
+    return save_profile(project_dir, project, profile_id, "Full")
+
+
+def test_a_new_project_gets_the_profiles_mesh_sweep_and_run_settings(ready_project, tmp_path):
+    profile = _full_profile(ready_project)
+    other = tmp_path / "other"
+    other.mkdir()
+    fresh = Project(name="fresh")
+    apply_profile(other, fresh, profile)
+    assert fresh.mesh.path.endswith("wing.su2") and fresh.mesh.markers == ["farfield", "wall"]
+    assert (fresh.sweep.mach, fresh.sweep.alpha) == ([2.0, 3.0], [-2.0, 0.0, 2.0])
+    assert fresh.run.partitions == 32
+    assert len(fresh.cases) == 6  # the sweep is built into cases
+
+
+def test_a_profile_mesh_that_moved_is_kept_as_a_path_without_markers(ready_project, tmp_path):
+    profile = _full_profile(ready_project)
+    project_dir, project = ready_project
+    (project_dir.parent / "wing.su2").unlink()
+    fresh = Project(name="fresh")
+    apply_profile(tmp_path, fresh, profile)
+    assert fresh.mesh.path.endswith("wing.su2") and fresh.mesh.markers == []  # Setup shows it as missing
+
+
+def test_an_older_profile_without_mesh_sweep_or_run_leaves_them_alone(ready_project):
+    project_dir, project = ready_project
+    before = (project.mesh.path, project.sweep.mach, project.run.partitions)
+    apply_profile(project_dir, project, load_profile("x07"))
+    assert (project.mesh.path, project.sweep.mach, project.run.partitions) == before
+
+
+def test_editing_a_profile(ready_project, tmp_path):
+    from aerosuite.engine.profiles import edit_profile
+
+    _full_profile(ready_project)
+
+    def change(data):
+        data.name = "Renamed"
+        data.sweep["mach"] = [0.5]
+        data.settings.setdefault("reference", {})["ref_area"] = 12.5
+
+    edited = edit_profile("full", change)
+    assert edited.name == "Renamed" and edited.data.sweep["mach"] == [0.5]
+    assert load_profile("full").data.settings["reference"]["ref_area"] == 12.5
+    with pytest.raises(ProjectError, match="Unknown setting"):
+        edit_profile("full", lambda data: data.settings["reference"].update(bogus=1))
+    assert load_profile("full").name == "Renamed"  # a refused edit writes nothing
+
+
+def test_editing_the_bundled_profile_saves_your_own_copy_and_reset_brings_it_back(tmp_path):
+    from aerosuite.engine.profiles import delete_profile, edit_profile
+
+    edited = edit_profile("x07", lambda data: setattr(data, "description", "mine"))
+    assert not edited.bundled and edited.description == "mine"
+    assert (BUNDLED_PROFILES / "x07" / PROFILE_FILE).read_text().count("mine") == 0
+    delete_profile("x07")  # removes your copy: the bundled one shows again
+    assert load_profile("x07").bundled
+    with pytest.raises(ProjectError, match="bundled"):
+        delete_profile("x07")
+
+
+def test_profile_files_can_be_replaced(ready_project, tmp_path):
+    from aerosuite.engine.profiles import set_profile_mesh, set_profile_template
+
+    _full_profile(ready_project)
+    (tmp_path / "new.cfg").write_text("MACH_NUMBER= 0.9\n")
+    assert set_profile_template("full", tmp_path / "new.cfg").template.name == "new.cfg"
+    assert [p.name for p in load_profile("full").folder.glob("*.cfg")] == ["new.cfg"]
+    (tmp_path / "body.su2").write_text("MARKER_TAG= body\n")
+    assert set_profile_mesh("full", tmp_path / "body.su2").data.mesh == str((tmp_path / "body.su2").resolve())
+    with pytest.raises(ProjectError, match="not found"):
+        set_profile_mesh("full", tmp_path / "nope.su2")
+
+
+def test_duplicate_and_delete(ready_project):
+    from aerosuite.engine.profiles import delete_profile, duplicate_profile
+
+    _full_profile(ready_project)
+    copy = duplicate_profile("full", "full_2", "Full 2")
+    assert copy.name == "Full 2" and copy.data.sweep == load_profile("full").data.sweep
+    assert copy.template is not None
+    with pytest.raises(ProjectError, match="already exists"):
+        duplicate_profile("full", "full_2", "Again")
+    delete_profile("full_2")
+    with pytest.raises(ProjectError, match="Unknown profile"):
+        load_profile("full_2")

@@ -73,6 +73,8 @@ def _study_section(frame: ProjectFrame) -> None:
                                      on_change=lambda e: choose(e.value))).classes("w-64").mark("setup-profile")
             secondary_button("Apply profile defaults", on_click=lambda: apply_defaults()).mark("setup-apply-profile")
             secondary_button("Save as profile…", on_click=lambda: save_as()).mark("setup-save-profile")
+            ui.link("Manage profiles", "/profiles" + (f"?id={project.profile}" if project.profile else "")).classes(
+                "as-hint").mark("setup-manage-profiles")
 
     async def apply_defaults() -> None:
         profile_id = frame.session.project.profile

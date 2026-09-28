@@ -19,6 +19,9 @@ def register() -> None:
         with ui.column().classes("as-page w-full"):
             with ui.row().classes("as-crumbs w-full"):
                 ui.label("Projects").classes("as-crumb-current")
+                ui.space()
+                secondary_button("Profiles", on_click=lambda: ui.navigate.to("/profiles"), icon="badge").mark(
+                    "projects-profiles")
             with ui.element("div").classes("as-columns as-columns-projects"):
                 with ui.column().classes("gap-4 w-full"):
                     _recent_list()
