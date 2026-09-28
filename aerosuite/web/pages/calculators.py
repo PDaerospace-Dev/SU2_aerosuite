@@ -32,12 +32,15 @@ def register() -> None:
 
 
 class CalculatorsView:
-    def __init__(self, frame: Optional[ProjectFrame], key: str) -> None:
+    """The calculator list and the open calculator; `compact` (the right-hand panel) lists them across the top."""
+
+    def __init__(self, frame: Optional[ProjectFrame], key: str, compact: bool = False) -> None:
         self.frame = frame
+        self.compact = compact
         keys = [c.key for c in calculators()]
         self.key = key if key in keys else keys[0]
-        with ui.element("div").classes("as-calc"):
-            self.list = ui.column().classes("gap-1")
+        with ui.element("div").classes("as-calc" + (" as-calc-compact" if compact else "")):
+            self.list = (ui.row() if compact else ui.column()).classes("gap-1")
             self.card = ui.column().classes("w-full")
         self.show(self.key, {})
 
@@ -52,7 +55,8 @@ class CalculatorsView:
                 item.on("click", lambda _, k=calc.key: self.show(k, {}))
                 with item:
                     ui.label(calc.title).classes("as-strong")
-                    ui.label(calc.description).classes("as-muted")
+                    if not self.compact:
+                        ui.label(calc.description).classes("as-muted")
         self.card.clear()
         with self.card:
             next(c for c in items if c.key == key).build(CalcContext(self.frame, handoff, self.show))

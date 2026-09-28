@@ -11,6 +11,7 @@ from nicegui import ui
 from ..engine.errors import AeroSuiteError
 from ..engine.jobs.store import active_lock
 from .guide import app_version, web_ui_guide
+from .calc_panel import CalcPanel
 from .jobs import WATCHER, job_progress
 from .log_panel import LogPanel
 from .recent import add_recent, load_recent
@@ -43,9 +44,11 @@ def calculators_url(directory=None, calc: Optional[str] = None) -> str:
     return "/calculators" + ("?" + "&".join(query) if query else "")
 
 
-def _calculators_button(directory=None) -> None:
-    ui.button(icon="calculate", color=None, on_click=lambda: ui.navigate.to(calculators_url(directory))).props(
-        "flat dense").classes("as-topbar-icon").mark("calculators")
+def _calculators_button(frame=None) -> None:
+    """The top bar's Calculators button: it opens the calculators over the page, from the right."""
+    panel = CalcPanel(frame)
+    ui.button("Calculators", icon="calculate", color=None, on_click=panel.toggle).props(
+        "flat dense no-caps").classes("as-topbar-icon as-topbar-labelled").mark("calculators")
 
 
 def initials(name: str) -> str:
@@ -169,7 +172,7 @@ class ProjectFrame:
                     self._job_fill = ui.element("div").classes("as-job-fill").style("width: 0%")
             self._job.on("click", lambda: self.log.open())  # tail the running job's log
             self._job.set_visibility(False)
-            _calculators_button(self.session.directory)
+            _calculators_button(self)
             _help_button()
             with ui.row().classes("as-topbar-control as-switcher").mark("project-switcher"):
                 self._initials = ui.label("").classes("as-initials")
