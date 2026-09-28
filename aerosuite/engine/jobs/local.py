@@ -113,7 +113,7 @@ class LocalRunner:
                 raise JobError(f"Cannot create {folder}: {exc}") from exc
 
         selected = [case.name for case in project.cases] if cases is None else list(cases)
-        job_id = new_job_id()
+        job_id = new_job_id(project_dir)
         configs = prepare_job(project_dir, project, job_id, selected, continue_cases)
         control = configs / RUN_CONTROL_FILE
         names = control_cases(control)

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import secrets
 import shutil
 import sys
 from datetime import datetime
@@ -64,8 +63,18 @@ class Runner(Protocol):
     def cancel(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 
 
-def new_job_id() -> str:
-    return datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+def new_job_id(project_dir: Path, now: Optional[datetime] = None) -> str:
+    """Date and minute, e.g. 20260928-1358; a second job in the same minute gets -2, then -3, ..."""
+    from .store import JOBS_DIR  # store imports this module
+
+    jobs = Path(project_dir) / JOBS_DIR
+    base = (now or datetime.now()).strftime("%Y%m%d-%H%M")
+    candidate, count = base, 1
+    # Any of a job's files (record, log, folder) marks the name as taken.
+    while any((jobs / name).exists() for name in (f"{candidate}.json", f"{candidate}.log", candidate)):
+        count += 1
+        candidate = f"{base}-{count}"
+    return candidate
 
 
 def sweep_script_path(run: RunSettings) -> Path:
