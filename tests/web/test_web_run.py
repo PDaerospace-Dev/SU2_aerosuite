@@ -81,7 +81,6 @@ async def test_rerun_failed_and_unconverged_cases(user: User, ready_project, su2
     _plan(project_dir)  # everything converges from now on
     await _open(user, project_dir)
     assert _text(user, f"status-{A2}") == "FAILED"
-    await user.should_see(marker=f"tail-{A2}")
     await user.should_see(marker="badge-run-attention")
 
     user.find(marker="select-failed").click()
@@ -174,7 +173,29 @@ async def test_tiles_pills_and_the_failure_box(user: User, ready_project, su2_en
             _text(user, "tile-pending")) == ("2", "0", "1", "0")
     assert "as-pill-failed" in _element(user, f"status-{A2}").classes
     assert "as-pill-done" in _element(user, f"status-{A0}").classes
+    user.find(marker=f"status-{A2}").click()
     assert "as-failure" in _element(user, f"tail-{A2}").classes
     actions = _element(user, "page-actions")
     assert _element(user, "submit").parent_slot.parent is actions
     assert "as-btn-primary" in _element(user, "submit").classes
+
+
+async def test_failure_details_are_collapsed_until_the_failed_status_is_clicked(user: User, ready_project, su2_env):
+    """A sweep where many cases failed must not bury the table under their logs."""
+    project_dir, project = ready_project
+    _run_to_end(project_dir, project, **{A0: "fail", A2: "fail"})
+    await _open(user, project_dir)
+    await user.should_not_see(marker=f"tail-{A0}")
+    await user.should_not_see(marker=f"tail-{A2}")
+    assert "as-pill-toggle" in _element(user, f"status-{A2}").classes  # it looks clickable
+    assert "as-pill-toggle" not in _element(user, f"status-{A4}").classes  # converged: nothing to show
+
+    user.find(marker=f"status-{A2}").click()
+    await user.should_see(marker=f"tail-{A2}")
+    await user.should_not_see(marker=f"tail-{A0}")  # only the one clicked
+
+    user.find(marker=f"tick-{A4}").click()  # any change redraws the table; the open box stays open
+    await user.should_see(marker=f"tail-{A2}")
+
+    user.find(marker=f"status-{A2}").click()
+    await user.should_not_see(marker=f"tail-{A2}")

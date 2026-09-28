@@ -128,6 +128,9 @@ a.as-step:hover { background: #f6f8fa; }
 .as-pill { display: inline-block; padding: 1px 10px; border: 1px solid; border-radius: 999px; font-size: 12px;
   line-height: 18px; white-space: nowrap; text-transform: lowercase; }
 .as-pill::first-letter { text-transform: uppercase; }
+.as-pill-toggle { cursor: pointer; }
+.as-pill-toggle:hover { filter: brightness(.95); text-decoration: underline; }
+.as-pill-chevron { cursor: pointer; color: var(--as-muted); font-size: 18px; margin-left: -4px; }
 .as-tag { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--as-hairline);
   color: #57606a; font-size: 12px; white-space: nowrap; }
 .as-banner { width: 100%; padding: 8px 12px; gap: 8px; border: 1px solid; border-radius: 8px;

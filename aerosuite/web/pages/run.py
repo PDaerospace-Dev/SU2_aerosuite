@@ -80,6 +80,7 @@ class RunPage:
         self.ticked = {case.name for case in frame.session.project.cases}
         self.continue_choice: Optional[bool] = None  # None: the default for the ticked cases
         self.continue_cases: list[str] = []
+        self.opened: set[str] = set()  # failed cases whose "why it failed" box is open
         self.has_errors = False
         self.was_active = False
         self.shown: Optional[tuple] = None  # _snapshot() of the view on screen
@@ -209,10 +210,17 @@ class RunPage:
                     td(format_value(case.mach) if case else "")
                     td(format_value(case.alpha) if case else "")
                     td(format_value(case.beta) if case else "")
+                    details = row.status == "FAILED" and bool(row.failure_tail)
+                    opened = details and row.name in self.opened
                     with td_box():
-                        pill(row.status).mark(f"status-{row.name}")
+                        status = pill(row.status).mark(f"status-{row.name}")
+                        if details:  # click the pill to show or hide why it failed
+                            status.classes("as-pill-toggle").on("click", lambda n=row.name: self._toggle(n))
+                            status.props(f'title="{"Hide" if opened else "Show"} why it failed"')
+                            ui.icon("expand_less" if opened else "expand_more").classes(
+                                "as-pill-chevron").on("click", lambda n=row.name: self._toggle(n))
                     td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
-                    if row.status == "FAILED" and row.failure_tail:
+                    if opened:
                         failure_row(row.failure_tail).mark(f"tail-{row.name}")
 
     def _actions(self, view: JobView, selection: _Selection) -> None:
@@ -251,6 +259,10 @@ class RunPage:
         else:
             self.ticked.discard(name)
         self.continue_choice = None
+        self.render()
+
+    def _toggle(self, name: str) -> None:
+        self.opened ^= {name}
         self.render()
 
     def _set_continue(self, value: bool) -> None:
