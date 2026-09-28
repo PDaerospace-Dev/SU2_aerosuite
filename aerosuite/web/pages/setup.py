@@ -184,13 +184,38 @@ def _path_setter(
         error.text = message or ""
 
 
+def _chosen_file(mark: str, state: str, icon: str) -> ui.row:
+    """The box that says which file is chosen: green (chosen), amber (gone from disk) or grey (none)."""
+    suffix = "" if state == "selected" else f"-{state}"
+    with ui.row().classes(f"as-selected{suffix} w-full no-wrap items-start").mark(mark) as box:
+        ui.icon(icon).classes("as-selected-icon")
+    return box
+
+
 def _mesh_section(frame: ProjectFrame) -> None:
     @ui.refreshable
     def summary() -> None:
         mesh = frame.session.project.mesh
-        ui.label(mesh.path or "No mesh selected").classes("as-mono as-muted").mark("mesh-path")
-        markers = ", ".join(mesh.markers) if mesh.markers else "(none found)"
-        hint(f"Markers: {markers}").mark("mesh-markers")
+        if not mesh.path:
+            with _chosen_file("mesh-status", "empty", "radio_button_unchecked"):
+                ui.label("No mesh selected").classes("as-muted")
+            return
+        path = Path(mesh.path)
+        exists = path.is_file()
+        box = _chosen_file("mesh-status", "selected" if exists else "missing",
+                           "check_circle" if exists else "warning")
+        with box, ui.column().classes("gap-1 grow min-w-0"):
+            with ui.row().classes("items-center gap-2 no-wrap"):
+                ui.label(path.name).classes("as-strong").mark("mesh-name")
+                if not exists:
+                    ui.label("File not found").classes("as-error-text")
+            ui.label(str(path)).classes("as-mono as-muted as-truncate").mark("mesh-path")
+            with ui.row().classes("items-center gap-1"):
+                ui.label("Markers").classes("as-label mr-1")
+                if not mesh.markers:
+                    ui.label("none found").classes("as-muted").mark("mesh-markers-none")
+                for marker in mesh.markers:
+                    ui.label(marker).classes("as-tag as-mono").mark(f"mesh-marker-{marker}")
 
     _path_setter(
         frame, label="Mesh file (.su2)", mark="mesh", title="Choose the mesh", suffixes=MESH_SUFFIXES,
@@ -203,8 +228,14 @@ def _template_section(frame: ProjectFrame) -> None:
     @ui.refreshable
     def summary() -> None:
         present = (frame.session.directory / frame.session.project.template).is_file()
-        text = f"{frame.session.project.template} (copied into the project)" if present else "No template yet"
-        ui.label(text).classes("as-hint").mark("template-status")
+        with _chosen_file("template-status-box", "selected" if present else "empty",
+                          "check_circle" if present else "radio_button_unchecked"):
+            if present:
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(frame.session.project.template).classes("as-strong as-mono")
+                    ui.label("(copied into the project)").classes("as-muted").mark("template-status")
+            else:
+                ui.label("No template yet").classes("as-muted").mark("template-status")
 
     ui.label("Config template").classes("as-label mt-2")
     _path_setter(
@@ -236,27 +267,34 @@ def _run_section(frame: ProjectFrame) -> None:
         text = script if script else f"bundled {BUNDLED_SWEEP_SCRIPT.name}"
         hint(f"Script: {text}").mark("sweep-script-info")
 
-    with card("Run settings"):
+    with card("Run settings") as box:
+        box.mark("run-settings")
         with ui.element("div").classes("as-grid-3"):
-            with ui.column().classes("gap-1"):
-                text_field(
-                    "Python for the sweep script (must import SU2)", run.sweep_python,
-                    lambda text: frame.save(
-                        lambda p: setattr(p.run, "sweep_python", text.strip() or "python3"), then=python_info.refresh),
-                    mark="sweep-python", mono=True,
-                )
-                python_info()
-            with ui.column().classes("gap-1"):
-                text_field(
-                    "Sweep script (empty = bundled)", run.sweep_script,
-                    lambda text: frame.save(lambda p: setattr(p.run, "sweep_script", text.strip()),
-                                            then=script_info.refresh),
-                    mark="sweep-script", mono=True,
-                )
-                script_info()
             with ui.column().classes("gap-1"):
                 text_field(
                     "MPI partitions per case", run.partitions,
                     lambda text: frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Partitions"))),
                     mark="partitions",
                 )
+        # Rarely changed, so folded away -- unless the sweep would run under the wrong Python.
+        wrong_python = is_aerosuite_python(resolve_sweep_python(run.sweep_python))
+        with ui.expansion("Advanced · sweep Python and script", value=wrong_python).classes(
+                "as-expansion w-full").mark("run-advanced"):
+            with ui.element("div").classes("as-grid-2"):
+                with ui.column().classes("gap-1"):
+                    text_field(
+                        "Python for the sweep script (must import SU2)", run.sweep_python,
+                        lambda text: frame.save(
+                            lambda p: setattr(p.run, "sweep_python", text.strip() or "python3"),
+                            then=python_info.refresh),
+                        mark="sweep-python", mono=True,
+                    )
+                    python_info()
+                with ui.column().classes("gap-1"):
+                    text_field(
+                        "Sweep script (empty = bundled)", run.sweep_script,
+                        lambda text: frame.save(lambda p: setattr(p.run, "sweep_script", text.strip()),
+                                                then=script_info.refresh),
+                        mark="sweep-script", mono=True,
+                    )
+                    script_info()

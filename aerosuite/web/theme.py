@@ -136,6 +136,21 @@ a.as-step:hover { background: #f6f8fa; }
 .as-banner { width: 100%; padding: 8px 12px; gap: 8px; border: 1px solid; border-radius: 8px;
   align-items: flex-start; flex-wrap: nowrap; }
 .as-banner .q-icon { font-size: 18px; }
+
+/* Setup: the chosen mesh / template (green), one gone from disk (amber), none yet (grey dashes) */
+.as-selected, .as-selected-missing, .as-selected-empty { padding: 10px 12px; gap: 10px; border: 1px solid;
+  border-radius: 8px; }
+.as-selected { background: #f3fcf5; border-color: #aceebb; }
+.as-selected-missing { background: #fffbe6; border-color: #eed888; }
+.as-selected-empty { background: transparent; border-style: dashed; border-color: #d0d7de; }
+.as-selected-icon { font-size: 20px; margin-top: 1px; color: #8c959f; }
+.as-selected .as-selected-icon { color: #1a7f37; }
+.as-selected-missing .as-selected-icon { color: #bf8700; }
+
+/* A folded section inside a card (Setup's Advanced run settings) */
+.as-expansion { border: 1px solid var(--as-hairline); border-radius: 8px; }
+.as-expansion .q-item { min-height: 36px; padding: 4px 12px; font-size: 13px; color: var(--as-muted); }
+.as-expansion .q-expansion-item__content { padding: 4px 12px 12px; }
 .as-ok-line { gap: 8px; align-items: center; color: #116329; flex-wrap: nowrap; }
 .as-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
 
