@@ -51,7 +51,7 @@ async def test_the_switcher_menu_goes_to_all_projects(user: User, ready_project)
     await user.should_see(marker="open-path")
 
 
-@pytest.mark.parametrize("page, title", [("setup", "Setup"), ("config", "Config"), ("sweep", "Sweep"),
+@pytest.mark.parametrize("page, title", [("setup", "Setup"), ("config", "CFG setup"), ("sweep", "Sweep"),
                                          ("run", "Run"), ("monitor", "Monitor")])
 async def test_breadcrumbs_name_the_project_and_the_page(user: User, ready_project, page, title):
     project_dir, _ = ready_project

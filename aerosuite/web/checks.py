@@ -1,4 +1,4 @@
-"""Checks and the Generate button: shared by the Config page (sweep off) and the Sweep page."""
+"""Checks and the Generate button: shared by the CFG setup page (sweep off) and the Sweep page."""
 from typing import Callable, Optional
 
 from nicegui import ui

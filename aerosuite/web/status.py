@@ -18,7 +18,7 @@ Badge = Literal["done", "attention", "todo", "later", "running", "plain"]
 STEPS: list[tuple[str, str]] = [
     ("setup", "Setup"),
     ("aircraft", "Aircraft"),  # before Config: an aircraft study is set up there; Config is the raw template
-    ("config", "Config"),
+    ("config", "CFG setup"),
     ("sweep", "Sweep"),  # Generate is here with the sweep on, on Config with it off: their badges carry it
     ("run", "Run"),
     ("monitor", "Monitor"),
