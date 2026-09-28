@@ -151,17 +151,33 @@ def save_project(directory: Path, project: Project) -> None:
         raise ProjectError(f"Cannot save {path}: {exc}") from exc
 
 
+def template_file_name(project: Project) -> str:
+    """The name of the project's own template copy, in the project folder (template.cfg if unset)."""
+    return Path(project.template).name or TEMPLATE_FILE
+
+
 def set_template(directory: Path, project: Project, source: Path) -> None:
-    """Copy a master template into the project so later edits to the original don't leak in."""
+    """Copy a master template into the project, keeping its file name, so later edits to the original
+    don't leak in. The project's previous copy, under another name, is removed: one template per project."""
     source = Path(source)
     if not source.is_file():
         raise TemplateError(f"Template not found: {source}")
-    target = Path(directory) / TEMPLATE_FILE
+    if source.name == PROJECT_FILE:
+        raise TemplateError(f"A template cannot be called {PROJECT_FILE}; rename {source}")
+    directory = Path(directory)
+    target = directory / source.name
+    previous = directory / template_file_name(project)
     try:
-        shutil.copyfile(source, target)
+        if not (target.exists() and target.resolve() == source.resolve()):
+            shutil.copyfile(source, target)
     except OSError as exc:
         raise TemplateError(f"Cannot copy template {source} to {target}: {exc}") from exc
-    project.template = TEMPLATE_FILE
+    project.template = source.name
+    if previous.name != target.name and previous.is_file():
+        try:
+            previous.unlink()
+        except OSError:
+            pass  # a stale copy left behind is harmless; project.json names the one in use
 
 
 def set_mesh(project: Project, mesh_path: Path) -> None:
@@ -202,13 +218,13 @@ def read_template_text(project_dir: Path, project: Project) -> str:
 
 
 def set_template_text(project_dir: Path, project: Project, text: str) -> list[str]:
-    """Save edited template text as the project's template.cfg; returns warnings (never blocks)."""
-    path = Path(project_dir) / TEMPLATE_FILE
-    tmp = path.with_name(TEMPLATE_FILE + ".tmp")
+    """Save edited template text as the project's template file; returns warnings (never blocks)."""
+    path = Path(project_dir) / template_file_name(project)
+    tmp = path.with_name(path.name + ".tmp")
     try:
         tmp.write_text(text, encoding="utf-8", newline="\n")
         os.replace(tmp, path)
     except OSError as exc:
         raise TemplateError(f"Cannot write {path}: {exc}") from exc
-    project.template = TEMPLATE_FILE
+    project.template = path.name
     return template_warnings(text)

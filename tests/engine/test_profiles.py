@@ -128,3 +128,23 @@ def test_save_profile(ready_project):
         save_profile(project_dir, project, "bad id", "x")
     with pytest.raises(ProjectError, match="name"):
         save_profile(project_dir, project, "ok_id", "  ")
+
+
+def test_a_profile_keeps_its_templates_name(ready_project, tmp_path):
+    from aerosuite.engine.project import set_template
+
+    project_dir, project = ready_project
+    source = tmp_path / "x07_base.cfg"
+    source.write_text("MACH_NUMBER= 0.5\n")
+    set_template(project_dir, project, source)
+    saved = save_profile(project_dir, project, "named", "Named")
+    assert saved.template.name == "x07_base.cfg"
+    (tmp_path / "other.cfg").write_text("MACH_NUMBER= 0.6\n")
+    set_template(project_dir, project, tmp_path / "other.cfg")
+    saved = save_profile(project_dir, project, "named", "Named", overwrite=True)
+    assert [p.name for p in saved.folder.glob("*.cfg")] == ["other.cfg"]  # the old one is replaced
+    other = project_dir.parent / "other_project"
+    other.mkdir()
+    fresh = Project(name="fresh")
+    apply_profile(other, fresh, saved)
+    assert fresh.template == "other.cfg" and (other / "other.cfg").is_file()

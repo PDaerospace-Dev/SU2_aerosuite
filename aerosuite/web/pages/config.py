@@ -5,7 +5,7 @@ from typing import Callable, Optional
 from nicegui import ui
 
 from ...engine.errors import AeroSuiteError
-from ...engine.project import TEMPLATE_FILE, read_template_text, set_template_text, template_warnings
+from ...engine.project import read_template_text, set_template_text, template_file_name, template_warnings
 from ...engine.reference import RefOption, keys_in
 from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session
@@ -86,16 +86,17 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         holders["reference"]()
 
     def save_text(text: str) -> Optional[str]:
-        # template.cfg is independent of project.json: write it directly (an engine function,
+        # The template file is independent of project.json: write it directly (an engine function,
         # not a raw filesystem write) instead of through frame.save, so an unrelated outside
         # change to project.json cannot refuse this save or force a reload that drops the text.
-        needs_field_update = frame.session.project.template != TEMPLATE_FILE
+        name = template_file_name(frame.session.project)
+        needs_field_update = frame.session.project.template != name
         try:
             warnings = set_template_text(frame.session.directory, frame.session.project, text)
         except AeroSuiteError as exc:
             return str(exc)
         if needs_field_update:
-            message = frame.save(lambda p: setattr(p, "template", TEMPLATE_FILE))
+            message = frame.save(lambda p: setattr(p, "template", name))
             if message is not None:
                 return message
         else:
@@ -139,7 +140,7 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         holders["checks"] = ui.column().classes("w-full gap-2").mark("config-checks")
     holders["warnings"] = ui.column().classes("w-full gap-2")
     with ui.element("div").classes("as-columns"):
-        with card("Template", "Saved automatically · template.cfg"):
+        with card("Template", f"Saved automatically · {template_file_name(frame.session.project)}"):
             editor = field(ui.textarea(value=initial), mono=True).props('input-style="height: 70vh"').classes(
                 "w-full").mark("config-text")
             if load_error:

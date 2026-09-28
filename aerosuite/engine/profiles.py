@@ -14,7 +14,7 @@ from .cfg import build_cases
 from .errors import ProjectError
 from .models import Naming, Project, Settings
 from .naming import format_value
-from .project import TEMPLATE_FILE, set_template
+from .project import set_template
 
 BUNDLED_PROFILES = Path(__file__).resolve().parents[1] / "resources" / "profiles"
 PROFILE_FILE = "profile.json"
@@ -55,8 +55,9 @@ class Profile:
 
     @property
     def template(self) -> Optional[Path]:
-        path = self.folder / TEMPLATE_FILE
-        return path if path.is_file() else None
+        """The profile's template: the .cfg in its folder (it keeps the name it was saved under)."""
+        found = sorted(self.folder.glob("*.cfg"))
+        return found[0] if found else None
 
     @property
     def setting_hints(self) -> dict[str, str]:
@@ -198,7 +199,9 @@ def save_profile(project_dir: Path, project: Project, profile_id: str, name: str
         folder.mkdir(parents=True, exist_ok=True)
         (folder / PROFILE_FILE).write_text(data.model_dump_json(indent=2), encoding="utf-8")
         if template.is_file():
-            shutil.copyfile(template, folder / TEMPLATE_FILE)
+            for old in folder.glob("*.cfg"):  # one template per profile
+                old.unlink()
+            shutil.copyfile(template, folder / template.name)
     except OSError as exc:
         raise ProjectError(f"Cannot save profile {profile_id}: {exc}") from exc
     return load_profile(profile_id)

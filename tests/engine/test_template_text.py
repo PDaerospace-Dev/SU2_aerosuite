@@ -52,3 +52,12 @@ def test_set_template_text_reports_os_errors(tmp_path):
     (tmp_path / "p" / TEMPLATE_FILE).mkdir()  # a folder where the file should go
     with pytest.raises(TemplateError, match="Cannot write"):
         set_template_text(tmp_path / "p", project, "A= 1\n")
+
+
+def test_edited_text_is_saved_under_the_templates_own_name(tmp_path):
+    project = create_project(tmp_path)
+    project.template = "x07_base.cfg"
+    set_template_text(tmp_path, project, "SOLVER= RANS\n")
+    assert (tmp_path / "x07_base.cfg").read_text() == "SOLVER= RANS\n"
+    assert project.template == "x07_base.cfg"
+    assert not (tmp_path / TEMPLATE_FILE).exists()

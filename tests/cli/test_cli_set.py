@@ -58,7 +58,8 @@ def test_set_template_and_mesh(tmp_path):
     mesh.write_text("MARKER_TAG= wall\n")
     result = runner.invoke(app, ["set", str(folder), "--template", str(template), "--mesh", str(mesh)])
     assert result.exit_code == 0, result.output
-    assert (folder / "template.cfg").read_text() == "AOA= 0\n"
+    assert (folder / "master.cfg").read_text() == "AOA= 0\n"
+    assert open_project(folder).template == "master.cfg"
     assert open_project(folder).mesh.markers == ["wall"]
 
 

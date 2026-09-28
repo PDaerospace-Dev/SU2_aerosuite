@@ -182,8 +182,8 @@ async def test_a_long_project_name_is_shortened_on_the_apply_button(user: User, 
     assert text.startswith("Apply to x07-high-alpha") and len(text) <= 40 and text.endswith("…")
 
 
-async def test_apply_moves_a_project_on_another_template_file_to_template_cfg(user: User, ready_project, eventually):
-    # set_template_text writes template.cfg; project.json must be saved to point at it too.
+async def test_apply_writes_the_projects_own_template_file(user: User, ready_project, eventually):
+    # The template keeps its own name: Apply edits old.cfg in place, not a new template.cfg.
     project_dir, project = ready_project
     (project_dir / "old.cfg").write_text("MACH_NUMBER= 0.3\n")
     project.template = "old.cfg"
@@ -195,8 +195,8 @@ async def test_apply_moves_a_project_on_another_template_file_to_template_cfg(us
     user.find(marker="isa-apply").click()
     await user.should_see(marker="apply-confirm")
     user.find(marker="apply-confirm").click()
-    await eventually(lambda: open_project(project_dir).template == "template.cfg")
-    assert "REYNOLDS_NUMBER= 13596896" in (project_dir / "template.cfg").read_text()
+    await eventually(lambda: "REYNOLDS_NUMBER= 13596896" in (project_dir / "old.cfg").read_text())
+    assert open_project(project_dir).template == "old.cfg"
 
 
 async def test_isa_refuses_non_finite_numbers(user: User):

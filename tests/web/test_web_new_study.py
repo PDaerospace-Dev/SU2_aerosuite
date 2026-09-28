@@ -1,7 +1,7 @@
 from nicegui.element_filter import ElementFilter
 from nicegui.testing import User
 
-from aerosuite.engine.project import TEMPLATE_FILE, open_project
+from aerosuite.engine.project import open_project
 
 
 def _element(user, marker):
@@ -23,7 +23,7 @@ async def test_general_case_from_the_reference(user: User, tmp_path):
     await user.should_see(marker="project-name")
     project = open_project(tmp_path / "nozzle")
     assert project.sweep.enabled is False and project.profile is None
-    assert "SOLVER=" in (tmp_path / "nozzle" / TEMPLATE_FILE).read_text(encoding="utf-8")
+    assert "SOLVER=" in (tmp_path / "nozzle" / project.template).read_text(encoding="utf-8")
 
 
 async def test_aircraft_study_needs_a_template_when_the_profile_has_none(user: User, tmp_path):

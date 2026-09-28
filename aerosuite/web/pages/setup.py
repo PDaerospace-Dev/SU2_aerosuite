@@ -86,7 +86,8 @@ def _study_section(frame: ProjectFrame) -> None:
             return
         text = f"Overwrite the settings {profile.name} defines with its defaults?"
         if profile.template is not None:
-            text += " template.cfg will be replaced by the profile's template."
+            text += (f" The template {frame.session.project.template} will be replaced by the profile's "
+                     f"{profile.template.name}.")
         with ui.dialog() as dialog, ui.card():
             ui.label(text)
             with ui.row().classes("w-full justify-end gap-2"):

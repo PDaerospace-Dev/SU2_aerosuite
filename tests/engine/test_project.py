@@ -104,15 +104,42 @@ def test_migrations_run_in_order(tmp_path, monkeypatch):
     assert opened.schema_version == current + 1
 
 
-def test_set_template_copies_into_project(tmp_path):
+def test_set_template_copies_into_project_keeping_its_name(tmp_path):
     project = create_project(tmp_path / "p")
     source = tmp_path / "master.cfg"
     source.write_text("AOA= 0\n")
     set_template(tmp_path / "p", project, source)
-    assert (tmp_path / "p" / TEMPLATE_FILE).read_text() == "AOA= 0\n"
-    assert project.template == TEMPLATE_FILE
+    assert (tmp_path / "p" / "master.cfg").read_text() == "AOA= 0\n"
+    assert project.template == "master.cfg"
     with pytest.raises(TemplateError):
         set_template(tmp_path / "p", project, tmp_path / "missing.cfg")
+
+
+def test_a_new_template_replaces_the_old_copy(tmp_path):
+    """The project folder holds one template: the copy of the one chosen last."""
+    project = create_project(tmp_path / "p")
+    (tmp_path / "a.cfg").write_text("AOA= 1\n")
+    (tmp_path / "b.cfg").write_text("AOA= 2\n")
+    set_template(tmp_path / "p", project, tmp_path / "a.cfg")
+    set_template(tmp_path / "p", project, tmp_path / "b.cfg")
+    assert project.template == "b.cfg"
+    assert not (tmp_path / "p" / "a.cfg").exists()
+    assert (tmp_path / "a.cfg").read_text() == "AOA= 1\n"  # the original is never touched
+
+
+def test_choosing_the_projects_own_copy_again_keeps_it(tmp_path):
+    project = create_project(tmp_path / "p")
+    (tmp_path / "a.cfg").write_text("AOA= 1\n")
+    set_template(tmp_path / "p", project, tmp_path / "a.cfg")
+    set_template(tmp_path / "p", project, tmp_path / "p" / "a.cfg")
+    assert (tmp_path / "p" / "a.cfg").read_text() == "AOA= 1\n"
+
+
+def test_a_template_may_not_take_the_name_of_the_project_file(tmp_path):
+    project = create_project(tmp_path / "p")
+    (tmp_path / "project.json").write_text("AOA= 1\n")
+    with pytest.raises(TemplateError, match="project.json"):
+        set_template(tmp_path / "p", project, tmp_path / "project.json")
 
 
 def test_set_mesh_reads_markers(tmp_path):

@@ -77,8 +77,11 @@ async def test_set_template_with_the_picker(user: User, ready_project, tmp_path,
     user.find(marker="template-browse").click()
     await user.should_see(marker="picker-location")
     user.find(marker="picker-entry-master2.cfg").click()
-    await eventually(lambda: (project_dir / "template.cfg").read_text() == "AOA= 7\n")
+    copy = project_dir / "master2.cfg"
+    await eventually(lambda: copy.is_file() and copy.read_text() == "AOA= 7\n")
     await user.should_see("(copied into the project)")
+    await user.should_see("master2.cfg")  # shown under its own name
+    assert not (project_dir / "template.cfg").exists()  # the old copy is gone
 
 
 async def test_partitions_autosave_and_errors(user: User, ready_project):

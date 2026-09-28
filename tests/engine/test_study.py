@@ -1,7 +1,7 @@
 import pytest
 
 from aerosuite.engine.errors import ProjectError, TemplateError
-from aerosuite.engine.project import TEMPLATE_FILE, open_project
+from aerosuite.engine.project import open_project
 from aerosuite.engine.reference import BUNDLED_REFERENCE
 from aerosuite.engine.study import create_study
 
@@ -24,7 +24,8 @@ def test_general_case_from_the_reference(tmp_path):
     project = create_study(tmp_path / "nozzle", use_reference_template=True)
     assert project.profile is None and project.sweep.enabled is False
     assert [c.name for c in project.cases] == ["nozzle"]
-    assert (tmp_path / "nozzle" / TEMPLATE_FILE).read_text(encoding="utf-8") == \
+    assert project.template == BUNDLED_REFERENCE.name  # the copy keeps the original's name
+    assert (tmp_path / "nozzle" / project.template).read_text(encoding="utf-8") == \
         BUNDLED_REFERENCE.read_text(encoding="utf-8")
     assert open_project(tmp_path / "nozzle").sweep.enabled is False
 
@@ -35,7 +36,7 @@ def test_aircraft_study(tmp_path, inputs):
     assert project.profile == "x07" and project.sweep.enabled is True
     assert project.settings.reference.ref_area == 16.213
     assert project.mesh.markers == ["Wing"]
-    assert (tmp_path / "x07_a" / TEMPLATE_FILE).read_text() == "MACH_NUMBER= 0.7\nAOA= 1\n"
+    assert (tmp_path / "x07_a" / project.template).read_text() == "MACH_NUMBER= 0.7\nAOA= 1\n"
 
 
 def test_aircraft_without_any_template_is_refused_before_creating(tmp_path):

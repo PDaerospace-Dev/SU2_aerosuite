@@ -30,7 +30,7 @@ def test_new_creates_project_with_template_and_mesh(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Created project 'study'" in result.output
     project = open_project(folder)
-    assert (folder / "template.cfg").read_text() == "MACH_NUMBER= 0.3\nAOA= 0.0\n"
+    assert (folder / "master.cfg").read_text() == "MACH_NUMBER= 0.3\nAOA= 0.0\n"  # keeps its name
     assert project.mesh.markers == ["farfield", "wall"]
 
 
