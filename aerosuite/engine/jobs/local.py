@@ -93,9 +93,10 @@ class LocalRunner:
     backend = "local"
 
     def __init__(self) -> None:
-        self._procs: dict[str, subprocess.Popen] = {}
-        # job id -> (bytes of the log already scanned, case names whose banner was seen)
-        self._scan: dict[str, tuple[int, list[str]]] = {}
+        # Keyed by (project folder, job id): job names are unique only within a project.
+        self._procs: dict[tuple[Path, str], subprocess.Popen] = {}
+        # -> (bytes of the log already scanned, case names whose banner was seen)
+        self._scan: dict[tuple[Path, str], tuple[int, list[str]]] = {}
 
     # -- Runner interface ---------------------------------------------------
 
@@ -165,7 +166,7 @@ class LocalRunner:
             proc.wait()
             _discard(project_dir, job)
             raise
-        self._procs[job.id] = proc
+        self._procs[_key(project_dir, job)] = proc
         save_job(project_dir, job)
         return job
 
@@ -181,7 +182,7 @@ class LocalRunner:
             pass  # unreadable or gone: carry on with the caller's copy
         if not job.is_active:
             return job
-        alive = self._alive(job)
+        alive = self._alive(project_dir, job)
         self._update_cases(project_dir, job, alive)
         if not alive:
             self._finish(project_dir, job)
@@ -192,14 +193,14 @@ class LocalRunner:
         if not job.is_active:
             return job
         project_dir = Path(project_dir).resolve()
-        alive = self._alive(job)
+        alive = self._alive(project_dir, job)
         self._update_cases(project_dir, job, alive)  # mark the case that is running now
         if not alive:  # the sweep already ended: report its real outcome, as refresh() would
             self._finish(project_dir, job)
             save_job(project_dir, job)
             return job
         kill_tree(job.backend_ref["pid"])
-        proc = self._procs.pop(job.id, None)
+        proc = self._procs.pop(_key(project_dir, job), None)
         if proc is not None:
             try:
                 proc.wait(timeout=10)
@@ -211,19 +212,20 @@ class LocalRunner:
         job.state = JobState.CANCELLED
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
-        self._scan.pop(job.id, None)
+        self._scan.pop(_key(project_dir, job), None)
         _remove_restart_copies(project_dir, job)
         save_job(project_dir, job)
         return job
 
     # -- internals ------------------------------------------------------------
 
-    def _alive(self, job: JobRecord) -> bool:
-        proc = self._procs.get(job.id)
+    def _alive(self, project_dir: Path, job: JobRecord) -> bool:
+        key = _key(project_dir, job)
+        proc = self._procs.get(key)
         if proc is not None:  # we started it: poll() also reaps it
             if proc.poll() is None:
                 return True
-            self._procs.pop(job.id, None)
+            self._procs.pop(key, None)
             return False
         ref = job.backend_ref
         return process_alive(int(ref.get("pid", -1)), float(ref.get("create_time", 0.0)))
@@ -231,12 +233,13 @@ class LocalRunner:
     def started_cases(self, project_dir: Path, job: JobRecord) -> list[str]:
         """Case names whose banner is in the log, reading only bytes not scanned yet.
 
-        Cached incrementally per job id: a finished job's log never changes again, so once
-        fully scanned it is not re-read. Safe to call for any job, active or not.
+        Cached incrementally per project and job: a finished job's log never changes again, so
+        once fully scanned it is not re-read. Safe to call for any job, active or not.
         """
-        offset, started = self._scan.get(job.id, (0, []))
+        key = _key(project_dir, job)
+        offset, started = self._scan.get(key, (0, []))
         try:
-            with open(project_dir / job.log_path, "rb") as fh:
+            with open(Path(project_dir) / job.log_path, "rb") as fh:
                 fh.seek(offset)
                 chunk = fh.read()
         except FileNotFoundError:
@@ -246,7 +249,7 @@ class LocalRunner:
             text = chunk[: end + 1].decode("utf-8", errors="replace")
             started = started + BANNER_RE.findall(text)
             offset += end + 1
-        self._scan[job.id] = (offset, started)
+        self._scan[key] = (offset, started)
         return started
 
     def _update_cases(self, project_dir: Path, job: JobRecord, alive: bool) -> None:
@@ -291,5 +294,9 @@ class LocalRunner:
         job.state = JobState.DONE if all(s in ok for s in job.case_status.values()) else JobState.FAILED
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
-        self._scan.pop(job.id, None)
+        self._scan.pop(_key(project_dir, job), None)
         _remove_restart_copies(project_dir, job)
+
+
+def _key(project_dir: Path, job: JobRecord) -> tuple[Path, str]:
+    return Path(project_dir).resolve(), job.id

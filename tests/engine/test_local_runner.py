@@ -281,3 +281,17 @@ def test_refresh_of_a_stale_copy_keeps_a_cancel_made_elsewhere(ready_project):
     assert refreshed.state is JobState.CANCELLED
     assert refreshed.case_status[A0] is CaseState.CANCELLED
     assert load_job(project_dir, job.id).state is JobState.CANCELLED
+
+
+def test_two_projects_with_the_same_job_name_keep_apart(tmp_path):
+    """Job names are only unique within a project (20260928-1358 in two studies started the same minute)."""
+    from aerosuite.engine.jobs.runner import JobRecord
+
+    runner = LocalRunner()
+    logs = {"a": "=== Running Case 1/2: A1.cfg ===\n", "b": "=== Running Case 1/2: B1.cfg ===\n"}
+    for name, text in logs.items():
+        (tmp_path / name / "jobs").mkdir(parents=True)
+        (tmp_path / name / "jobs" / "20260928-1358.log").write_text(text)
+    job = JobRecord(id="20260928-1358", backend="local", cases=[], log_path="jobs/20260928-1358.log")
+    assert runner.started_cases(tmp_path / "a", job) == ["A1"]
+    assert runner.started_cases(tmp_path / "b", job) == ["B1"]
