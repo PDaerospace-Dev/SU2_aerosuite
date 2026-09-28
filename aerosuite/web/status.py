@@ -19,8 +19,7 @@ STEPS: list[tuple[str, str]] = [
     ("setup", "Setup"),
     ("aircraft", "Aircraft"),  # before Config: an aircraft study is set up there; Config is the raw template
     ("config", "Config"),
-    ("sweep", "Sweep"),
-    ("configs", "Configs"),
+    ("sweep", "Sweep"),  # Generate is here with the sweep on, on Config with it off: their badges carry it
     ("run", "Run"),
     ("monitor", "Monitor"),
     ("results", "Results"),
@@ -45,6 +44,7 @@ def project_kind(project: Project) -> str:
 
 
 def _configs_badge(project_dir: Path, project: Project) -> Badge:
+    """Whether the configs were generated for the current cases (done), not yet (todo), or for others."""
     if not (project_dir / CONFIGS_DIR / CASE_INDEX_FILE).is_file():
         return "todo"
     try:
@@ -61,7 +61,9 @@ def _config_badge(project_dir: Path, project: Project, template_ok: bool) -> Bad
         warnings = template_warnings(read_template(project_dir, project))
     except AeroSuiteError:
         return "attention"
-    return "attention" if warnings else "done"
+    if warnings:
+        return "attention"
+    return "done" if project.sweep.enabled else _configs_badge(project_dir, project)
 
 
 def _run_badge(project_dir: Path, project: Project) -> Badge:
@@ -90,13 +92,12 @@ def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
     elif any(problem.severity == "error" for problem in sweep_problems(project, project_dir)):
         sweep = "attention"
     else:
-        sweep = "done"
+        sweep = _configs_badge(project_dir, project)
     return {
         "setup": setup,
         "config": _config_badge(project_dir, project, template_ok),
         "aircraft": "done" if template_ok else "todo",
         "sweep": sweep,
-        "configs": _configs_badge(project_dir, project),
         "run": _run_badge(project_dir, project),
         "monitor": "plain",
         "results": "later",

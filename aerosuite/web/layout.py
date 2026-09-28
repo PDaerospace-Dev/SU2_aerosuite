@@ -23,7 +23,7 @@ PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "s
                 "monitor": "monitor"}
 PAGE_TITLES = dict(STEPS)
 STEP_ICONS = {"setup": "tune", "config": "description", "aircraft": "flight", "sweep": "grid_on",
-              "configs": "inventory_2", "run": "play_arrow", "monitor": "show_chart", "results": "bar_chart"}
+              "run": "play_arrow", "monitor": "show_chart", "results": "bar_chart"}
 
 RELOADED_MESSAGE = "Project changed on disk; reloaded"
 STALE_MESSAGE = "Project changed on disk and was reloaded — your last change was not saved; enter it again"
@@ -200,8 +200,6 @@ class ProjectFrame:
 
     def _step(self, key: str, label: str, badge: str) -> None:
         page = PAGE_OF_STEP.get(key)
-        if key == "configs":
-            page = "sweep" if self.session.project.sweep.enabled else "config"
         if page is None:
             item = ui.row().classes("as-step as-step-later")
         else:

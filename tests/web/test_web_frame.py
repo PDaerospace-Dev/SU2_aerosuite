@@ -11,8 +11,8 @@ async def test_frame_shows_project_and_badges(user: User, ready_project):
     await user.open(layout.project_url("setup", project_dir))
     await user.should_see("study")
     await user.should_see(marker="badge-setup-done")
-    await user.should_see(marker="badge-sweep-done")
-    await user.should_see(marker="badge-configs-todo")
+    await user.should_see(marker="badge-sweep-todo")  # configs not generated yet
+    await user.should_not_see(marker="step-configs")
     await user.should_see(marker="badge-run-todo")
 
 

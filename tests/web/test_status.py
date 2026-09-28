@@ -7,13 +7,13 @@ from aerosuite.web.status import STEPS, step_badges, visible_steps
 
 def test_steps_order():
     assert [key for key, _ in STEPS] == [
-        "setup", "aircraft", "config", "sweep", "configs", "run", "monitor", "results"]
+        "setup", "aircraft", "config", "sweep", "run", "monitor", "results"]
 
 
 def test_ready_project(ready_project):
     project_dir, project = ready_project
     assert step_badges(project_dir, project) == {
-        "setup": "done", "config": "done", "aircraft": "done", "sweep": "done", "configs": "todo",
+        "setup": "done", "config": "done", "aircraft": "done", "sweep": "todo",  # configs not generated yet
         "run": "todo", "monitor": "plain", "results": "later",
     }
 
@@ -21,17 +21,17 @@ def test_ready_project(ready_project):
 def test_visible_steps(ready_project):
     _, project = ready_project
     assert [k for k, _ in visible_steps(project)] == [
-        "setup", "config", "sweep", "configs", "run", "monitor", "results"]
+        "setup", "config", "sweep", "run", "monitor", "results"]
     project.profile = "x07"
     project.sweep.enabled = False
     assert [k for k, _ in visible_steps(project)] == [
-        "setup", "aircraft", "config", "configs", "run", "monitor", "results"]
+        "setup", "aircraft", "config", "run", "monitor", "results"]
 
 
 def test_new_project(tmp_path):
     project = create_project(tmp_path / "p")
     badges = step_badges(tmp_path / "p", project)
-    assert (badges["setup"], badges["config"], badges["sweep"], badges["configs"]) == ("todo", "todo", "todo", "todo")
+    assert (badges["setup"], badges["config"], badges["sweep"]) == ("todo", "todo", "todo")
 
 
 def test_new_aircraft_study_gets_a_todo_sweep_badge_not_a_fake_case(tmp_path):
@@ -90,14 +90,27 @@ def test_run_badge(ready_project):
         clear_lock(project_dir)
 
 
-def test_configs_badge_follows_the_sweep(ready_project):
+def test_sweep_badge_is_done_once_its_configs_are_generated_and_current(ready_project):
+    """There is no Configs step: Generate lives on Sweep, so Sweep's badge says whether it was done."""
     project_dir, project = ready_project
     generate_configs(project_dir, project)
-    assert step_badges(project_dir, project)["configs"] == "done"
+    assert step_badges(project_dir, project)["sweep"] == "done"
     update_sweep(project, alpha=[0.0, 2.0])
-    assert step_badges(project_dir, project)["configs"] == "attention"
+    assert step_badges(project_dir, project)["sweep"] == "attention"  # generated for another sweep
     (project_dir / CONFIGS_DIR / CASE_INDEX_FILE).write_text("{broken")
-    assert step_badges(project_dir, project)["configs"] == "attention"
+    assert step_badges(project_dir, project)["sweep"] == "attention"
+
+
+def test_with_the_sweep_off_config_badge_follows_the_generated_config(ready_project):
+    """With the sweep off, Generate is on the Config page, so Config's badge carries it."""
+    project_dir, project = ready_project
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    assert step_badges(project_dir, project)["config"] == "todo"  # a good template, not generated yet
+    generate_configs(project_dir, project)
+    assert step_badges(project_dir, project)["config"] == "done"
+    (project_dir / TEMPLATE_FILE).write_text("AOA= 1\nAOA= 2\n")
+    assert step_badges(project_dir, project)["config"] == "attention"  # template warnings still win
 
 
 from aerosuite.engine.cfg import build_cases

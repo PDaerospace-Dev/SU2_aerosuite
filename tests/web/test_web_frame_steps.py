@@ -17,7 +17,7 @@ async def test_sidebar_shows_config_and_hides_aircraft_without_a_profile(user: U
     project_dir, _ = ready_project
     await user.open(project_url("setup", project_dir))
     await user.should_see(marker="badge-config-done")
-    await user.should_see(marker="badge-sweep-done")
+    await user.should_see(marker="badge-sweep-todo")  # configs not generated yet
     await user.should_not_see(marker="badge-aircraft-done")
 
 
