@@ -7,11 +7,11 @@ from typing import Optional
 from nicegui import ui
 
 from ...engine.atmosphere import ISACalculator
-from ...engine.cfg import apply_parameters, read_template
+from ...engine.cfg import read_template
 from ...engine.editing import set_freestream
 from ...engine.errors import AeroSuiteError
 from ...engine.naming import format_value
-from ...engine.project import TEMPLATE_FILE, set_template_text
+from ..template_edit import write_template_params
 from ..ui_kit import card, field, primary_button, result, sci, secondary_button, table, td, th
 from . import CalcContext, Calculator
 from .isa_rules import ApplyPlan, isa_prefill, plan_isa_apply
@@ -146,20 +146,7 @@ def _apply(ctx: CalcContext, plan: ApplyPlan, inputs: tuple[float, float, float]
         message = frame.save(lambda p: set_freestream(p, mode="altitude", altitude_km=altitude,
                                                       reynolds_length=length))
     else:
-        # Like the Config page: template.cfg is written directly, not through project.json.
-        try:
-            # Decided before writing: set_template_text points the in-memory project at template.cfg.
-            needs_field_update = frame.session.project.template != TEMPLATE_FILE
-            text = read_template(frame.session.directory, frame.session.project)
-            set_template_text(frame.session.directory, frame.session.project,
-                              apply_parameters(text, plan.template_params))
-            message = None
-            if needs_field_update:
-                message = frame.save(lambda p: setattr(p, "template", TEMPLATE_FILE))
-            else:
-                frame.refresh()
-        except AeroSuiteError as exc:
-            message = str(exc)
+        message = write_template_params(frame, plan.template_params)
     if message:
         ui.notify(message, type="negative")
     else:

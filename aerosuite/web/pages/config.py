@@ -1,6 +1,6 @@
-"""Config: the project's template as text, with a live preview and SU2's reference beside it."""
+"""Config: the project's template as text, with a live preview and SU2's reference beside it (as tabs)."""
 import re
-from typing import Optional
+from typing import Callable, Optional
 
 from nicegui import ui
 
@@ -9,8 +9,8 @@ from ...engine.project import TEMPLATE_FILE, read_template_text, set_template_te
 from ...engine.reference import RefOption, keys_in
 from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session
-from ..preview import preview_section
-from ..reference_panel import reference_panel
+from ..side_panel import side_panel
+from ..sweep_choice import sweep_toggle
 from ..ui_kit import banner, card, field
 
 ADDED_HEADING = "% --- added from reference ---"
@@ -39,7 +39,7 @@ def register() -> None:
 
         @ui.refreshable
         def body() -> None:
-            _build(frame, state)
+            _build(frame, state, reload_body)
 
         with frame.content:
             body()
@@ -56,7 +56,7 @@ def _initial_text(frame: ProjectFrame) -> tuple[str, Optional[str]]:
         return "", str(exc)
 
 
-def _build(frame: ProjectFrame, state: dict) -> None:
+def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None:
     disk_text, load_error = _initial_text(frame)
     pending = state.pop("pending", None)
     initial = pending if (pending is not None and not load_error) else disk_text
@@ -66,6 +66,8 @@ def _build(frame: ProjectFrame, state: dict) -> None:
     def show_warnings(warnings: list[str]) -> None:
         box = holders["warnings"]
         box.clear()
+        if "checks" in holders:  # sweep off: the checks above Generate already list these
+            return
         with box:
             for warning in warnings:
                 banner("warning", warning).mark("config-warning")
@@ -128,9 +130,12 @@ def _build(frame: ProjectFrame, state: dict) -> None:
         return message
 
     frame.actions.clear()
-    if not frame.session.project.sweep.enabled:
-        with frame.actions:
+    with frame.actions:
+        # The same choice as on Setup; with the sweep off, this page generates the one config.
+        sweep_toggle(frame, mark="config-sweep", then=redraw)
+        if not frame.session.project.sweep.enabled:
             holders["generate"] = generate_button(frame, render_checks_box)
+    if not frame.session.project.sweep.enabled:
         holders["checks"] = ui.column().classes("w-full gap-2").mark("config-checks")
     holders["warnings"] = ui.column().classes("w-full gap-2")
     with ui.element("div").classes("as-columns"):
@@ -143,9 +148,7 @@ def _build(frame: ProjectFrame, state: dict) -> None:
             state["editor"] = editor
             holders["error"] = ui.label(load_error or "").classes("as-error-text").mark("config-text-error")
             editor.on("blur", commit)
-            holders["preview"] = preview_section(frame)
-        with card("SU2 reference"):
-            holders["reference"] = reference_panel(
-                on_insert=insert, in_config=lambda: keys_in(holders["editor"].value or ""))
+        holders["preview"], holders["reference"] = side_panel(
+            frame, on_insert=insert, in_config=lambda: keys_in(holders["editor"].value or ""))
     show_warnings(template_warnings(initial))
     render_checks_box()

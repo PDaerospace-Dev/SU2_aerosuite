@@ -22,8 +22,6 @@ async def _open(user, project_dir):
 
 
 def _preview(user):
-    with user:
-        _element(user, "preview-toggle").set_value(True)
     return _element(user, "preview").content
 
 
@@ -179,3 +177,58 @@ async def test_the_summary_shows_the_error_for_a_bad_altitude(user: User, ready_
     user.find(marker="freestream-altitude_km").clear().type("120").trigger("blur")
     await user.should_see(marker="freestream-summary-error")
     assert "outside the standard atmosphere" in _element(user, "freestream-summary-error").text
+
+
+async def test_preview_and_reference_are_tabs_on_the_right(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    tabs = _element(user, "side-tabs")
+    assert tabs.value == "preview"  # the preview shows without a switch
+    assert "MACH_NUMBER= 0.8" in _preview(user)
+    assert "as-side" in _element(user, "side-panel").classes  # the sticky right-hand column
+    with user:
+        tabs.set_value("reference")
+    await user.should_see(marker="ref-search")
+
+
+def _single_x07(project_dir):
+    from aerosuite.engine.cfg import build_cases
+
+    _with_x07(project_dir)
+    project = open_project(project_dir)
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    save_project(project_dir, project)
+
+
+async def test_with_the_sweep_on_mach_comes_from_the_sweep(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    assert _element(user, "freestream-mach-sweep").text == "0.8"
+    await user.should_not_see(marker="freestream-mach")
+
+
+async def test_a_single_case_sets_mach_in_the_template(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    await _open(user, project_dir)
+    assert _element(user, "freestream-mach").value == "0.3"  # the template's MACH_NUMBER
+    user.find(marker="freestream-mach").clear().type("0.55").trigger("blur")
+    assert "MACH_NUMBER= 0.55" in (project_dir / "template.cfg").read_text()
+    assert "MACH_NUMBER= 0.55" in _preview(user)
+    user.find(marker="freestream-mach").clear().type("0").trigger("blur")
+    await user.should_see("Mach must be greater than 0")
+    assert "MACH_NUMBER= 0.55" in (project_dir / "template.cfg").read_text()
+
+
+async def test_the_mach_field_names_a_placeholder_that_wins(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    project = open_project(project_dir)
+    project.settings.overrides["MACH_NUMBER"] = "0.9"
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    await user.should_see(marker="freestream-mach-wins")
+    assert "0.9" in _element(user, "freestream-mach-wins").text

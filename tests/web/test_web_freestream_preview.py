@@ -11,7 +11,5 @@ async def test_preview_shows_an_error_when_altitude_mode_is_invalid(user: User, 
     set_freestream(project, mode="altitude")  # no altitude yet
     save_project(project_dir, project)
     await user.open(project_url("config", project_dir))
-    with user:
-        next(iter(user.find(marker="preview-toggle").elements)).set_value(True)
     await user.should_see(marker="preview-error")
     await user.should_see("needs an altitude")

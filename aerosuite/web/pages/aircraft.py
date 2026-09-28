@@ -1,9 +1,9 @@
-"""Aircraft: the Aircraft Aero form (profile defaults as hints), placeholders and the reference."""
+"""Aircraft: the Aircraft Aero form (profile defaults as hints), placeholders, preview and the reference."""
 from typing import Callable, Optional
 
 from nicegui import ui
 
-from ...engine.cfg import case_freestream, read_template, render_case
+from ...engine.cfg import case_freestream, read_template, render_case, settings_parameters, template_case_values
 from ...engine.editing import MARKER_PREFIX, set_freestream, set_parameter, unset_parameter
 from ...engine.errors import AeroSuiteError, ProjectError
 from ...engine.models import Project
@@ -11,11 +11,11 @@ from ...engine.naming import format_value
 from ...engine.profiles import load_profile
 from ...engine.reference import RefOption, keys_in
 from ..fields import text_field
-from ..layout import ProjectFrame, open_session
-from ..preview import preview_section
-from ..reference_panel import reference_panel
+from ..layout import ProjectFrame, open_session, project_url
 from ..session import parse_optional_int, parse_optional_number
-from ..ui_kit import banner, card, field, hint, sci, secondary_button, stat, table, td, td_box, th
+from ..side_panel import side_panel
+from ..template_edit import write_template_params
+from ..ui_kit import banner, card, field, hint, readonly, sci, secondary_button, stat, table, td, td_box, th
 
 # (label, settings group, field, kind) — kind: "float" | "int"
 NUMBER_FIELDS = {
@@ -105,12 +105,9 @@ def _build(frame: ProjectFrame) -> None:
                             _number_field(frame, hints, label, "numerics", name, kind, after)
             holders["markers"] = _markers(frame, hints, after)
             holders["overrides"] = _placeholders(frame, after)
-            with card("Preview"):
-                holders["preview"] = preview_section(frame)
-        with card("SU2 reference"):
-            holders["reference"] = reference_panel(
-                on_insert=lambda option: _insert(frame, option, holders, after),
-                in_config=lambda: _rendered_keys(frame))
+        holders["preview"], holders["reference"] = side_panel(
+            frame, on_insert=lambda option: _insert(frame, option, holders, after),
+            in_config=lambda: _rendered_keys(frame))
 
 
 MODE_CHOICES = {
@@ -143,6 +140,7 @@ def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], 
         box.clear()
         fs = frame.session.project.settings.freestream
         with box:
+            _mach(frame, both)
             ui.radio(MODE_CHOICES, value=fs.mode, on_change=lambda e: choose(e.value)).props("inline").classes(
                 "as-choice").mark("freestream-mode")
             if fs.mode == "manual":
@@ -167,6 +165,44 @@ def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], 
 
     render()
     return render
+
+
+def _mach(frame: ProjectFrame, after: Callable[[], None]) -> None:
+    """The Mach number(s): the Sweep page's with the sweep on, else the template's MACH_NUMBER (editable)."""
+    project = frame.session.project
+    with ui.element("div").classes("as-grid-3"):
+        with ui.column().classes("gap-1"):
+            if project.sweep.enabled:
+                ui.label("Mach").classes("as-label")
+                readonly(", ".join(format_value(m) for m in project.sweep.mach) or "—").mark("freestream-mach-sweep")
+                ui.link("Set on the Sweep page", project_url("sweep", frame.session.directory)).classes(
+                    "as-hint").mark("freestream-mach-link")
+                return
+            try:
+                template = read_template(frame.session.directory, project)
+            except AeroSuiteError:
+                template = ""
+            mach = template_case_values(template)[0] if template else None
+
+            def commit(text: str) -> Optional[str]:
+                try:
+                    value = parse_optional_number(text, "Mach")
+                except ProjectError as exc:
+                    return str(exc)
+                if value is None or value <= 0:
+                    return "Mach must be greater than 0"
+                message = write_template_params(frame, {"MACH_NUMBER": format_value(value)})
+                if message is None:
+                    after()
+                return message
+
+            text_field("Mach", "" if mach is None else format_value(mach), commit, mark="freestream-mach",
+                       placeholder="MACH_NUMBER in the template")
+            winning = settings_parameters(project.settings).get("MACH_NUMBER")
+            if winning is not None:
+                hint(f"A MACH_NUMBER placeholder ({winning}) wins over this in the config; "
+                     "remove it under Placeholders for this value to take effect").classes(
+                    "as-hint-warning").mark("freestream-mach-wins")
 
 
 def _summary(frame: ProjectFrame) -> None:

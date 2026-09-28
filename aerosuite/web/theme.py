@@ -181,6 +181,21 @@ a.as-step:hover { background: #f6f8fa; }
 .as-field-mono input, .as-field-mono textarea { font-family: var(--as-mono); font-size: 12px; }
 .as-readonly { border: 1px solid var(--as-border); border-radius: 8px; padding: 8px 10px; background: #fafbfc;
   min-height: 36px; word-break: break-all; }
+/* Aircraft / Config: the right-hand Preview | SU2 reference card stays in view while the form scrolls,
+   16px below the 52px sticky top bar */
+.as-side { position: sticky; top: 68px; max-height: calc(100vh - 84px); overflow-y: auto; padding-top: 6px; }
+.as-tabs { border-bottom: 1px solid var(--as-hairline); color: var(--as-muted); position: sticky; top: -6px;
+  background: #fff; z-index: 1; }
+.as-tabs .q-tab { min-height: 38px; padding: 0 12px; font-weight: 500; }
+.as-tabs .q-tab--active { color: var(--as-text); }
+.as-tabs .q-tab__indicator { background: var(--as-accent); height: 2px; }
+.as-tab-panels, .as-tab-panels .q-tab-panel { padding: 0; background: transparent; }
+.as-tab-panels .q-tab-panel { padding-top: 12px; display: flex; flex-direction: column; }
+
+/* A compact two-way switch in a page's action bar (Config's Sweep | Single case) */
+.as-toggle { border: 1px solid var(--as-border); border-radius: 8px; overflow: hidden; background: #fff; }
+.as-toggle .q-btn { min-height: 30px; padding: 0 12px; font-weight: 500; }
+
 .as-choice { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; }
 .as-choice > div { margin: 0 !important; }
 .as-choice .q-radio { width: 100%; border: 1px solid var(--as-border); border-radius: 10px; padding: 10px 12px; }
@@ -215,6 +230,7 @@ a.as-step:hover { background: #f6f8fa; }
 .as-monitor { grid-template-columns: 250px minmax(0, 1fr); gap: 16px; }
 @media (max-width: 900px) {
   .as-grid-2, .as-grid-3, .as-grid-4, .as-columns, .as-columns-projects, .as-monitor, .as-tiles { grid-template-columns: 1fr; }
+  .as-side { position: static; max-height: none; }
 }
 
 .q-dialog .q-card { border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 35, 40, .14); padding: 18px; gap: 12px; }

@@ -5,7 +5,6 @@ from typing import Callable, Sequence
 from nicegui import ui
 
 from ...engine import project as engine_project
-from ...engine.cfg import build_cases
 from ...engine.errors import ProjectError
 from ...engine.jobs.runner import BUNDLED_SWEEP_SCRIPT, is_aerosuite_python, resolve_sweep_python
 from ...engine.models import Project
@@ -14,6 +13,7 @@ from ..fields import text_field
 from ..layout import ProjectFrame, open_session
 from ..picker import pick_path
 from ..session import parse_int
+from ..sweep_choice import sweep_radio
 from ..ui_kit import banner, card, field, hint, primary_button, readonly, secondary_button
 
 MESH_SUFFIXES = (".su2", ".cgns")
@@ -64,21 +64,10 @@ def _study_section(frame: ProjectFrame) -> None:
         if message:
             ui.notify(message, type="negative")
 
-    def sweep(on: bool) -> None:
-        def change(p) -> None:
-            p.sweep.enabled = on
-            p.cases = build_cases(p)
-
-        message = frame.save(change)
-        if message:
-            ui.notify(message, type="negative")
-
     with card("Study"):
         for problem in problems:
             banner("warning", f"Profile skipped: {problem}").mark("setup-profile-problem")
-        ui.radio({True: "Sweep · a grid of Mach, α and β cases", False: "Single case · the template as it is"},
-                 value=project.sweep.enabled, on_change=lambda e: sweep(e.value)).props("inline").classes(
-            "as-choice").mark("setup-sweep")
+        sweep_radio(frame, mark="setup-sweep")
         with ui.row().classes("w-full items-center no-wrap gap-2"):
             select = field(ui.select(options, value=project.profile or "", label="Aircraft profile",
                                      on_change=lambda e: choose(e.value))).classes("w-64").mark("setup-profile")

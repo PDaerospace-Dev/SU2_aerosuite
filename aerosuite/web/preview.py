@@ -1,4 +1,4 @@
-"""A 'Preview' switch and the rendered config of a chosen case (Config and Aircraft pages)."""
+"""The rendered config of a chosen case (the Preview tab of Config and Aircraft; see side_panel.py)."""
 from typing import Callable
 
 from nicegui import ui
@@ -10,14 +10,8 @@ from .ui_kit import banner, field
 
 
 def preview_section(frame: ProjectFrame) -> Callable[[], None]:
-    """Build the switch and box; returns a function that redraws the preview (synchronously)."""
-    state = {"on": False, "case": None}
-
-    def toggle(value: bool) -> None:
-        state["on"] = value
-        render()
-
-    ui.switch("Preview", value=False, on_change=lambda e: toggle(e.value)).mark("preview-toggle")
+    """Build the box; returns a function that redraws the preview (synchronously)."""
+    state = {"case": None}
     box = ui.column().classes("w-full gap-2")
 
     def choose(name: str) -> None:
@@ -26,8 +20,6 @@ def preview_section(frame: ProjectFrame) -> Callable[[], None]:
 
     def render() -> None:
         box.clear()
-        if not state["on"]:
-            return
         project = frame.session.project
         with box:
             if not project.cases:

@@ -77,10 +77,7 @@ async def test_insert_of_an_option_already_typed(user: User, ready_project):
 async def test_preview_of_a_sweep_case(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
-    await user.should_not_see(marker="preview")
-    toggle = _element(user, "preview-toggle")
-    with user:
-        toggle.set_value(True)
+    assert _element(user, "side-tabs").value == "preview"
     assert "MACH_NUMBER= 0.8" in _element(user, "preview").content
     await user.should_not_see(marker="config-checks")  # sweep on: Generate lives on the Sweep page
 
@@ -124,9 +121,6 @@ async def test_single_case_preview_checks_and_generate(user: User, ready_project
     project_dir, _ = ready_project
     _single(project_dir)
     await _open(user, project_dir)
-    toggle = _element(user, "preview-toggle")
-    with user:
-        toggle.set_value(True)
     content = _element(user, "preview").content
     assert "MACH_NUMBER= 0.3" in content and "BREAKDOWN_FILENAME" not in content
     await user.should_see(marker="config-checks")
@@ -153,3 +147,32 @@ async def test_template_warnings_are_banners_above_the_editor(user: User, ready_
     label = next(iter(user.find(marker="config-warning").elements))
     assert "as-banner-warning" in label.parent_slot.parent.classes
     assert "as-field" in next(iter(user.find(marker="config-text").elements)).classes
+
+
+async def test_the_sweep_can_be_switched_off_and_on_here(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    await user.should_not_see(marker="generate")  # sweep on: Generate is on the Sweep page
+    with user:
+        _element(user, "config-sweep").set_value(False)
+    project = open_project(project_dir)
+    assert project.sweep.enabled is False and [c.name for c in project.cases] == ["study"]
+    await user.should_see(marker="generate")
+    with user:
+        _element(user, "config-sweep").set_value(True)
+    assert len(open_project(project_dir).cases) == 3
+    await user.should_not_see(marker="generate")
+
+
+async def test_with_the_sweep_off_each_template_warning_shows_once(user: User, ready_project):
+    """The checks above Generate already list the template's warnings; no second banner for each."""
+    project_dir, _ = ready_project
+    _single(project_dir)
+    (project_dir / "template.cfg").write_text("AOA= 0.0\nAOA= 2.0\n")
+    await _open(user, project_dir)
+    await user.should_see(marker="config-checks")
+    shown = [label.text for label in user.find("AOA is set on lines 1 and 2").elements]
+    assert len(shown) == 1, shown
+    user.find(marker="config-text").type("AOA= 3.0\n").trigger("blur")  # after a save, still once
+    shown = [label.text for label in user.find("AOA is set on lines").elements]
+    assert len(shown) == 1, shown
