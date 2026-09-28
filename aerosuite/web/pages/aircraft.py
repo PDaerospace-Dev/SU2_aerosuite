@@ -11,9 +11,13 @@ from ...engine.naming import format_value
 from ...engine.profiles import load_profile
 from ...engine.reference import RefOption, keys_in
 from ..fields import text_field
+from ...engine.project import template_file_name, template_warnings
+from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session, project_url
 from ..session import parse_optional_int, parse_optional_number
 from ..side_panel import side_panel
+from ..sweep_choice import sweep_toggle
+from ..template_editor import TemplateEditor, carry_unsaved
 from ..template_edit import write_template_params
 from ..ui_kit import banner, card, field, hint, readonly, sci, secondary_button, stat, table, td, td_box, th
 
@@ -42,15 +46,22 @@ def register() -> None:
         session = open_session(project)
         if session is None:
             return
-        frame = ProjectFrame(session, "aircraft", on_reload=lambda: body.refresh())
+        state: dict = {}  # the Template tab's editor state; survives body.refresh() (see carry_unsaved)
+
+        def reload_body() -> None:
+            carry_unsaved(state)
+            body.refresh()
+
+        frame = ProjectFrame(session, "aircraft", on_reload=reload_body)
 
         @ui.refreshable
         def body() -> None:
             if not frame.session.project.profile:
+                frame.actions.clear()
                 banner("info", "This project has no aircraft profile. Choose one in Setup "
                        "to use the Aircraft Aero form.").mark("aircraft-none")
                 return
-            _build(frame)
+            _build(frame, state, reload_body)
 
         with frame.content:
             body()
@@ -78,13 +89,54 @@ def _rendered_keys(frame: ProjectFrame) -> set[str]:
         return keys_in(template)
 
 
-def _build(frame: ProjectFrame) -> None:
+def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None:
+    """The form on the left; Preview | Template | SU2 reference on the right. An aircraft study has no
+    CFG setup step, so the sweep switch and (sweep off) Generate are here."""
     hints = _hints(frame.session.project)
     holders: dict = {}
+    sweep_on = frame.session.project.sweep.enabled
+
+    def render_checks_box() -> None:
+        box = holders.get("checks")
+        if box is None:
+            return
+        box.clear()
+        with box:
+            render_checks(frame, holders.get("generate"))
 
     def after() -> None:
         holders["preview"]()
         holders["reference"]()
+        render_checks_box()
+
+    def template_saved(warnings: list[str]) -> None:
+        box = holders["template-warnings"]
+        box.clear()
+        if sweep_on:  # sweep off: the checks above Generate already list these
+            with box:
+                for warning in warnings:
+                    banner("warning", warning).mark("config-warning")
+        holders["freestream"]()  # a single case's Mach is the template's
+        after()
+
+    def template_tab() -> None:
+        hint(f"Saved automatically · {template_file_name(frame.session.project)} · the form's values and "
+             "Placeholders are written over it in every config").mark("template-note")
+        holders["template-warnings"] = ui.column().classes("w-full gap-2")
+        editor = TemplateEditor(frame, state, on_saved=template_saved, height="55vh")
+        if sweep_on:
+            with holders["template-warnings"]:
+                for warning in template_warnings(editor.initial):
+                    banner("warning", warning).mark("config-warning")
+
+    frame.actions.clear()
+    with frame.actions:
+        sweep_toggle(frame, mark="aircraft-sweep", then=redraw)
+        if not sweep_on:
+            holders["generate"] = generate_button(frame, render_checks_box)
+    if not sweep_on:
+        holders["checks"] = ui.column().classes("w-full gap-2").mark("aircraft-checks")
+        render_checks_box()
 
     with ui.element("div").classes("as-columns"):
         with ui.column().classes("gap-4 w-full"):
@@ -107,7 +159,7 @@ def _build(frame: ProjectFrame) -> None:
             holders["overrides"] = _placeholders(frame, after)
         holders["preview"], holders["reference"] = side_panel(
             frame, on_insert=lambda option: _insert(frame, option, holders, after),
-            in_config=lambda: _rendered_keys(frame))
+            in_config=lambda: _rendered_keys(frame), template=template_tab)
 
 
 MODE_CHOICES = {

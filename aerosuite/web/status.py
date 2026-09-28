@@ -27,10 +27,12 @@ STEPS: list[tuple[str, str]] = [
 
 
 def visible_steps(project: Project) -> list[tuple[str, str]]:
-    """Aircraft only with a profile; Sweep only when the sweep is on."""
+    """Aircraft only with a profile, and then instead of CFG setup (its Template tab holds the template);
+    Sweep only when the sweep is on."""
     return [
         (key, label) for key, label in STEPS
         if not (key == "aircraft" and not project.profile)
+        and not (key == "config" and project.profile)
         and not (key == "sweep" and not project.sweep.enabled)
     ]
 
@@ -96,7 +98,7 @@ def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
     return {
         "setup": setup,
         "config": _config_badge(project_dir, project, template_ok),
-        "aircraft": "done" if template_ok else "todo",
+        "aircraft": _config_badge(project_dir, project, template_ok),  # it stands in for CFG setup
         "sweep": sweep,
         "run": _run_badge(project_dir, project),
         "monitor": "plain",

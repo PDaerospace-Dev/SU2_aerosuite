@@ -232,3 +232,39 @@ async def test_the_mach_field_names_a_placeholder_that_wins(user: User, ready_pr
     await _open(user, project_dir)
     await user.should_see(marker="freestream-mach-wins")
     assert "0.9" in _element(user, "freestream-mach-wins").text
+
+
+async def test_an_aircraft_study_has_no_cfg_setup_step(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    await user.should_see(marker="step-aircraft")
+    await user.should_not_see(marker="step-config")
+
+
+async def test_the_template_is_a_tab_on_the_aircraft_page(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    with user:
+        _element(user, "side-tabs").set_value("template")
+    editor = _element(user, "config-text")
+    assert editor.value.startswith("MACH_NUMBER= 0.3")
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("blur")
+    assert (project_dir / "template.cfg").read_text().endswith("CFL_NUMBER= 5\n")
+
+
+async def test_with_the_sweep_off_aircraft_has_the_switch_and_generate(user: User, ready_project):
+    import json
+
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    await _open(user, project_dir)
+    await user.should_see(marker="aircraft-checks")
+    user.find(marker="generate").click()
+    await user.should_see("Wrote 1 config")
+    assert json.loads((project_dir / "configs" / "cases.json").read_text())
+    with user:
+        _element(user, "aircraft-sweep").set_value(True)
+    assert open_project(project_dir).sweep.enabled is True
+    await user.should_not_see(marker="generate")

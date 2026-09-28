@@ -22,10 +22,10 @@ def test_visible_steps(ready_project):
     _, project = ready_project
     assert [k for k, _ in visible_steps(project)] == [
         "setup", "config", "sweep", "run", "monitor", "results"]
-    project.profile = "x07"
+    project.profile = "x07"  # an aircraft study: the Aircraft page holds the template too
     project.sweep.enabled = False
     assert [k for k, _ in visible_steps(project)] == [
-        "setup", "aircraft", "config", "run", "monitor", "results"]
+        "setup", "aircraft", "run", "monitor", "results"]
 
 
 def test_new_project(tmp_path):
@@ -130,3 +130,16 @@ def test_project_kind():
     assert project_kind(project) == "sweep · 1 case"
     project.sweep.enabled = False
     assert project_kind(project) == "single case"
+
+
+def test_an_aircraft_studys_badge_carries_the_template_and_generate(ready_project):
+    """Without a CFG setup step, Aircraft's badge says what CFG setup's would have."""
+    project_dir, project = ready_project
+    project.profile = "x07"
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    assert step_badges(project_dir, project)["aircraft"] == "todo"  # not generated yet
+    generate_configs(project_dir, project)
+    assert step_badges(project_dir, project)["aircraft"] == "done"
+    (project_dir / TEMPLATE_FILE).write_text("AOA= 1\nAOA= 2\n")
+    assert step_badges(project_dir, project)["aircraft"] == "attention"

@@ -25,7 +25,8 @@ async def test_sidebar_with_a_profile_and_the_sweep_off(user: User, ready_projec
     project_dir, _ = ready_project
     _switch(project_dir, profile="x07", sweep=False)
     await user.open(project_url("setup", project_dir))
-    await user.should_see(marker="badge-aircraft-done")
+    await user.should_see(marker="badge-aircraft-todo")  # its one config is not generated yet
+    await user.should_not_see(marker="step-config")  # the Aircraft page holds the template
     await user.should_not_see(marker="badge-sweep-done")
     await user.should_not_see(marker="badge-sweep-todo")
 
