@@ -66,12 +66,13 @@ async def test_submit_all_runs_every_case(user: User, ready_project, su2_env, ev
     await _open(user, project_dir)
     assert _text(user, f"status-{A0}") == "Not run"
     await user.should_see(marker="badge-run-todo")
-    await user.should_see(marker="history-none")
     user.find(marker="submit").click()
     await eventually(lambda: all(_text(user, f"status-{n}") == "CONVERGED" for n in (A0, A2, A4)), timeout=20)
     await user.should_see(marker="badge-run-done")
     jobs = list_jobs(project_dir)
     assert len(jobs) == 1 and jobs[0].cases == [A0, A2, A4]
+    with user:
+        _element(user, "run-tabs").set_value("history")
     await user.should_see(marker=f"history-{jobs[0].id}")
 
 

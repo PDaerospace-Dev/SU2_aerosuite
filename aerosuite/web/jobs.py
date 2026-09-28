@@ -139,13 +139,14 @@ class JobWatcher:
             self._file_buffers.popitem(last=False)
         return buffer.read()
 
-    def log_tail(self, project_dir: Path, job: JobRecord, lines: int = LOG_TAIL_LINES) -> Optional[str]:
-        """The last `lines` lines of the job's log, reading at most LOG_TAIL_BYTES; None if unreadable."""
+    def log_tail(self, project_dir: Path, job: JobRecord, lines: int = LOG_TAIL_LINES,
+                 max_bytes: int = LOG_TAIL_BYTES) -> Optional[str]:
+        """The last `lines` lines of the job's log, reading at most `max_bytes`; None if unreadable."""
         path = Path(project_dir) / job.log_path
         try:
             with open(path, "rb") as fh:
                 fh.seek(0, 2)
-                fh.seek(max(0, fh.tell() - LOG_TAIL_BYTES))
+                fh.seek(max(0, fh.tell() - max_bytes))
                 data = fh.read()
         except OSError:
             return None

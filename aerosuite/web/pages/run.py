@@ -12,8 +12,8 @@ from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import restart_file
 from ..jobs import WATCHER, JobView
 from ..layout import ProjectFrame, open_session
-from ..ui_kit import (banner, card, card_head, chip_button, danger_button, failure_row, ok_line, pill, primary_button,
-                      secondary_button, summary_tile, table, td, td_box, th)
+from ..ui_kit import (banner, card, card_head, chip_button, danger_button, failure_row, flat_button, ok_line, pill,
+                      primary_button, secondary_button, summary_tile, table, td, td_box, th)
 
 POLL_SECONDS = 2.0
 SELECTORS = [  # (label, statuses to tick; None = every case)
@@ -81,6 +81,7 @@ class RunPage:
         self.continue_choice: Optional[bool] = None  # None: the default for the ticked cases
         self.continue_cases: list[str] = []
         self.opened: set[str] = set()  # failed cases whose "why it failed" box is open
+        self.tab = "cases"  # or "history"; kept across redraws
         self.has_errors = False
         self.was_active = False
         self.shown: Optional[tuple] = None  # _snapshot() of the view on screen
@@ -132,8 +133,15 @@ class RunPage:
             selection = self._selection(view)
             self._plan(view, selection)
             self._tiles(view)
-            self._cases(view, selection)
-            self._history(view)
+            with ui.tabs(value=self.tab, on_change=lambda e: self._set_tab(e.value)).props(
+                    "dense no-caps align=left inline-label").classes("as-tabs as-page-tabs w-full").mark("run-tabs"):
+                ui.tab("cases", "Cases", icon="view_list").mark("run-tab-cases")
+                ui.tab("history", f"Job history ({len(view.overview.jobs)})", icon="history").mark(
+                    "run-tab-history")
+            if self.tab == "history":
+                self._history(view)
+            else:
+                self._cases(view, selection)
         with self.frame.actions:
             self._actions(view, selection)
 
@@ -236,8 +244,8 @@ class RunPage:
                 ui.label("No jobs yet.").classes("as-muted px-4 pb-4").mark("history-none")
                 return
             with table("minmax(10rem, 1fr) minmax(7rem, auto) minmax(5rem, auto) minmax(9rem, 1fr) "
-                       "minmax(9rem, 1fr)"):
-                for heading in ("Job", "State", "Cases", "Started", "Finished"):
+                       "minmax(9rem, 1fr) 80px"):
+                for heading in ("Job", "State", "Cases", "Started", "Finished", ""):
                     th(heading)
                 for job in view.overview.jobs:
                     td(job.id, mono=True).mark(f"history-{job.id}")
@@ -246,6 +254,9 @@ class RunPage:
                     td(_plural(len(job.cases), "case"))
                     td(f"{job.created:%Y-%m-%d %H:%M}")
                     td(f"{job.finished:%Y-%m-%d %H:%M}" if job.finished else "—")
+                    with td_box():
+                        flat_button("Log", on_click=lambda j=job.id: self.frame.log.open(j), icon="terminal").props(
+                            "dense").mark(f"history-log-{job.id}")
 
     def _select(self, view: JobView, statuses: Optional[set]) -> None:
         rows = view.overview.rows
@@ -260,6 +271,11 @@ class RunPage:
             self.ticked.discard(name)
         self.continue_choice = None
         self.render()
+
+    def _set_tab(self, tab: str) -> None:
+        if tab != self.tab:
+            self.tab = tab
+            self.render()
 
     def _toggle(self, name: str) -> None:
         self.opened ^= {name}

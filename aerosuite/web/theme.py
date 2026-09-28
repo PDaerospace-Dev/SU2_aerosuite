@@ -184,8 +184,26 @@ a.as-step:hover { background: #f6f8fa; }
 /* Aircraft / Config: the right-hand Preview | SU2 reference card stays in view while the form scrolls,
    16px below the 52px sticky top bar */
 .as-side { position: sticky; top: 68px; max-height: calc(100vh - 84px); overflow-y: auto; padding-top: 6px; }
-.as-tabs { border-bottom: 1px solid var(--as-hairline); color: var(--as-muted); position: sticky; top: -6px;
-  background: #fff; z-index: 1; }
+.as-tabs { border-bottom: 1px solid var(--as-hairline); color: var(--as-muted); }
+.as-side .as-tabs { position: sticky; top: -6px; background: #fff; z-index: 1; }
+.as-page-tabs { border-bottom-color: var(--as-border); }
+
+/* The log panel: a dark console along the bottom of a project page, opened by the Log button */
+.as-log-button { position: fixed; right: 16px; bottom: 16px; z-index: 1400; border-radius: 999px;
+  background: #0f1b2d; color: #e6edf3; box-shadow: 0 4px 12px rgba(31, 35, 40, .25); padding: 0 14px; }
+.as-log { position: fixed; left: 0; right: 0; bottom: 0; height: 42vh; min-height: 220px; z-index: 1500;
+  background: #0d1117; color: #c9d1d9; border-top: 1px solid #2a3a52; gap: 0 !important;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, .25); }
+.as-log-head { height: 40px; padding: 0 8px 0 14px; gap: 10px; align-items: center; background: #0f1b2d;
+  border-bottom: 1px solid #2a3a52; }
+.as-log-title { font-weight: 600; color: #e6edf3; }
+.as-log-select { min-width: 13rem; font-family: var(--as-mono); font-size: 12px; }
+.as-log-state { font-size: 12px; color: #9fb0c8; }
+.as-log-close { color: #9fb0c8; }
+.as-log-body { flex: 1 1 auto; width: 100%; height: calc(100% - 40px); }
+.as-log-open { padding-bottom: 44vh; }
+.as-log-text { white-space: pre; font-family: var(--as-mono); font-size: 12px; line-height: 1.45;
+  padding: 10px 14px 16px; }
 .as-tabs .q-tab { min-height: 38px; padding: 0 12px; font-weight: 500; }
 .as-tabs .q-tab--active { color: var(--as-text); }
 .as-tabs .q-tab__indicator { background: var(--as-accent); height: 2px; }
