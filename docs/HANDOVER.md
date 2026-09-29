@@ -19,6 +19,8 @@ a CLAUDE.md.
   listens on 127.0.0.1:8080 only; from the PC it needs an SSH tunnel
   (`ssh -L 8080:127.0.0.1:8080 pdas@<workstation>`, or MobaXterm's Tunneling tool), then
   http://localhost:8080.
+- `aeroweb` (a function in `~/.bash_aliases`) starts the web UI from any folder with the conda sweep
+  Python set; the user reaches it through a saved MobaXterm tunnel on port 8080.
 - User profiles live in `~/.aerosuite/profiles/` (override with `AEROSUITE_HOME`; the tests do).
 
 ## How the user works
