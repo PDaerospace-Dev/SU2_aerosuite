@@ -12,7 +12,7 @@ from ..layout import ProjectFrame, open_session
 from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
 from ..template_editor import TemplateEditor, carry_unsaved
-from ..ui_kit import banner, card
+from ..ui_kit import card, warning_group
 
 
 def register() -> None:
@@ -46,8 +46,8 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         if "checks" in holders:  # sweep off: the checks above Generate already list these
             return
         with box:
-            for warning in warnings:
-                banner("warning", warning).mark("config-warning")
+            if warnings:
+                warning_group(warnings, mark="config-warning")
 
     def render_checks_box() -> None:
         box = holders.get("checks")

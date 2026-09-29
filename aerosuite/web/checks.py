@@ -7,7 +7,7 @@ from ..engine.cfg import generate_configs
 from ..engine.errors import AeroSuiteError
 from ..engine.preflight import has_errors, preflight
 from .layout import ProjectFrame
-from .ui_kit import banner, ok_line, primary_button
+from .ui_kit import banner, ok_line, primary_button, warning_group
 
 
 def render_checks(frame: ProjectFrame, button: Optional[ui.button] = None) -> None:
@@ -16,9 +16,11 @@ def render_checks(frame: ProjectFrame, button: Optional[ui.button] = None) -> No
     if not found:
         ok_line("No problems found.").mark("problems-none")
     for problem in found:
-        kind = "error" if problem.severity == "error" else "warning"
-        prefix = "Error" if problem.severity == "error" else "Warning"
-        banner(kind, f"{prefix}: {problem.message}").mark(f"problem-{problem.severity}")
+        if problem.severity == "error":
+            banner("error", f"Error: {problem.message}").mark("problem-error")
+    warnings = [problem.message for problem in found if problem.severity != "error"]
+    if warnings:
+        warning_group(warnings, mark="problem-warning")
     if button is not None:
         button.set_enabled(not has_errors(found))
 

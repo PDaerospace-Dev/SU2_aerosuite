@@ -288,6 +288,24 @@ async def test_altitude_mode_shows_the_altitudes_and_per_case_values(user: User,
     assert _element(user, f"re-{name}").text == "3.63e7"
 
 
+async def test_warnings_fold_into_one_row_and_errors_stay_banners(user: User, ready_project):
+    project_dir, project = ready_project
+    (project_dir / "template.cfg").write_text("MACH_NUMBER= 0.3\nAOA= 0.0\nAOA= 2.0\n")
+    set_freestream(project, mode="altitude")  # no altitudes, no Reynolds length: errors
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    group = _element(user, "problem-warning")
+    assert "as-warn-group" in group.classes and not group.value
+    errors = [label.text for label in user.find(marker="problem-error").elements]
+    assert "Error: No altitudes in the sweep" in errors
+    with user:
+        group.open()
+    await _open(user, project_dir)  # opened stays opened when the page is drawn again
+    assert _element(user, "problem-warning").value
+    with user:
+        _element(user, "problem-warning").close()
+
+
 async def test_editing_the_altitudes_sweeps_them(user: User, ready_project):
     project_dir, project = ready_project
     project.sweep.naming.include_altitude = True

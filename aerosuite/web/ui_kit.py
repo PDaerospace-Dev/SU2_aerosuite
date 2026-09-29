@@ -62,6 +62,25 @@ def banner(kind: BannerKind, text: str) -> ui.label:
         return ui.label(text).classes("grow")
 
 
+_OPEN_GROUPS: set[str] = set()  # warning groups the user opened (by marker), kept while the server runs
+
+
+def warning_group(messages: Sequence[str], *, mark: str) -> ui.expansion:
+    """Warnings folded into one amber row ("3 warnings"), opened with a click; errors stay banners.
+
+    It stays open or closed as the user left it, also when the page is redrawn."""
+    count = len(messages)
+
+    def remember(event) -> None:
+        (_OPEN_GROUPS.add if event.value else _OPEN_GROUPS.discard)(mark)
+
+    with ui.expansion(f"{count} warning{'' if count == 1 else 's'}", icon="warning", value=mark in _OPEN_GROUPS,
+                      on_value_change=remember).classes("as-warn-group w-full").mark(mark) as group:
+        for message in messages:
+            ui.label(message).classes("as-warn-line")
+    return group
+
+
 def ok_line(text: str) -> ui.label:
     """The clean state: one green dot and a line of text; returns the text label."""
     with ui.row().classes("as-ok-line"):

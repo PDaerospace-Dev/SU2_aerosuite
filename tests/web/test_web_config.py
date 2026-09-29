@@ -29,22 +29,43 @@ async def test_editor_shows_and_saves_the_template(user: User, ready_project):
     await _open(user, project_dir)
     editor = _element(user, "config-text")
     assert editor.value.startswith("MACH_NUMBER= 0.3")
-    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("blur")
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("focusout")
     assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
 
 
-async def test_editor_has_a_fixed_scrolling_height(user: User, ready_project):
+async def test_editor_has_a_fixed_scrolling_height_and_line_numbers(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
     editor = _element(user, "config-text")
-    assert "autogrow" not in editor.props
-    assert editor.props.get("input-style") == "height: 70vh"
+    assert editor._style.get("height") == "70vh"
+    assert editor.props["line-wrapping"] is False  # line N on screen is line N in the file
+
+
+async def test_typing_saves_shortly_after_it_stops(user: User, ready_project, monkeypatch, eventually):
+    from aerosuite.web import template_editor
+
+    monkeypatch.setattr(template_editor, "SAVE_DELAY", 0.1)
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n")  # no focusout: the pause saves it
+    await eventually(lambda: (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n"), timeout=5)
+
+
+async def test_ctrl_s_saves_at_once(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("keybinding", {"key": "Mod-s"})
+    assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
 
 
 async def test_warnings_are_shown_but_do_not_block(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
-    user.find(marker="config-text").type("oops\nAOA= 5\n").trigger("blur")
+    user.find(marker="config-text").type("oops\nAOA= 5\n").trigger("focusout")
+    group = _element(user, "config-warning")
+    assert group._props["label"] == "2 warnings" and not group.value  # folded until opened
+    with user:
+        group.open()
     await user.should_see("is not an option or a comment")
     await user.should_see("AOA is set on lines")
     assert "oops" in (project_dir / TEMPLATE_FILE).read_text()
@@ -99,7 +120,7 @@ async def test_an_outside_project_json_change_does_not_drop_unsaved_editor_text(
     assert editor.value.endswith("CFL_NUMBER= 5\n")  # the typed text survived the reload
     assert "CFL_NUMBER= 5" not in (project_dir / TEMPLATE_FILE).read_text()  # not yet saved
 
-    user.find(marker="config-text").trigger("blur")
+    user.find(marker="config-text").trigger("focusout")
     assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
     assert _element(user, "config-text").value.endswith("CFL_NUMBER= 5\n")
 
@@ -111,9 +132,9 @@ async def test_non_utf8_template_shows_an_error_and_a_read_only_editor(user: Use
     await user.should_see("not UTF-8 text")
     editor = _element(user, "config-text")
     assert editor.value == ""
-    assert editor.props.get("readonly") is True
+    assert not editor.enabled
     before = (project_dir / TEMPLATE_FILE).read_bytes()
-    user.find(marker="config-text").type("MACH_NUMBER= 0.5\n").trigger("blur")
+    user.find(marker="config-text").type("MACH_NUMBER= 0.5\n").trigger("focusout")
     assert (project_dir / TEMPLATE_FILE).read_bytes() == before  # the real content is not overwritten
 
 
@@ -140,13 +161,13 @@ async def test_config_generate_sits_in_the_actions_when_the_sweep_is_off(user: U
     assert generate.parent_slot.parent is next(iter(user.find(marker="page-actions").elements))
 
 
-async def test_template_warnings_are_banners_above_the_editor(user: User, ready_project):
+async def test_template_warnings_fold_into_one_row_above_the_editor(user: User, ready_project):
     project_dir, _ = ready_project
     (project_dir / "template.cfg").write_text("AOA= 0.0\nAOA= 2.0\n")
     await user.open(project_url("config", project_dir))
-    label = next(iter(user.find(marker="config-warning").elements))
-    assert "as-banner-warning" in label.parent_slot.parent.classes
-    assert "as-field" in next(iter(user.find(marker="config-text").elements)).classes
+    group = _element(user, "config-warning")
+    assert "as-warn-group" in group.classes and group._props["label"] == "1 warning"
+    assert "as-code" in next(iter(user.find(marker="config-text").elements)).classes
 
 
 async def test_the_sweep_can_be_switched_off_and_on_here(user: User, ready_project):
@@ -173,6 +194,6 @@ async def test_with_the_sweep_off_each_template_warning_shows_once(user: User, r
     await user.should_see(marker="config-checks")
     shown = [label.text for label in user.find("AOA is set on lines 1 and 2").elements]
     assert len(shown) == 1, shown
-    user.find(marker="config-text").type("AOA= 3.0\n").trigger("blur")  # after a save, still once
+    user.find(marker="config-text").type("AOA= 3.0\n").trigger("focusout")  # after a save, still once
     shown = [label.text for label in user.find("AOA is set on lines").elements]
     assert len(shown) == 1, shown

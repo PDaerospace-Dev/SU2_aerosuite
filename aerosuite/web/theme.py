@@ -136,6 +136,17 @@ a.as-step:hover { background: #f6f8fa; }
 .as-banner { width: 100%; padding: 8px 12px; gap: 8px; border: 1px solid; border-radius: 8px;
   align-items: flex-start; flex-wrap: nowrap; }
 .as-banner .q-icon { font-size: 18px; }
+.as-warn-group { background: #fff8c5; border: 1px solid #eed888; border-radius: 8px; color: #7a5200; }
+.as-warn-group .q-item { min-height: 36px; padding: 4px 12px; font-weight: 500; }
+.as-warn-group .q-item__section--avatar { min-width: 28px; color: #bf8700; }
+.as-warn-group .q-expansion-item__content { padding: 0 12px 8px 40px; }
+.as-warn-line { padding: 4px 0; border-top: 1px solid #f1e3a3; width: 100%; }
+/* The template editor: line numbers, no wrapping (line N on screen is line N in the file) */
+.as-code { border: 1px solid var(--as-border); border-radius: 8px; overflow: hidden; font-size: 12px; }
+.as-code .cm-editor { height: 100%; }
+.as-code .cm-scroller { font-family: var(--as-mono); }
+.as-code .cm-gutters { background: #f6f8fa; border-right: 1px solid var(--as-hairline); color: #8c959f; }
+.as-code .cm-activeLine, .as-code .cm-activeLineGutter { background: var(--as-accent-tint); }
 
 /* Setup: the chosen mesh / template (green), one gone from disk (amber), none yet (grey dashes) */
 .as-selected, .as-selected-missing, .as-selected-empty { padding: 10px 12px; gap: 10px; border: 1px solid;
@@ -179,6 +190,8 @@ a.as-step:hover { background: #f6f8fa; }
 
 .as-field .q-field__control { border-radius: 8px; }
 .as-field-mono input, .as-field-mono textarea { font-family: var(--as-mono); font-size: 12px; }
+.as-field-readonly .q-field__control { background: #f6f8fa; }
+.as-strip-result { gap: 32px; }
 .as-readonly { border: 1px solid var(--as-border); border-radius: 8px; padding: 8px 10px; background: #fafbfc;
   min-height: 36px; word-break: break-all; }
 /* Aircraft / Config: the right-hand Preview | SU2 reference card stays in view while the form scrolls,

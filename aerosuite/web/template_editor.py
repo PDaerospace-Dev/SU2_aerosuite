@@ -1,4 +1,5 @@
-"""The template as text (CFG setup's editor, Aircraft's Template tab): autosaves on blur; Insert appends a line."""
+"""The template as text (CFG setup's editor, Aircraft's Template tab): a code editor with line numbers that saves
+shortly after typing stops, on leaving it and on Ctrl+S; Insert appends a line."""
 import re
 from typing import Callable, Optional
 
@@ -8,9 +9,9 @@ from ..engine.errors import AeroSuiteError
 from ..engine.project import read_template_text, set_template_text, template_file_name
 from ..engine.reference import RefOption, keys_in
 from .layout import ProjectFrame
-from .ui_kit import field
 
 ADDED_HEADING = "% --- added from reference ---"
+SAVE_DELAY = 1.0  # seconds after the last keystroke
 
 
 def carry_unsaved(state: dict) -> None:
@@ -48,13 +49,22 @@ class TemplateEditor:
         pending = state.pop("pending", None)
         self.initial = pending if (pending is not None and not self.load_error) else disk_text
         state["saved_text"] = disk_text
-        self.editor = field(ui.textarea(value=self.initial), mono=True).props(
-            f'input-style="height: {height}"').classes("w-full").mark("config-text")
+        # Line numbers and no wrapping: line N on screen is line N in the file (the warnings name lines).
+        self.editor = ui.codemirror(self.initial, line_wrapping=False, keymap={"Mod-s": self.commit}).classes(
+            "w-full as-code").style(f"height: {height}").mark("config-text")
         if self.load_error:
-            self.editor.props("readonly")
+            self.editor.disable()
         state["editor"] = self.editor
         self.error = ui.label(self.load_error or "").classes("as-error-text").mark("config-text-error")
-        self.editor.on("blur", self.commit)
+        self._timer: Optional[ui.timer] = None
+        self.editor.on_value_change(self._typed)
+        self.editor.on("focusout", self.commit)  # the browser's event, passed through by the component
+
+    def _typed(self, _event=None) -> None:
+        """Save SAVE_DELAY seconds after the typing stops (and at once on leaving the editor, or Ctrl+S)."""
+        if self._timer is not None:
+            self._timer.cancel()
+        self._timer = ui.timer(SAVE_DELAY, self.commit, once=True)
 
     def keys(self) -> set[str]:
         """The options set in the text as typed (for the reference's "In config" marks)."""
@@ -81,7 +91,10 @@ class TemplateEditor:
         self.on_saved(warnings)
         return None
 
-    def commit(self) -> None:
+    def commit(self, _event=None) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
         if self.load_error:
             return
         text = self.editor.value or ""

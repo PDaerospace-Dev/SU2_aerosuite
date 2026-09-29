@@ -19,7 +19,8 @@ from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
 from ..template_editor import TemplateEditor, carry_unsaved
 from ..template_edit import write_template_params
-from ..ui_kit import banner, card, field, hint, readonly, sci, secondary_button, stat, table, td, td_box, th
+from ..ui_kit import (banner, card, card_head, field, hint, sci, secondary_button, stat, table, td, td_box,
+                      th, warning_group)
 
 # (label, settings group, field, kind) — kind: "float" | "int"
 NUMBER_FIELDS = {
@@ -114,8 +115,8 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         box.clear()
         if sweep_on:  # sweep off: the checks above Generate already list these
             with box:
-                for warning in warnings:
-                    banner("warning", warning).mark("config-warning")
+                if warnings:
+                    warning_group(warnings, mark="config-warning")
         holders["freestream"]()  # a single case's Mach is the template's
         after()
 
@@ -125,9 +126,10 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         holders["template-warnings"] = ui.column().classes("w-full gap-2")
         editor = TemplateEditor(frame, state, on_saved=template_saved, height="55vh")
         if sweep_on:
-            with holders["template-warnings"]:
-                for warning in template_warnings(editor.initial):
-                    banner("warning", warning).mark("config-warning")
+            warnings = template_warnings(editor.initial)
+            if warnings:
+                with holders["template-warnings"]:
+                    warning_group(warnings, mark="config-warning")
 
     frame.actions.clear()
     with frame.actions:
@@ -162,14 +164,20 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
             in_config=lambda: _rendered_keys(frame), template=template_tab)
 
 
-MODE_CHOICES = {
-    "manual": "Set by hand · one temperature and Reynolds number for every case",
-    "altitude": "From altitude · each case gets ISA temperature and its own Reynolds number",
+MODE_CHOICES = {"manual": "Set by hand", "altitude": "From altitude"}
+MODE_HINTS = {
+    "manual": "One temperature and Reynolds number for every case",
+    "altitude": "Each case gets the ISA temperature of its altitude and its own Reynolds number",
 }
 
 
 def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
-    with card("Freestream"):
+    with card():
+        with card_head("Freestream"):
+            ui.space()
+            ui.toggle(MODE_CHOICES, value=frame.session.project.settings.freestream.mode,
+                      on_change=lambda e: choose(e.value)).props(
+                "no-caps unelevated dense toggle-color=primary").classes("as-toggle").mark("freestream-mode")
         box = ui.column().classes("w-full gap-3")
 
     def both() -> None:
@@ -191,23 +199,33 @@ def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], 
         # Plain synchronous rebuild: tests read these fields right after a change.
         box.clear()
         fs = frame.session.project.settings.freestream
+        sweep_on = frame.session.project.sweep.enabled
         with box:
-            _mach(frame, both)
-            ui.radio(MODE_CHOICES, value=fs.mode, on_change=lambda e: choose(e.value)).props("inline").classes(
-                "as-choice").mark("freestream-mode")
+            hint(MODE_HINTS[fs.mode]).mark("freestream-mode-hint")
             if fs.mode == "manual":
-                with ui.element("div").classes("as-grid-3"):
+                with ui.element("div").classes("as-grid-4"):
+                    with ui.column().classes("gap-1"):
+                        _mach(frame, both)
                     for label, name in (("Temperature (K)", "temperature_K"), ("Reynolds number", "reynolds"),
                                         ("Reynolds length", "reynolds_length")):
                         with ui.column().classes("gap-1"):
                             _number_field(frame, hints, label, "freestream", name, "float", both)
+                if sweep_on:
+                    ui.link("Mach is set on the Sweep page →", project_url("sweep", frame.session.directory)).classes(
+                        "as-hint").mark("freestream-mach-link")
                 return
-            with ui.element("div").classes("as-grid-2"):
+            with ui.element("div").classes("as-grid-3"):
+                with ui.column().classes("gap-1"):
+                    _mach(frame, both)
                 with ui.column().classes("gap-1"):
                     _altitude(frame, number)
                 with ui.column().classes("gap-1"):
                     number("Reynolds length (m)", "reynolds_length", fs.reynolds_length,
-                           "characteristic length for the Reynolds number")
+                           "for the Reynolds number")
+            if sweep_on:
+                ui.link("Mach and altitudes are set on the Sweep page →",
+                        project_url("sweep", frame.session.directory)).classes("as-hint").mark(
+                    "freestream-altitudes-link")
             _summary(frame)
             kept = [f"temperature {format_value(fs.temperature_K)} K" if fs.temperature_K is not None else "",
                     f"Reynolds number {sci(fs.reynolds)}" if fs.reynolds is not None else ""]
@@ -225,48 +243,45 @@ def _altitude(frame: ProjectFrame, number: Callable) -> None:
     if not project.sweep.enabled:
         number("Altitude (km)", "altitude_km", project.settings.freestream.altitude_km, "ISA, 0–100 km")
         return
-    ui.label("Altitudes (km)").classes("as-label")
-    readonly(", ".join(format_value(a) for a in project.sweep.altitudes_km) or "—").mark("freestream-altitudes-sweep")
-    ui.link("Set on the Sweep page", project_url("sweep", frame.session.directory)).classes(
-        "as-hint").mark("freestream-altitudes-link")
+    shown = ", ".join(format_value(a) for a in project.sweep.altitudes_km) or "—"
+    field(ui.input("Altitudes (km)", value=shown)).props("readonly").classes("w-full as-field-readonly").mark(
+        "freestream-altitudes-sweep")
 
 
 def _mach(frame: ProjectFrame, after: Callable[[], None]) -> None:
-    """The Mach number(s): the Sweep page's with the sweep on, else the template's MACH_NUMBER (editable)."""
+    """The Mach number(s): the Sweep page's with the sweep on (shown, not edited), else the template's
+    MACH_NUMBER (editable)."""
     project = frame.session.project
-    with ui.element("div").classes("as-grid-3"):
-        with ui.column().classes("gap-1"):
-            if project.sweep.enabled:
-                ui.label("Mach").classes("as-label")
-                readonly(", ".join(format_value(m) for m in project.sweep.mach) or "—").mark("freestream-mach-sweep")
-                ui.link("Set on the Sweep page", project_url("sweep", frame.session.directory)).classes(
-                    "as-hint").mark("freestream-mach-link")
-                return
-            try:
-                template = read_template(frame.session.directory, project)
-            except AeroSuiteError:
-                template = ""
-            mach = template_case_values(template)[0] if template else None
+    if project.sweep.enabled:
+        shown = ", ".join(format_value(m) for m in project.sweep.mach) or "—"
+        field(ui.input("Mach", value=shown)).props("readonly").classes("w-full as-field-readonly").mark(
+            "freestream-mach-sweep")
+        return
+    try:
+        template = read_template(frame.session.directory, project)
+    except AeroSuiteError:
+        template = ""
+    mach = template_case_values(template)[0] if template else None
 
-            def commit(text: str) -> Optional[str]:
-                try:
-                    value = parse_optional_number(text, "Mach")
-                except ProjectError as exc:
-                    return str(exc)
-                if value is None or value <= 0:
-                    return "Mach must be greater than 0"
-                message = write_template_params(frame, {"MACH_NUMBER": format_value(value)})
-                if message is None:
-                    after()
-                return message
+    def commit(text: str) -> Optional[str]:
+        try:
+            value = parse_optional_number(text, "Mach")
+        except ProjectError as exc:
+            return str(exc)
+        if value is None or value <= 0:
+            return "Mach must be greater than 0"
+        message = write_template_params(frame, {"MACH_NUMBER": format_value(value)})
+        if message is None:
+            after()
+        return message
 
-            text_field("Mach", "" if mach is None else format_value(mach), commit, mark="freestream-mach",
-                       placeholder="MACH_NUMBER in the template")
-            winning = settings_parameters(project.settings).get("MACH_NUMBER")
-            if winning is not None:
-                hint(f"A MACH_NUMBER placeholder ({winning}) wins over this in the config; "
-                     "remove it under Placeholders for this value to take effect").classes(
-                    "as-hint-warning").mark("freestream-mach-wins")
+    text_field("Mach", "" if mach is None else format_value(mach), commit, mark="freestream-mach",
+               placeholder="MACH_NUMBER in the template")
+    winning = settings_parameters(project.settings).get("MACH_NUMBER")
+    if winning is not None:
+        hint(f"A MACH_NUMBER placeholder ({winning}) wins over this in the config; "
+             "remove it under Placeholders for this value to take effect").classes(
+            "as-hint-warning").mark("freestream-mach-wins")
 
 
 def _summary(frame: ProjectFrame) -> None:
@@ -277,7 +292,7 @@ def _summary(frame: ProjectFrame) -> None:
     except AeroSuiteError:
         template = ""
     rows = case_freestream(project, template)
-    with ui.row().classes("as-strip").mark("freestream-summary"):
+    with ui.row().classes("as-strip as-strip-result").mark("freestream-summary"):
         if not rows:
             ui.label("No cases yet").classes("as-muted")
             return
@@ -293,13 +308,13 @@ def _summary(frame: ProjectFrame) -> None:
         span = sci(reynolds[0]) if sci(reynolds[0]) == sci(reynolds[-1]) else f"{sci(reynolds[0])} … {sci(reynolds[-1])}"
         stat("Reynolds number", span)
         if project.sweep.enabled and len(project.sweep.altitudes_km) > 1:
-            ui.label("per case, from each case's altitude and Mach · see the Sweep page").classes("as-muted")
+            where = f"{len(rows)} cases · from each case's altitude and Mach"
         elif project.sweep.enabled:
-            where = (f"per case, from each case's Mach ({format_value(machs[0])} – {format_value(machs[-1])})"
-                     if machs[0] != machs[-1] else f"at Mach {format_value(machs[0])}")
-            ui.label(where + " · see the Sweep page").classes("as-muted")
+            where = (f"{len(rows)} cases · from each case's Mach" if machs[0] != machs[-1]
+                     else f"at Mach {format_value(machs[0])}")
         else:
-            ui.label(f"at the template's Mach {format_value(machs[0])}").classes("as-muted")
+            where = f"at the template's Mach {format_value(machs[0])}"
+        ui.label(where).classes("as-muted ml-auto")
 
 
 def _number_field(frame, hints, label, group, name, kind, after) -> None:

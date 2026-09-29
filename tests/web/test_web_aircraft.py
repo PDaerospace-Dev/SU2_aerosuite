@@ -177,9 +177,26 @@ async def test_the_summary_spans_the_swept_altitudes(user: User, ready_project):
     update_sweep(project, altitudes_km=[0.0, 11.0])
     save_project(project_dir, project)
     await _open(user, project_dir)
-    assert _element(user, "freestream-altitudes-sweep").text == "0, 11"
+    assert _element(user, "freestream-altitudes-sweep").value == "0, 11"
     await user.should_see("216.65 K … 288.15 K")
     await user.should_see(marker="freestream-summary")
+
+
+async def test_the_mode_is_a_toggle_in_the_card_head_and_the_inputs_share_one_row(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    toggle = _element(user, "freestream-mode")
+    assert "as-card-head" in toggle.parent_slot.parent.classes
+    assert "One temperature and Reynolds number" in _element(user, "freestream-mode-hint").text
+    with user:
+        toggle.set_value("altitude")
+    await user.should_see(marker="freestream-altitudes-sweep")
+    assert "ISA temperature of its altitude" in _element(user, "freestream-mode-hint").text
+    row = {_element(user, m).parent_slot.parent.parent_slot.parent.id
+           for m in ("freestream-mach-sweep", "freestream-altitudes-sweep", "freestream-reynolds_length")}
+    assert len(row) == 1  # Mach, altitudes and Reynolds length side by side
+    await user.should_see(marker="freestream-altitudes-link")
 
 
 async def test_a_single_case_sets_its_altitude_here(user: User, ready_project):
@@ -232,7 +249,7 @@ async def test_with_the_sweep_on_mach_comes_from_the_sweep(user: User, ready_pro
     project_dir, _ = ready_project
     _with_x07(project_dir)
     await _open(user, project_dir)
-    assert _element(user, "freestream-mach-sweep").text == "0.8"
+    assert _element(user, "freestream-mach-sweep").value == "0.8"
     await user.should_not_see(marker="freestream-mach")
 
 
@@ -276,7 +293,7 @@ async def test_the_template_is_a_tab_on_the_aircraft_page(user: User, ready_proj
         _element(user, "side-tabs").set_value("template")
     editor = _element(user, "config-text")
     assert editor.value.startswith("MACH_NUMBER= 0.3")
-    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("blur")
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("focusout")
     assert (project_dir / "template.cfg").read_text().endswith("CFL_NUMBER= 5\n")
 
 
