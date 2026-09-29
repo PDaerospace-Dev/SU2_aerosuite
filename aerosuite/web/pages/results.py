@@ -7,26 +7,31 @@ import math
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator, Optional
+from urllib.parse import quote
 
+import pandas as pd
 from nicegui import ui
 
 from ...engine.errors import AeroSuiteError
-from ...engine.models import ResultsSettings
+from ...engine.models import PlotSpec, ResultsSettings
 from ...engine.naming import format_value
-from ...engine.packages import effective
+from ...engine.packages import (Package, availability, disable_package, effective, enable_package, list_packages,
+                                load_package)
+from ...engine.study_results import SWEEP_NAMES
 from ...engine.project import PROJECT_FILE
 from ...engine.results import history_columns
 from ...engine.study_results import study_results
 from ..fields import text_field
 from ..jobs import WATCHER
-from ..layout import ProjectFrame, open_session
+from ..layout import ProjectFrame, open_session, project_url
 from ..param_picker import ParamPicker
 from ..picker import pick_path
+from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
 from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, filter_rows, pin, remove_parameter,
                             shown_values, status_counts, sweep_values, toggle_filter, varying)
 from ..theme import SERIES_COLORS
-from ..ui_kit import (banner, card, card_head, chip_button, hint, pill, secondary_button, summary_tile, table, td,
-                      td_box, th)
+from ..ui_kit import (banner, card, card_head, chip_button, field, hint, pill, primary_button, secondary_button,
+                      summary_tile, table, td, td_box, th)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
 FILTERED = ("Altitude", "Mach", "Beta")  # sweep variables with filter chips (α is the usual X axis)
@@ -136,6 +141,30 @@ class ResultsPage:
     def open_derived_dialog(self) -> None:
         """The Derived parameter dialog (Task 7)."""
 
+    def toggle_package(self, package: Package) -> None:
+        on = package.id in self.definitions.packages
+
+        def edit(s: ResultsSettings) -> None:
+            pin(s, self.definitions)
+            (disable_package if on else enable_package)(s, package)
+        self.change(edit)
+
+    def add_plot(self, x: str, y: list, split: Optional[str]) -> None:
+        def edit(s: ResultsSettings) -> None:
+            for name in [x, *y]:
+                if name not in SWEEP_NAMES:
+                    add_parameter(s, self.definitions, name)
+            s.plots.append(PlotSpec(x=x, y=list(y), split=split or None))
+        self.change(edit)
+
+    def remove_plot(self, index: int) -> None:
+        self.change(lambda s: s.plots.pop(index))
+
+    def open_case(self, owners: list, event) -> None:
+        """A clicked point: that case in Monitor (of the study the point belongs to)."""
+        if 0 <= event.series_index < len(owners) and event.name:
+            ui.navigate.to(project_url("monitor", owners[event.series_index]) + f"&case={quote(event.name)}")
+
     def fold(self, key: str, opened: bool) -> None:
         def edit(s: ResultsSettings) -> None:
             s.folded = [k for k in s.folded if k != key] + ([] if opened else [key])
@@ -184,6 +213,7 @@ class ResultsPage:
                                "finish.").mark("results-empty")
             else:
                 self._tiles(rows)
+                self._plots_section(rows, values)
                 self._results_section(rows, values)
         if self.picker.panel.visible:
             self.picker.render()
@@ -260,6 +290,99 @@ class ResultsPage:
             summary_tile("Unconverged", counts["unconverged"],
                          "danger" if counts["unconverged"] else None).mark("tile-unconverged")
             summary_tile("Designs", len(self.designs)).mark("tile-designs")
+
+    def _plots_section(self, rows: list, values: dict) -> None:
+        definitions = self.definitions
+        own = self.settings.plots
+        packages = [p for p in list_packages() if p.id in definitions.packages and p.plots]
+        count = sum(len(p.plots) for p in packages) + len(own)
+        with section("Plots", f"{count} plot{'' if count == 1 else 's'}", opened="plots" not in self.settings.folded,
+                     on_fold=lambda o: self.fold("plots", o), mark="section-plots") as box:
+            with box.head:
+                for package in list_packages():
+                    on = package.id in definitions.packages
+                    missing = availability(package, self.columns)
+                    chip = chip_button(("✓ " if on else "") + package.name,
+                                       on_click=lambda p=package: self.toggle_package(p)).mark(f"package-{package.id}")
+                    chip.on("click.stop", lambda: None)
+                    if on:
+                        chip.classes("as-chip-on")
+                    elif missing:
+                        chip.props(f'disable title="Needs {", ".join(missing)} in the history files"')
+                primary_button("+ Add plot", on_click=lambda: self.open_add_plot(values)).on(
+                    "click.stop", lambda: None).mark("plot-add")
+            designs = [ChartDesign(d.name, SERIES_COLORS[i % 8], part, str(d.folder))
+                       for i, (d, part) in enumerate(zip(self.designs, rows))]
+            units = {d.name: d.unit for d in definitions.derived}
+            for package in packages:
+                ui.label(package.name).classes("as-strong")
+                with ui.element("div").classes("as-grid-2"):
+                    for index, plot in enumerate(package.plots):
+                        self._chart(plot, designs, units, mark=f"chart-{package.id}-{index}")
+            if own:
+                ui.label("My plots").classes("as-strong")
+                with ui.element("div").classes("as-grid-2"):
+                    for index, plot in enumerate(own):
+                        with ui.column().classes("w-full gap-0"):
+                            with ui.row().classes("w-full justify-end"):
+                                ui.button(icon="close", color=None,
+                                          on_click=lambda i=index: self.remove_plot(i)).props(
+                                    "flat round dense size=sm").props('title="Remove this plot"').mark(
+                                    f"plot-remove-{index}")
+                            self._chart(plot, designs, units, mark=f"chart-own-{index}")
+            if not count:
+                hint("No plots yet: switch on a package above, or add a plot of any parameters.").mark("plots-none")
+
+    def _chart(self, plot: PlotSpec, designs: list, units: dict, mark: str) -> None:
+        title = f"{', '.join(plot.y)} vs {SWEEP_LABELS.get(plot.x, plot.x)}"
+        options, owners = chart_options(plot, designs, units, title)
+        ui.echart(options, on_point_click=lambda e, o=owners: self.open_case(o, e)).classes("w-full").style(
+            "height: 320px").mark(mark)
+
+    def open_add_plot(self, values: dict) -> None:
+        """Any X (a sweep variable that varies, or a parameter) against one or more Y parameters."""
+        definitions = self.definitions
+        sweep = [name for name in SWEEP_NAMES if len(values.get(name, [])) > 1] or ["Alpha"]
+        parameters = list(dict.fromkeys([*definitions.parameters, *sorted(definitions.derived_names),
+                                         *self.columns]))
+        x_options = {name: SWEEP_LABELS[name] for name in sweep} | {name: name for name in parameters}
+        combined = pd.concat([d.table for d in self.designs])
+        with ui.dialog() as dialog, ui.card().classes("w-[34rem] max-w-full"):
+            ui.label("Add a plot").classes("as-dialog-title")
+            hint("X is a sweep variable or any parameter; Y is one or more parameters.")
+            x_select = field(ui.select(x_options, value=sweep[0], label="X axis", with_input=True)).classes(
+                "w-full").mark("plot-x")
+            y_select = field(ui.select(parameters, value=[], label="Y axis (one or more)", multiple=True,
+                                       with_input=True)).props("use-chips").classes("w-full").mark("plot-y")
+            split_select = field(ui.select({"": "Automatic"}, value="", label="Lines")).classes("w-full").mark(
+                "plot-split")
+            lines = hint("").mark("plot-lines")
+            error = ui.label("").classes("as-error-text").mark("plot-error")
+
+            def update(_=None) -> None:
+                x = x_select.value or sweep[0]
+                choices = {"": "Automatic"} | {n: f"One line per {SWEEP_LABELS[n]}" for n in SWEEP_NAMES
+                                               if len(values.get(n, [])) > 1 and n != along(x)}
+                split_select.set_options(choices, value=split_select.value if split_select.value in choices else "")
+                lines.text = describe_lines(x, split_keys(x, combined, split_select.value or None))
+
+            x_select.on_value_change(update)
+            split_select.on_value_change(update)
+            update()
+
+            def add() -> None:
+                if not y_select.value:
+                    error.text = "Choose at least one Y parameter"
+                    return
+                dialog.submit(True)
+                dialog.clear()
+                self.add_plot(x_select.value, list(y_select.value), split_select.value or None)
+
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Cancel", on_click=lambda: (dialog.submit(False), dialog.clear())).mark(
+                    "plot-dialog-cancel")
+                primary_button("Add plot", on_click=add).mark("plot-dialog-add")
+        dialog.open()
 
     def _results_section(self, rows: list, values: dict) -> None:
         sweep = varying(values)

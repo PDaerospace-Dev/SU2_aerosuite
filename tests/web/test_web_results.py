@@ -135,3 +135,73 @@ async def test_a_compared_study_that_is_gone_is_shown_as_a_problem(user: User, r
     save_project(results_project, here)
     await _open(user, results_project)
     await user.should_see(marker="design-problem")
+
+
+# -- plots (Task 6) -------------------------------------------------------------
+
+
+async def test_the_aero_package_draws_its_four_plots(user: User, results_project):
+    await _open(user, results_project)
+    for index in range(4):
+        await user.should_see(marker=f"chart-aero-{index}")
+    options = _element(user, "chart-aero-0").options
+    assert options["title"]["text"] == "CL vs α"
+    points = [p["value"] for p in options["series"][0]["data"]]
+    assert points == [[0.0, pytest.approx(0.2)], [2.0, pytest.approx(0.4)], [4.0, pytest.approx(0.6)]]
+
+
+async def test_switching_the_package_off_and_on(user: User, results_project):
+    await _open(user, results_project)
+    user.find(marker="package-aero").click()
+    results = open_project(results_project).results
+    assert results.packages == [] and results.parameters == []
+    await user.should_see(marker="plots-none")
+    user.find(marker="package-aero").click()
+    assert open_project(results_project).results.packages == ["aero"]
+    await user.should_see(marker="chart-aero-3")
+
+
+async def test_adding_and_removing_a_plot_with_two_y(user: User, results_project):
+    await _open(user, results_project)
+    user.find(marker="plot-add").click()
+    await user.should_see(marker="plot-dialog-add")
+    assert _text(user, "plot-lines") == "One line, points joined along α"
+    with user:
+        _element(user, "plot-y").set_value(["CL(Wing)", "CL"])
+    user.find(marker="plot-dialog-add").click()
+    results = open_project(results_project).results
+    assert [(p.x, p.y) for p in results.plots] == [("Alpha", ["CL(Wing)", "CL"])]
+    assert "CL(Wing)" in results.parameters
+    await user.should_see(marker="chart-own-0")
+    names = [s["name"] for s in _element(user, "chart-own-0").options["series"]]
+    assert names == ["study · CL(Wing)", "study · CL"]
+    user.find(marker="plot-remove-0").click()
+    assert open_project(results_project).results.plots == []
+
+
+async def test_a_plot_needs_a_y(user: User, results_project):
+    await _open(user, results_project)
+    user.find(marker="plot-add").click()
+    await user.should_see(marker="plot-dialog-add")
+    user.find(marker="plot-dialog-add").click()
+    await user.should_see("Choose at least one Y parameter")
+    assert open_project(results_project).results.plots == []
+
+
+async def test_a_package_the_history_cannot_serve_is_disabled(user: User, ready_project):
+    project_dir, project = ready_project
+    generate_configs(project_dir, project)
+    for case in project.cases:
+        run = project_dir / "runs" / case.name
+        run.mkdir(parents=True)
+        rows = ["Inner_Iter,rms[Rho],Avg_Massflow(outlet)"] + [f"{i},-3,5.0" for i in range(30)]
+        (run / "history.csv").write_text("\n".join(rows) + "\n")
+    await _open(user, project_dir)
+    chip = _element(user, "package-aero")
+    assert chip.props.get("disable") is True and "Needs CD, CL, CMy" in chip.props.get("title", "")
+    await user.should_see(marker="param-Avg_Massflow(outlet)")  # no package: the first flow parameters
+
+
+async def test_monitor_opens_on_the_case_given(user: User, results_project):
+    await user.open(project_url("monitor", results_project) + "&case=M0p8_a4_b0")
+    assert _element(user, "monitor-case").value == "M0p8_a4_b0"
