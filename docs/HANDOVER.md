@@ -54,7 +54,7 @@ decided. Specs and implementation plans for each phase are in `docs/superpowers/
   from the bottom of every project page. Look lives in `theme.py`; building blocks in `ui_kit.py`.
 - The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python
   run_aerosuite.py`); it is retired in a later phase.
-- Tests: `uv run pytest` (727 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
+- Tests: `uv run pytest` (749 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
   user; `tests/fixtures/fake_sweep.py` stands in for SU2; `tests/engine/test_sweep_script.py` runs the
   real sweep script against a stand-in `SU2` package.
 
@@ -65,7 +65,8 @@ starts fresh with `RESTART_SOL= NO`), Setup highlights the chosen mesh/template,
 the rest under Advanced, Mach in Freestream, Preview/Reference tabs, sweep switch on the config page,
 no Configs step, collapsible failure details on Run. The user confirmed all of it works.
 
-Second round (2026-09-28, commits `e5299a0`..`414b14e`, **not yet checked on the workstation**):
+Second round (2026-09-28, commits `e5299a0`..`414b14e`; the user confirmed it all works on the workstation
+2026-09-29):
 
 - the template copy keeps its file name; the previous copy is removed;
 - job names are `YYYYMMDD-HHMM` (then `-2`, `-3` in the same minute). Because names are unique only
@@ -77,8 +78,14 @@ Second round (2026-09-28, commits `e5299a0`..`414b14e`, **not yet checked on the
 - profiles also store the mesh path, sweep and run settings; `/profiles` page to edit them (editing
   a bundled profile saves the user's copy; Reset restores the bundled one).
 
-Ask the user to try: set up **Profiles → X07** (template, mesh, sweep, partitions), make a new X07
-study from it, run a sweep and watch the Log panel with real SU2 output (it shows the last 500 lines).
+Altitude sweep (2026-09-29, commit `4326026`, spec `docs/superpowers/specs/2026-09-29-altitude-sweep-design.md`,
+**not yet checked on the workstation**): in *From altitude* mode the Sweep page has an **Altitudes (km)** list next
+to Mach, α, β; altitude is the outermost loop; each case gets its own label, temperature and Reynolds number;
+Set all → Previous starts each altitude block fresh; schema 5 moves the one altitude into the list. A single
+case keeps one altitude on the Aircraft page.
+
+Ask the user to try: an X07 study in *From altitude* with altitudes `0, 11`, check the Sweep page's Alt /
+Temperature / Reynolds columns, run a few cases, then `aerosuite summarize` (it has an Altitude column).
 
 ## Decisions worth knowing
 
@@ -86,17 +93,14 @@ study from it, run a sweep and watch the Log panel with real SU2 output (it show
   `--host … --i-understand-no-auth`.
 - ISA uses the US76/SU2 Sutherland constants, so its viscosity and Reynolds number differ ~4% from the
   old PyQt app (the old app was wrong).
+- Altitude sweeps only in *From altitude* mode (in *Set by hand* the altitude is just a name label). A sweep's
+  altitudes are `sweep.altitudes_km`, a single case's is `freestream.altitude_km` (like Mach: sweep list vs
+  template); neither is copied into the other.
 - Restart options are only `none` / `previous` / `custom`; the job's own copy of each cfg gets
   `RESTART_SOL` set from its line; the template and `configs/` are never changed by a run.
 - Results page is a separate, later design; until then `aerosuite summarize`.
 
 ## Open items
-
-Next, agreed but deferred by the user:
-
-- **Altitude sweep**: altitude as a fourth sweep dimension (with Mach, α, β), each case's ISA
-  temperature and Reynolds number from its own altitude and Mach. Open questions: how `previous`
-  restarts chain across altitudes; altitude sweeps only in "From altitude" mode.
 
 Known smaller items (from reviews; none blocking):
 
