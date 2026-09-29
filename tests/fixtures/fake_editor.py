@@ -31,6 +31,7 @@ else:
         data["sweep"]["alpha"] = [float(v) for v in value.split(",")]
     elif kind == "altitude":
         data["settings"]["freestream"].update(mode="altitude", altitude_km=float(value), reynolds_length=6.0)
+        data["sweep"]["altitudes_km"] = [float(value)]
     elif kind == "partitions":
         data["run"]["partitions"] = int(value)
     else:

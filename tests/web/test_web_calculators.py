@@ -120,7 +120,7 @@ async def test_apply_to_an_aircraft_project(user: User, ready_project, eventuall
     user.find(marker="apply-confirm").click()
     await eventually(lambda: open_project(project_dir).settings.freestream.mode == "altitude")
     project = open_project(project_dir)
-    assert project.settings.freestream.altitude_km == 11.0 and naming_altitude(project) == "11km"
+    assert project.sweep.altitudes_km == [11.0] and naming_altitude(project) == "11km"
 
 
 async def test_cancel_changes_nothing(user: User, ready_project):

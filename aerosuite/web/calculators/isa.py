@@ -8,13 +8,12 @@ from nicegui import ui
 
 from ...engine.atmosphere import ISACalculator
 from ...engine.cfg import read_template
-from ...engine.editing import set_freestream
 from ...engine.errors import AeroSuiteError
 from ...engine.naming import format_value
 from ..template_edit import write_template_params
 from ..ui_kit import card, field, primary_button, result, sci, secondary_button, table, td, th
 from . import CalcContext, Calculator
-from .isa_rules import ApplyPlan, isa_prefill, plan_isa_apply
+from .isa_rules import ApplyPlan, apply_isa_settings, isa_prefill, plan_isa_apply
 
 INPUTS = [("altitude", "Altitude (km)"), ("mach", "Mach"), ("length", "Characteristic length (m)")]
 RESULTS = [  # (marker, label, engine key, format, highlight)
@@ -143,8 +142,7 @@ def _apply(ctx: CalcContext, plan: ApplyPlan, inputs: tuple[float, float, float]
     frame = ctx.frame
     altitude, _, length = inputs
     if plan.kind == "settings":
-        message = frame.save(lambda p: set_freestream(p, mode="altitude", altitude_km=altitude,
-                                                      reynolds_length=length))
+        message = frame.save(lambda p: apply_isa_settings(p, altitude, length))
     else:
         message = write_template_params(frame, plan.template_params)
     if message:

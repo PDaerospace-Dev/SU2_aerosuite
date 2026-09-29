@@ -112,7 +112,7 @@ def _freestream_problems(project: Project, project_dir: Optional[Path]) -> list[
     fs = project.settings.freestream
     if fs.mode != "altitude":
         return []
-    problems = [Problem("error", message) for message in freestream_setup_errors(fs)]
+    problems = [Problem("error", message) for message in freestream_setup_errors(project)]
     template = _template_text(project, project_dir)
     # A single case runs at the template's Mach: with no readable template there is nothing to check yet.
     if not problems and (project.sweep.enabled or template is not None):

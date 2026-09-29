@@ -11,10 +11,10 @@ import typer
 
 from ..engine import project as engine_project
 from ..engine.cfg import build_cases, case_freestream, read_template, settings_parameters
-from ..engine.editing import (KEEP, parse_key_value, parse_value_list, set_freestream, set_parameter,
-                              unset_parameter, update_sweep)
+from ..engine.editing import (KEEP, parse_key_value, parse_value_list, rebuild_if_changed, set_altitudes,
+                              set_freestream, set_parameter, unset_parameter, update_sweep)
 from ..engine.errors import AeroSuiteError, ProjectError, TemplateError
-from ..engine.freestream import naming_altitude
+from ..engine.freestream import naming_altitude, sweeps_altitude
 from ..engine.jobs.runner import BUNDLED_SWEEP_SCRIPT
 from ..engine.models import Project
 from ..engine.naming import format_value
@@ -40,16 +40,20 @@ def describe(project_dir: Path, project: Project) -> list[str]:
         f"Mach:      {_values(sweep.mach)}",
         f"Alpha:     {_values(sweep.alpha)}",
         f"Beta:      {_values(sweep.beta)}",
-        f"Altitude:  {naming_altitude(project)}",
     ]
     fs = project.settings.freestream
-    if fs.mode == "altitude":
+    length = "not set" if fs.reynolds_length is None else f"{format_value(fs.reynolds_length)} m"
+    if sweeps_altitude(project):
+        lines.append(f"Altitudes: {_values(sweep.altitudes_km)} km" if sweep.altitudes_km else "Altitudes: (none)")
+        lines.append(f"Freestream: from altitude, Reynolds length {length}")
+    else:
+        lines.append(f"Altitude:  {naming_altitude(project)}")
+    if fs.mode == "altitude" and not project.sweep.enabled:
         if fs.altitude_km is None:
             lines.append("Freestream: from altitude (altitude not set)")
         else:
-            length = "not set" if fs.reynolds_length is None else f"{format_value(fs.reynolds_length)} m"
             lines.append(f"Freestream: from altitude {format_value(fs.altitude_km)} km, Reynolds length {length}")
-    else:
+    elif fs.mode == "manual":
         lines.append("Freestream: set by hand")
     params = settings_parameters(project.settings)
     if params:
@@ -132,7 +136,8 @@ def set_(
         "--unset", help="Forget an option so the template value applies again (repeatable)")] = None,
     freestream: Annotated[Optional[str], typer.Option(
         help="Freestream: 'manual' (set by hand) or 'altitude' (per case from --altitude-km)")] = None,
-    altitude_km: Annotated[Optional[float], typer.Option(help="ISA altitude in km for altitude mode (0–100)")] = None,
+    altitude_km: Annotated[Optional[str], typer.Option(
+        help="ISA altitude(s) in km for altitude mode (0–100); a list sweeps them, e.g. 0,5,11 or 0:12:3")] = None,
     reynolds_length: Annotated[Optional[float], typer.Option(help="Reynolds length in m")] = None,
 ) -> None:
     """Change project settings; changing the sweep rebuilds the cases."""
@@ -141,16 +146,18 @@ def set_(
     mach_values = parse_value_list(mach) if mach is not None else None
     alpha_values = parse_value_list(alpha) if alpha is not None else None
     beta_values = parse_value_list(beta) if beta is not None else None
+    altitude_values = parse_value_list(altitude_km) if altitude_km is not None else None
     pairs = [parse_key_value(item) for item in key or []]
 
     changes: list[str] = []
     if set_freestream(
         project,
         mode=freestream if freestream is not None else KEEP,
-        altitude_km=altitude_km if altitude_km is not None else KEEP,
         reynolds_length=reynolds_length if reynolds_length is not None else KEEP,
     ):
         changes.append("freestream")
+    if altitude_values is not None and set_altitudes(project, altitude_values):
+        changes.append("altitudes")
     for k, v in pairs:
         set_parameter(project.settings, k, v)
         changes.append(k)
@@ -227,9 +234,11 @@ def edit(directory: ProjectDir) -> None:
         if project == original:
             typer.echo("No changes.")
             return
-        if project.sweep != original.sweep or naming_altitude(project) != naming_altitude(original):
+        if project.sweep != original.sweep:
             project.cases = build_cases(project)
             typer.echo(f"The sweep changed; cases rebuilt ({len(project.cases)}).")
+        elif rebuild_if_changed(project):
+            typer.echo(f"The case names changed; cases rebuilt ({len(project.cases)}).")
         engine_project.save_project(directory, project)
         typer.echo("Saved project.json.")
     finally:

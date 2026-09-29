@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from .errors import GenerationError, ProjectError, TemplateError
-from .freestream import CaseFreestream, freestream_for, freestream_values, naming_altitude
+from .freestream import (CaseFreestream, case_altitude, freestream_for, freestream_values, label_for,
+                         sweeps_altitude)
 from .jobs.store import active_lock
 from .models import Case, Project, Settings
 from .naming import case_name, find_collisions, format_value
@@ -130,7 +132,7 @@ def render_case(template: str, project: Project, case: Case) -> str:
     """Template -> settings -> overrides -> case values; later layers win."""
     params = settings_parameters(project.settings)
     params.update(case_parameters(project, case))
-    freestream = freestream_for(project.settings, case_mach(project, case, template))
+    freestream = freestream_for(project.settings, case_mach(project, case, template), case_altitude(project, case))
     if freestream:
         params.update(freestream)  # per case, so it wins over a by-hand value and an override
     return apply_parameters(template, params)
@@ -140,21 +142,24 @@ def case_freestream(project: Project, template: str) -> list[CaseFreestream]:
     """Each case's altitude-mode values, or why they cannot be computed (for checks and the pages)."""
     rows = []
     for case in project.cases:
-        mach = case_mach(project, case, template)
+        mach, altitude = case_mach(project, case, template), case_altitude(project, case)
         try:
-            rows.append(CaseFreestream(case.name, mach, freestream_values(project.settings.freestream, mach), ""))
+            values = freestream_values(project.settings.freestream, mach, altitude)
+            rows.append(CaseFreestream(case.name, mach, values, "", altitude))
         except ProjectError as exc:
-            rows.append(CaseFreestream(case.name, mach, None, str(exc)))
+            rows.append(CaseFreestream(case.name, mach, None, str(exc), altitude))
     return rows
 
 
 def build_cases(project: Project) -> list[Case]:
-    """Expand the sweep into cases, keeping the restart choices of cases that still exist (same name, or
-    same Mach/alpha/beta under a new name)."""
+    """Expand the sweep into cases (altitude outermost, then Mach, alpha, beta), keeping the restart choices
+    of cases that still exist (same name, or same altitude/Mach/alpha/beta under a new name, or the same
+    Mach/alpha/beta in a single-altitude sweep when only one old case has them, e.g. after changing the
+    altitude)."""
     sweep, naming = project.sweep, project.sweep.naming
     previous = {case.name: case for case in project.cases}
     # A case whose name changed (e.g. the altitude label or a naming option) keeps its restart setup.
-    by_values = {(case.mach, case.alpha, case.beta): case for case in project.cases}
+    by_values = {(case.altitude_km, case.mach, case.alpha, case.beta): case for case in project.cases}
     if not sweep.enabled:
         name = single_case_name(project)
         old = previous.get(name)
@@ -163,26 +168,33 @@ def build_cases(project: Project) -> list[Case]:
             restart=old.restart if old else "none",
             restart_ref=old.restart_ref if old else None,
         )]
+    altitudes: list[Optional[float]] = (list(sweep.altitudes_km) or [None]) if sweeps_altitude(project) else [None]
+    by_flight: dict = {}  # with several altitudes, a new altitude's cases start fresh
+    if len(altitudes) == 1:
+        flight = Counter((case.mach, case.alpha, case.beta) for case in project.cases)
+        by_flight = {(c.mach, c.alpha, c.beta): c for c in project.cases if flight[(c.mach, c.alpha, c.beta)] == 1}
     cases = []
-    for mach in sweep.mach or [0.0]:
-        for alpha in sweep.alpha or [0.0]:
-            for beta in sweep.beta or [0.0]:
-                name = case_name(
-                    mach, alpha, beta,
-                    altitude=naming_altitude(project),
-                    base_name=naming.base_name,
-                    include_mach=naming.include_mach,
-                    include_alpha=naming.include_alpha,
-                    include_beta=naming.include_beta,
-                    include_altitude=naming.include_altitude,
-                    include_base=naming.include_base,
-                )
-                old = previous.get(name) or by_values.get((mach, alpha, beta))
-                cases.append(Case(
-                    name=name, mach=mach, alpha=alpha, beta=beta,
-                    restart=old.restart if old else "none",
-                    restart_ref=old.restart_ref if old else None,
-                ))
+    for altitude in altitudes:
+        for mach in sweep.mach or [0.0]:
+            for alpha in sweep.alpha or [0.0]:
+                for beta in sweep.beta or [0.0]:
+                    name = case_name(
+                        mach, alpha, beta,
+                        altitude=label_for(project, altitude),
+                        base_name=naming.base_name,
+                        include_mach=naming.include_mach,
+                        include_alpha=naming.include_alpha,
+                        include_beta=naming.include_beta,
+                        include_altitude=naming.include_altitude,
+                        include_base=naming.include_base,
+                    )
+                    old = (previous.get(name) or by_values.get((altitude, mach, alpha, beta))
+                           or by_flight.get((mach, alpha, beta)))
+                    cases.append(Case(
+                        name=name, mach=mach, alpha=alpha, beta=beta, altitude_km=altitude,
+                        restart=old.restart if old else "none",
+                        restart_ref=old.restart_ref if old else None,
+                    ))
     return cases
 
 
@@ -224,6 +236,9 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
     out_dir = Path(project_dir) / CONFIGS_DIR
     if project.sweep.enabled:
         index = {c.name: {"mach": c.mach, "alpha": c.alpha, "beta": c.beta} for c in project.cases}
+        for case in project.cases:
+            if case.altitude_km is not None:
+                index[case.name]["altitude_km"] = case.altitude_km
     else:
         mach, alpha, beta = template_case_values(template)
         index = {c.name: {"mach": mach, "alpha": alpha, "beta": beta} for c in project.cases}

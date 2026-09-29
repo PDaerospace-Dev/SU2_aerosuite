@@ -1,4 +1,4 @@
-"""Sweep: Mach/alpha/beta lists, naming, per-case restarts, problems and Generate."""
+"""Sweep: Mach/alpha/beta (and, from altitude, altitude) lists, naming, per-case restarts, problems and Generate."""
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -7,7 +7,6 @@ from nicegui import ui
 from ...engine.cfg import build_cases, case_freestream, read_template
 from ...engine.editing import parse_value_list, update_sweep
 from ...engine.errors import AeroSuiteError, ProjectError
-from ...engine.freestream import naming_altitude
 from ...engine.models import Project
 from ...engine.naming import find_collisions, format_value
 from ..checks import generate_button, render_checks
@@ -102,11 +101,13 @@ def _sweep_fields(frame: ProjectFrame, after: Callable[[], None]) -> None:
                     )
             with ui.column().classes("gap-1"):
                 if frame.session.project.settings.freestream.mode == "altitude":
-                    field(ui.input("Altitude label", value=naming_altitude(frame.session.project))).props(
-                        "readonly").classes("w-full").mark("sweep-altitude")
-                    where = ("the Aircraft page" if frame.session.project.profile else
-                             "aerosuite set --altitude-km (the Aircraft page needs an aircraft profile)")
-                    hint(f"from the altitude set on {where}").mark("sweep-altitude-note")
+                    text_field(
+                        "Altitudes (km)", _values(sweep.altitudes_km),
+                        lambda text: frame.save(lambda p: update_sweep(
+                            p, altitudes_km=parse_value_list(text) if text.strip() else []), then=after),
+                        mark="sweep-altitudes", placeholder="e.g. 0, 5, 11  or  0:12:3",
+                    )
+                    hint("each case is named with its altitude, e.g. 11km").mark("sweep-altitude-note")
                 else:
                     text_field("Altitude label", sweep.altitude,
                                lambda text: frame.save(lambda p: update_sweep(p, altitude=text.strip()), then=after),
@@ -167,8 +168,9 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
         except AeroSuiteError:
             template = ""
         freestream = {row.name: row for row in case_freestream(project, template)}
-    columns = "minmax(10rem, 1.2fr) repeat(3, minmax(3.5rem, .4fr))"
-    headings = ["Case", "Mach", "α", "β"]
+    columns = "minmax(10rem, 1.2fr)" + (" minmax(4rem, .4fr)" if altitude_mode else "")
+    columns += " repeat(3, minmax(3.5rem, .4fr))"
+    headings = ["Case"] + (["Alt (km)"] if altitude_mode else []) + ["Mach", "α", "β"]
     if altitude_mode:
         columns += " minmax(6rem, .6fr) minmax(6rem, .6fr)"
         headings += ["Temperature", "Reynolds"]
@@ -181,6 +183,8 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
             name_label = td(case.name, strong=True).mark(f"case-{case.name}")
             if case.name in duplicates:
                 name_label.classes("as-dup").mark(f"case-{case.name} dup-{case.name}")
+            if altitude_mode:
+                td("—" if case.altitude_km is None else format_value(case.altitude_km)).mark(f"alt-{case.name}")
             td(format_value(case.mach))
             td(format_value(case.alpha))
             td(format_value(case.beta))
@@ -208,11 +212,12 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None]) -> None:
 def set_all_restarts(project: Project, restart: str, folder: Optional[Path] = None) -> None:
     """Give every case the same restart choice.
 
-    "previous" leaves the first case at "none" (it has no case before it); "custom" points each case at
-    `folder / <case name>`, e.g. another study's runs/ folder.
+    "previous" leaves the first case, and the first case of each altitude, at "none" (each altitude starts
+    fresh); "custom" points each case at `folder / <case name>`, e.g. another study's runs/ folder.
     """
     for index, case in enumerate(project.cases):
-        if restart == "previous" and index == 0:
+        first_of_altitude = index == 0 or case.altitude_km != project.cases[index - 1].altitude_km
+        if restart == "previous" and first_of_altitude:
             case.restart, case.restart_ref = "none", None
         elif restart == "custom":
             case.restart, case.restart_ref = "custom", str(Path(folder) / case.name)

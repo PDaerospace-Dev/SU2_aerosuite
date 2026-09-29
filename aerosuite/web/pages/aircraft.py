@@ -204,7 +204,7 @@ def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], 
                 return
             with ui.element("div").classes("as-grid-2"):
                 with ui.column().classes("gap-1"):
-                    number("Altitude (km)", "altitude_km", fs.altitude_km, "ISA, 0–100 km")
+                    _altitude(frame, number)
                 with ui.column().classes("gap-1"):
                     number("Reynolds length (m)", "reynolds_length", fs.reynolds_length,
                            "characteristic length for the Reynolds number")
@@ -217,6 +217,18 @@ def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], 
 
     render()
     return render
+
+
+def _altitude(frame: ProjectFrame, number: Callable) -> None:
+    """The altitude(s): the Sweep page's list with the sweep on, else the single case's altitude (editable)."""
+    project = frame.session.project
+    if not project.sweep.enabled:
+        number("Altitude (km)", "altitude_km", project.settings.freestream.altitude_km, "ISA, 0–100 km")
+        return
+    ui.label("Altitudes (km)").classes("as-label")
+    readonly(", ".join(format_value(a) for a in project.sweep.altitudes_km) or "—").mark("freestream-altitudes-sweep")
+    ui.link("Set on the Sweep page", project_url("sweep", frame.session.directory)).classes(
+        "as-hint").mark("freestream-altitudes-link")
 
 
 def _mach(frame: ProjectFrame, after: Callable[[], None]) -> None:
@@ -275,10 +287,14 @@ def _summary(frame: ProjectFrame) -> None:
             return
         reynolds = sorted(row.values.reynolds for row in rows)
         machs = sorted(row.mach for row in rows)
-        stat("Temperature", f"{format_value(round(rows[0].values.temperature_K, 2))} K")
+        low, high = (f"{format_value(round(t, 2))} K" for t in (min(r.values.temperature_K for r in rows),
+                                                                  max(r.values.temperature_K for r in rows)))
+        stat("Temperature", low if low == high else f"{low} … {high}")
         span = sci(reynolds[0]) if sci(reynolds[0]) == sci(reynolds[-1]) else f"{sci(reynolds[0])} … {sci(reynolds[-1])}"
         stat("Reynolds number", span)
-        if project.sweep.enabled:
+        if project.sweep.enabled and len(project.sweep.altitudes_km) > 1:
+            ui.label("per case, from each case's altitude and Mach · see the Sweep page").classes("as-muted")
+        elif project.sweep.enabled:
             where = (f"per case, from each case's Mach ({format_value(machs[0])} – {format_value(machs[-1])})"
                      if machs[0] != machs[-1] else f"at Mach {format_value(machs[0])}")
             ui.label(where + " · see the Sweep page").classes("as-muted")

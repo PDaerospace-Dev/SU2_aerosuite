@@ -19,11 +19,11 @@ def test_prefill_outside_a_project():
 
 def test_prefill_from_a_sweep_project():
     project = _sweep()
-    project.settings.freestream.mode, project.settings.freestream.altitude_km = "altitude", 11.0
+    project.settings.freestream.mode, project.sweep.altitudes_km = "altitude", [11.0, 5.0]
     project.settings.freestream.reynolds_length = 6.0
     prefill = isa_prefill(project, TEMPLATE)
     assert (prefill.altitude_km, prefill.mach, prefill.length_m) == (11.0, 0.8, 6.0)
-    assert "Mach 0.8 (the sweep's highest)" in prefill.note
+    assert "Mach 0.8 (the sweep's highest)" in prefill.note and "altitude 11 km (the sweep's first)" in prefill.note
 
 
 def test_prefill_single_case_uses_the_template_mach():
@@ -35,7 +35,7 @@ def test_prefill_single_case_uses_the_template_mach():
 def test_plan_for_an_aircraft_project_lists_changes_and_renames():
     plan = plan_isa_apply(_sweep(profile="x07"), TEMPLATE, 11.0, 0.8, 6.0)
     assert plan.kind == "settings"
-    assert plan.changes[:3] == [("Freestream", "Set by hand", "From altitude"), ("Altitude", "—", "11 km"),
+    assert plan.changes[:3] == [("Freestream", "Set by hand", "From altitude"), ("Altitudes", "—", "11 km"),
                                 ("Reynolds length", "—", "6 m")]
     assert plan.changes[3] == ("Altitude label (case names)", "sl", "11km")
     assert plan.note == "Renames 2 cases"
@@ -69,6 +69,24 @@ def test_a_general_project_already_in_altitude_mode_applies_to_its_settings():
     project.settings.freestream.mode = "altitude"
     plan = plan_isa_apply(project, TEMPLATE, 11.0, 0.8, 6.0)
     assert plan.kind == "settings"
+    assert ("Altitudes", "—", "11 km") in plan.changes
+
+
+def test_apply_replaces_the_swept_altitudes_with_one():
+    project = _sweep(profile="x07")
+    project.settings.freestream.mode, project.settings.freestream.reynolds_length = "altitude", 6.0
+    project.sweep.altitudes_km = [0.0, 11.0]
+    project.cases = build_cases(project)
+    plan = plan_isa_apply(project, TEMPLATE, 11.0, 0.8, 6.0)
+    assert ("Altitudes", "0, 11 km", "11 km") in plan.changes
+    assert plan.note == "4 cases become 2"
+
+
+def test_a_single_case_apply_sets_its_altitude():
+    project = _sweep(profile="x07")
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    plan = plan_isa_apply(project, TEMPLATE, 11.0, 0.8, 6.0)
     assert ("Altitude", "—", "11 km") in plan.changes
 
 

@@ -50,7 +50,9 @@ older AeroSuite refuses a schema-5 file (existing rule).
 
 - **`build_cases`**: loops `altitudes_km or [None]` (altitude mode, sweep on) outermost, else `[None]`. A case's
   name uses its own altitude label (`altitude_label`, e.g. `11km`, `10p5km`); a `None` altitude uses the typed
-  label (today's fallback). Restart choices carry over by name, else by `(altitude, Mach, α, β)`.
+  label (today's fallback). Restart choices carry over by name, else by `(altitude, Mach, α, β)`, else — in a
+  single-altitude sweep only, e.g. after changing that altitude — by `(Mach, α, β)` when one old case has them.
+  A newly added altitude's cases start at `none`.
 - **Per-case freestream**: `freestream_values(fs, altitude_km, mach)`; `render_case` and `case_freestream` use
   `case_altitude`. `CaseFreestream` gains `altitude_km`.
 - **Setup errors** (`freestream_setup_errors(project)`), each reported once:
@@ -83,7 +85,7 @@ older AeroSuite refuses a schema-5 file (existing rule).
 - **Aircraft page**, From altitude: sweep on → "Altitudes (km)" read-only (`freestream-altitudes-sweep`) and a link
   "Set on the Sweep page"; sweep off → the editable Altitude (km) field as today. The summary strip shows a
   temperature range when the cases' temperatures differ and says "per case, from each case's altitude and Mach".
-- **Profiles page**: an **Altitudes (km)** list field next to the Mach/α/β fields (`profile-altitudes`).
+- **Profiles page**: an **Altitudes (km)** list field next to the Mach/α/β fields (`profile-altitudes_km`).
 - **ISA calculator**: pre-fills the first swept altitude ("altitude from the Sweep page"); Apply uses
   `set_altitudes`, so with the sweep on it sets the list to that one altitude; the preview row reads
   "Altitudes  0, 5, 11 km → 11 km".

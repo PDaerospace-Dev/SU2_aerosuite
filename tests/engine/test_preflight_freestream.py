@@ -1,7 +1,13 @@
 from aerosuite.engine.cfg import build_cases
-from aerosuite.engine.editing import set_freestream
+from aerosuite.engine.editing import set_altitudes, set_freestream
 from aerosuite.engine.preflight import preflight, sweep_problems
 from aerosuite.engine.project import save_project
+
+
+def _altitude_mode(project, altitude_km, reynolds_length=6.0):
+    """Altitude mode at one altitude: the sweep's list, or the single case's altitude."""
+    set_freestream(project, mode="altitude", reynolds_length=reynolds_length)
+    set_altitudes(project, [altitude_km])
 
 
 def _messages(problems, severity):
@@ -17,13 +23,13 @@ def test_missing_altitude_and_length_are_both_errors(ready_project):
     project_dir, project = ready_project
     set_freestream(project, mode="altitude")
     errors = _messages(preflight(project_dir, project, "generate"), "error")
-    assert any("needs an altitude" in e for e in errors)
+    assert "No altitudes in the sweep" in errors
     assert any("Reynolds length greater than 0" in e for e in errors)
 
 
 def test_out_of_range_altitude_is_an_error(ready_project):
     project_dir, project = ready_project
-    set_freestream(project, mode="altitude", altitude_km=120.0, reynolds_length=6.0)
+    _altitude_mode(project, 120.0)
     assert any("outside the standard atmosphere" in e for e in _messages(sweep_problems(project, project_dir), "error"))
 
 
@@ -32,14 +38,14 @@ def test_a_single_case_without_a_template_mach_is_an_error(ready_project):
     (project_dir / "template.cfg").write_text("AOA= 0.0\n")
     project.sweep.enabled = False
     project.cases = build_cases(project)
-    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    _altitude_mode(project, 11.0)
     errors = _messages(sweep_problems(project, project_dir), "error")
     assert any(e.startswith(f"{project.cases[0].name}: ") and "MACH_NUMBER" in e for e in errors)
 
 
 def test_a_valid_altitude_project_has_no_freestream_problems(ready_project):
     project_dir, project = ready_project
-    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    _altitude_mode(project, 11.0)
     save_project(project_dir, project)
     assert not any("altitude" in p.message.lower() or "reynolds" in p.message.lower()
                    for p in sweep_problems(project, project_dir))
@@ -47,7 +53,7 @@ def test_a_valid_altitude_project_has_no_freestream_problems(ready_project):
 
 def test_overrides_of_freestream_keys_are_a_warning(ready_project):
     project_dir, project = ready_project
-    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    _altitude_mode(project, 11.0)
     project.settings.overrides["REYNOLDS_NUMBER"] = "5"
     warnings = _messages(sweep_problems(project, project_dir), "warning")
     assert "REYNOLDS_NUMBER ignored: freestream comes from the altitude" in warnings
@@ -55,7 +61,7 @@ def test_overrides_of_freestream_keys_are_a_warning(ready_project):
 
 def _warnings_for(project_dir, project, template):
     (project_dir / "template.cfg").write_text(template)
-    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    _altitude_mode(project, 11.0)
     return _messages(sweep_problems(project, project_dir), "warning")
 
 
@@ -88,7 +94,7 @@ def test_an_unreadable_template_does_not_also_report_a_missing_mach(ready_projec
     project_dir, project = ready_project
     project.sweep.enabled = False
     project.cases = build_cases(project)
-    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    _altitude_mode(project, 11.0)
     (project_dir / "template.cfg").unlink()
     errors = _messages(preflight(project_dir, project, "generate"), "error")
     assert any(e.startswith("Template not found") for e in errors)

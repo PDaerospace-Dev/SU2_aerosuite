@@ -120,7 +120,8 @@ def test_save_profile(ready_project):
     assert data["naming"]["base_name"] == "jet"
     assert set(data) == {"id", "name", "description", "settings", "hints", "naming", "mesh", "sweep", "run"}
     assert data["mesh"].endswith("wing.su2")  # the path on this machine, not a copy of the file
-    assert data["sweep"] == {"mach": [0.8], "alpha": [0.0, 2.0, 4.0], "beta": [0.0], "altitude": "sl"}
+    assert data["sweep"] == {"mach": [0.8], "alpha": [0.0, 2.0, 4.0], "beta": [0.0], "altitudes_km": [],
+                             "altitude": "sl"}
     assert data["run"]["partitions"] == 1
     assert "M0p8" not in json.dumps(data)  # the sweep, not its cases
     with pytest.raises(ProjectError, match="already exists"):

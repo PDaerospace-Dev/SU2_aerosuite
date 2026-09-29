@@ -139,12 +139,15 @@ class ProfilesView:
                 for label, name in REFERENCE:
                     with ui.column().classes("gap-1"):
                         self._reference_field(label, name, data)
-        with card("Sweep", "a new study's Mach, α and β; each study can change them"):
+        with card("Sweep", "a new study's Mach, α, β and altitudes; each study can change them"):
             with ui.element("div").classes("as-grid-3"):
                 for label, name in SWEEP_LISTS:
                     with ui.column().classes("gap-1"):
                         self._list_field(label, name, data)
             with ui.element("div").classes("as-grid-3"):
+                with ui.column().classes("gap-1"):
+                    self._list_field("Altitudes (km)", "altitudes_km", data)
+                    hint("swept when the freestream comes from the altitude")
                 with ui.column().classes("gap-1"):
                     text_field("Altitude label", data.sweep.get("altitude", ""),
                                lambda text: self.edit(lambda d: _set_or_drop(d.sweep, "altitude", text.strip())),

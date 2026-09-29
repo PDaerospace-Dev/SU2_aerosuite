@@ -14,7 +14,7 @@ from aerosuite.engine.cfg import (
     single_case_name,
     template_case_values,
 )
-from aerosuite.engine.models import Project
+from aerosuite.engine.models import SCHEMA_VERSION, Project
 from aerosuite.engine.preflight import preflight, sweep_problems
 from aerosuite.engine.project import create_project, open_project, save_project, PROJECT_FILE
 
@@ -96,5 +96,5 @@ def test_schema_1_projects_upgrade_to_sweep_on_without_profile(tmp_path):
     del data["sweep"]["enabled"]
     (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
     project = open_project(tmp_path)
-    assert project.schema_version == 4
+    assert project.schema_version == SCHEMA_VERSION
     assert project.profile is None and project.sweep.enabled is True

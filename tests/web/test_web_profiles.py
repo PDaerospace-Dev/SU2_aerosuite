@@ -33,8 +33,9 @@ async def test_editing_fields_saves_the_profile(user: User, ready_project):
     user.find(marker="profile-mach").clear().type("0.8, 0.9").trigger("blur")
     user.find(marker="profile-ref_length").clear().type("7.5").trigger("blur")
     user.find(marker="profile-description").clear().type("changed").trigger("blur")
+    user.find(marker="profile-altitudes_km").clear().type("0, 11").trigger("blur")
     data = load_profile("jet").data
-    assert data.sweep["mach"] == [0.8, 0.9]
+    assert data.sweep["mach"] == [0.8, 0.9] and data.sweep["altitudes_km"] == [0.0, 11.0]
     assert data.settings["reference"]["ref_length"] == 7.5
     assert data.description == "changed"
     user.find(marker="profile-mach").clear().type("0").trigger("blur")

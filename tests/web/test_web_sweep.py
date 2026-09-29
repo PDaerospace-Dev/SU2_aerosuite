@@ -3,7 +3,7 @@ from pathlib import Path
 
 from nicegui.testing import User
 
-from aerosuite.engine.editing import set_parameter
+from aerosuite.engine.editing import set_freestream, set_parameter, update_sweep
 from aerosuite.engine.project import PROJECT_FILE, open_project, save_project
 from aerosuite.web.layout import project_url
 
@@ -267,26 +267,43 @@ async def test_cancelling_set_all_custom_changes_nothing(user: User, ready_proje
     assert _restarts(project_dir) == before
 
 
-from aerosuite.engine.editing import set_freestream
-
-
 def _altitude_mode(project_dir, altitude_km=11.0):
     project = open_project(project_dir)
-    set_freestream(project, mode="altitude", altitude_km=altitude_km, reynolds_length=6.0)
+    set_freestream(project, mode="altitude", reynolds_length=6.0)
+    update_sweep(project, altitudes_km=[altitude_km])
     save_project(project_dir, project)
     return project
 
 
-async def test_altitude_mode_shows_the_derived_label_and_per_case_values(user: User, ready_project):
+async def test_altitude_mode_shows_the_altitudes_and_per_case_values(user: User, ready_project):
     project_dir, _ = ready_project
     project = _altitude_mode(project_dir)
     await _open(user, project_dir)
-    label = _element(user, "sweep-altitude")
-    assert label.value == "11km" and "readonly" in label.props
+    assert _element(user, "sweep-altitudes").value == "11"
     await user.should_see(marker="sweep-altitude-note")
+    await user.should_not_see(marker="sweep-altitude")  # no typed label in altitude mode
     name = project.cases[0].name
+    assert _element(user, f"alt-{name}").text == "11"
     assert _element(user, f"temp-{name}").text == "216.65 K"
     assert _element(user, f"re-{name}").text == "3.63e7"
+
+
+async def test_editing_the_altitudes_sweeps_them(user: User, ready_project):
+    project_dir, project = ready_project
+    project.sweep.naming.include_altitude = True
+    save_project(project_dir, project)
+    _altitude_mode(project_dir)
+    await _open(user, project_dir)
+    user.find(marker="sweep-altitudes").clear().type("0, 11").trigger("blur")
+    project = open_project(project_dir)
+    assert project.sweep.altitudes_km == [0.0, 11.0] and len(project.cases) == 6
+    first, fourth = project.cases[0].name, project.cases[3].name
+    assert (first, fourth) == ("M0p8_0km_a0_b0", "M0p8_11km_a0_b0")
+    assert _element(user, f"alt-{first}").text == "0"  # the table follows at once
+    assert _element(user, f"temp-{first}").text == "288.15 K"
+    user.find(marker="restart-all-previous").click()
+    assert [c.restart for c in open_project(project_dir).cases] == [
+        "none", "previous", "previous", "none", "previous", "previous"]
 
 
 async def test_reynolds_column_follows_a_mach_edit(user: User, ready_project):
@@ -310,11 +327,5 @@ async def test_manual_mode_has_no_freestream_columns(user: User, ready_project):
     project_dir, project = ready_project
     await _open(user, project_dir)
     await user.should_not_see(marker=f"re-{project.cases[0].name}")
+    await user.should_not_see(marker=f"alt-{project.cases[0].name}")
     assert "readonly" not in _element(user, "sweep-altitude").props
-
-
-async def test_without_a_profile_the_altitude_hint_points_at_the_cli(user: User, ready_project):
-    project_dir, _ = ready_project
-    _altitude_mode(project_dir)  # the ready project has no aircraft profile
-    await _open(user, project_dir)
-    assert "aerosuite set" in _element(user, "sweep-altitude-note").text

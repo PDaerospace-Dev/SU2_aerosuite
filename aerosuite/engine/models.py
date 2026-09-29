@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 class Mesh(BaseModel):
@@ -18,10 +18,10 @@ FreestreamMode = Literal["manual", "altitude"]
 
 
 class Freestream(BaseModel):
-    # "altitude": each case's temperature and Reynolds number come from the ISA at altitude_km and the
-    # case's own Mach; temperature_K and reynolds are then kept (unused) for switching back.
+    # "altitude": each case's temperature and Reynolds number come from the ISA at its altitude and its own
+    # Mach; temperature_K and reynolds are then kept (unused) for switching back.
     mode: FreestreamMode = "manual"
-    altitude_km: Optional[float] = None
+    altitude_km: Optional[float] = None  # the single case's altitude; a sweep uses SweepSpec.altitudes_km
     temperature_K: Optional[float] = None
     reynolds: Optional[float] = None
     reynolds_length: Optional[float] = None
@@ -68,7 +68,9 @@ class SweepSpec(BaseModel):
     mach: list[float] = Field(default_factory=list)
     alpha: list[float] = Field(default_factory=list)
     beta: list[float] = Field(default_factory=list)
-    altitude: str = "sl"
+    # Swept (outermost) in altitude mode; kept, unused, in manual mode.
+    altitudes_km: list[float] = Field(default_factory=list)
+    altitude: str = "sl"  # the typed name label (manual mode, or altitude mode without altitudes)
     naming: Naming = Field(default_factory=Naming)
 
 
@@ -80,6 +82,7 @@ class Case(BaseModel):
     mach: float
     alpha: float
     beta: float
+    altitude_km: Optional[float] = None  # set in altitude mode with the sweep on
     restart: RestartOption = "none"
     # custom: absolute path of a restart file, or of a case folder holding one
     restart_ref: Optional[str] = None

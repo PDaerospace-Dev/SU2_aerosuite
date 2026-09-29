@@ -3,10 +3,10 @@ import json
 import pytest
 
 from aerosuite.engine.cfg import build_cases, case_freestream, render_case
-from aerosuite.engine.editing import set_freestream, update_sweep
+from aerosuite.engine.editing import set_altitudes, set_freestream, update_sweep
 from aerosuite.engine.errors import ProjectError
 from aerosuite.engine.freestream import (altitude_label, freestream_for, freestream_setup_errors, naming_altitude)
-from aerosuite.engine.models import Freestream, Project, Settings
+from aerosuite.engine.models import SCHEMA_VERSION, Freestream, Project, Settings
 from aerosuite.engine.profiles import apply_profile, load_profile, save_profile
 from aerosuite.engine.project import PROJECT_FILE, create_project, open_project, save_project
 
@@ -25,6 +25,8 @@ def _sweep_project(**freestream) -> Project:
     project.sweep.naming.include_base = False
     for key, value in freestream.items():
         setattr(project.settings.freestream, key, value)
+    if freestream.get("altitude_km") is not None:  # a sweep runs at the altitudes of its list
+        project.sweep.altitudes_km = [freestream["altitude_km"]]
     project.cases = build_cases(project)
     return project
 
@@ -95,18 +97,19 @@ def test_case_freestream_rows_carry_values_or_the_error():
     rows = case_freestream(project, TEMPLATE)
     assert [(r.name, r.mach, round(r.values.reynolds)) for r in rows] == [
         ("M0p6_11km_a0_b0", 0.6, 27193793), ("M0p8_11km_a0_b0", 0.8, 36258390)]
-    project.settings.freestream.altitude_km = 120.0
+    update_sweep(project, altitudes_km=[120.0])
     assert all(r.values is None and "outside" in r.error for r in case_freestream(project, TEMPLATE))
 
 
 def test_set_freestream_rebuilds_names_and_keeps_restarts():
     project = _sweep_project()
-    assert set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    assert set_freestream(project, mode="altitude", reynolds_length=6.0)
+    set_altitudes(project, [11.0])
     assert [c.name for c in project.cases] == ["M0p6_11km_a0_b0", "M0p8_11km_a0_b0"]
     project.cases[1].restart = "previous"
     set_freestream(project, reynolds_length=7.0)  # the label doesn't change: names and restarts stay
     assert project.cases[1].restart == "previous"
-    set_freestream(project, altitude_km=None)  # cleared: back to the typed label
+    update_sweep(project, altitudes_km=[])  # cleared: back to the typed label
     assert project.cases[1].name == "M0p8_sl_a0_b0"
     assert not set_freestream(project, mode="altitude")  # no change
 
@@ -121,7 +124,7 @@ def test_set_freestream_refuses_bad_input():
 
 def test_the_typed_label_is_refused_in_altitude_mode():
     project = _sweep_project(mode="altitude", altitude_km=11.0, reynolds_length=6.0)
-    with pytest.raises(ProjectError, match="follows the altitude"):
+    with pytest.raises(ProjectError, match="follows the altitudes"):
         update_sweep(project, altitude="cruise")
 
 
@@ -132,7 +135,7 @@ def test_schema_3_projects_open_in_manual_mode(tmp_path):
     data["settings"]["freestream"] = {"temperature_K": 250.0}
     (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
     project = open_project(tmp_path)
-    assert project.schema_version == 4
+    assert project.schema_version == SCHEMA_VERSION
     assert project.settings.freestream.mode == "manual" and project.settings.freestream.temperature_K == 250.0
 
 
@@ -140,7 +143,8 @@ def test_applying_a_profile_rebuilds_the_case_names(tmp_path, monkeypatch):
     monkeypatch.setenv("AEROSUITE_HOME", str(tmp_path / "home"))
     source = tmp_path / "source"
     project = create_project(source)
-    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    set_freestream(project, mode="altitude", reynolds_length=6.0)
+    set_altitudes(project, [11.0])
     save_project(source, project)
     save_profile(source, project, "cruise", "Cruise")
     target = tmp_path / "target"
@@ -158,7 +162,8 @@ def test_renaming_cases_keeps_their_restart_choices():
     project = _sweep_project()
     project.cases[0].restart, project.cases[0].restart_ref = "custom", "/data/a.dat"
     project.cases[1].restart = "previous"
-    set_freestream(project, mode="altitude", altitude_km=11.0, reynolds_length=6.0)
+    set_freestream(project, mode="altitude", reynolds_length=6.0)
+    set_altitudes(project, [11.0])
     assert [(c.name, c.restart, c.restart_ref) for c in project.cases] == [
         ("M0p6_11km_a0_b0", "custom", "/data/a.dat"), ("M0p8_11km_a0_b0", "previous", None)]
 

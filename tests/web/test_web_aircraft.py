@@ -1,5 +1,6 @@
 from nicegui.testing import User
 
+from aerosuite.engine.editing import set_freestream, update_sweep
 from aerosuite.engine.profiles import apply_profile, load_profile
 from aerosuite.engine.project import open_project, save_project
 from aerosuite.web.layout import project_url
@@ -155,23 +156,48 @@ async def test_freestream_switches_to_altitude_and_back_keeping_the_hand_values(
     user.find(marker="freestream-temperature_K").clear().type("250").trigger("blur")
     _element(user, "freestream-mode").set_value("altitude")
     assert _open_project(project_dir).settings.freestream.mode == "altitude"
-    await user.should_see(marker="freestream-altitude_km")
+    # With the sweep on, the altitudes are the Sweep page's: shown here, not edited
+    await user.should_see(marker="freestream-altitudes-sweep")
+    await user.should_see(marker="freestream-altitudes-link")
+    await user.should_not_see(marker="freestream-altitude_km")
     assert not _shown(user, "freestream-temperature_K")
-    user.find(marker="freestream-altitude_km").clear().type("11").trigger("blur")
     user.find(marker="freestream-reynolds_length").clear().type("6").trigger("blur")
-    project = _open_project(project_dir)
-    # (the ready project leaves the altitude out of case names, so check the label, not the names)
-    assert project.settings.freestream.altitude_km == 11.0 and naming_altitude(project) == "11km"
-    await user.should_see("216.65 K")
+    assert _open_project(project_dir).settings.freestream.reynolds_length == 6.0
     await user.should_see(marker="freestream-kept")
     _element(user, "freestream-mode").set_value("manual")
     await user.should_see(marker="freestream-temperature_K")
     assert _element(user, "freestream-temperature_K").value == "250"
 
 
-async def test_the_summary_shows_the_error_for_a_bad_altitude(user: User, ready_project):
+async def test_the_summary_spans_the_swept_altitudes(user: User, ready_project):
     project_dir, _ = ready_project
     _with_x07(project_dir)
+    project = open_project(project_dir)
+    set_freestream(project, mode="altitude", reynolds_length=6.0)
+    update_sweep(project, altitudes_km=[0.0, 11.0])
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    assert _element(user, "freestream-altitudes-sweep").text == "0, 11"
+    await user.should_see("216.65 K … 288.15 K")
+    await user.should_see(marker="freestream-summary")
+
+
+async def test_a_single_case_sets_its_altitude_here(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    await _open(user, project_dir)
+    _element(user, "freestream-mode").set_value("altitude")
+    await user.should_see(marker="freestream-altitude_km")
+    user.find(marker="freestream-altitude_km").clear().type("11").trigger("blur")
+    user.find(marker="freestream-reynolds_length").clear().type("6").trigger("blur")
+    project = _open_project(project_dir)
+    assert project.settings.freestream.altitude_km == 11.0 and naming_altitude(project) == "11km"
+    await user.should_see("216.65 K")
+
+
+async def test_the_summary_shows_the_error_for_a_bad_altitude(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
     await _open(user, project_dir)
     _element(user, "freestream-mode").set_value("altitude")
     user.find(marker="freestream-altitude_km").clear().type("120").trigger("blur")

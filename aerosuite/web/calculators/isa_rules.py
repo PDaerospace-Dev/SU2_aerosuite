@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from typing import Literal, NamedTuple, Optional
 
 from ...engine.cfg import settings_parameters, template_case_values
-from ...engine.editing import set_freestream
+from ...engine.editing import set_altitudes, set_freestream
 from ...engine.errors import ProjectError
-from ...engine.freestream import freestream_for, naming_altitude
+from ...engine.freestream import freestream_for, naming_altitude, sweeps_altitude
 from ...engine.models import Freestream, Project, Settings
 from ...engine.naming import format_value
 
@@ -42,7 +42,10 @@ def isa_prefill(project: Optional[Project], template: str) -> Prefill:
         return Prefill(0.0, 0.8, 1.0, "")
     fs, notes = project.settings.freestream, []
     altitude, length, mach = 0.0, 1.0, 0.8
-    if fs.mode == "altitude" and fs.altitude_km is not None:
+    if sweeps_altitude(project) and project.sweep.altitudes_km:
+        altitude = project.sweep.altitudes_km[0]
+        notes.append(f"altitude {format_value(altitude)} km (the sweep's first)")
+    elif fs.mode == "altitude" and not project.sweep.enabled and fs.altitude_km is not None:
         altitude = fs.altitude_km
         notes.append("altitude from the Aircraft page")
     if fs.reynolds_length:
@@ -63,6 +66,12 @@ def _template_value(template: str, key: str) -> str:
     return match.group(1) if match else "—"
 
 
+def apply_isa_settings(project: Project, altitude_km: float, length_m: float) -> None:
+    """Apply to a project's settings: altitude mode at this one altitude (it replaces a sweep's list)."""
+    set_freestream(project, mode="altitude", reynolds_length=length_m)
+    set_altitudes(project, [altitude_km])
+
+
 def plan_isa_apply(project: Project, template: Optional[str], altitude_km: float, mach: float,
                    length_m: float) -> ApplyPlan:
     if project.profile or project.settings.freestream.mode == "altitude":
@@ -71,17 +80,25 @@ def plan_isa_apply(project: Project, template: Optional[str], altitude_km: float
         fs = project.settings.freestream
         new = project.model_copy(deep=True)
         try:
-            set_freestream(new, mode="altitude", altitude_km=altitude_km, reynolds_length=length_m)
+            apply_isa_settings(new, altitude_km, length_m)
         except ProjectError as exc:
             return ApplyPlan("blocked", reason=str(exc))
+        if project.sweep.enabled:
+            old_altitude = ("Altitudes", ", ".join(format_value(a) for a in project.sweep.altitudes_km) + " km"
+                            if project.sweep.altitudes_km else "—")
+        else:
+            old_altitude = ("Altitude", _num(fs.altitude_km, "km"))
         changes = [("Freestream", MODE_TEXT[fs.mode], "From altitude"),
-                   ("Altitude", _num(fs.altitude_km, "km"), _num(altitude_km, "km")),
+                   (*old_altitude, _num(altitude_km, "km")),
                    ("Reynolds length", _num(fs.reynolds_length, "m"), _num(length_m, "m"))]
-        renamed = sum(1 for old, now in zip(project.cases, new.cases) if old.name != now.name)
         old_label, new_label = naming_altitude(project), naming_altitude(new)
         if old_label != new_label and project.sweep.enabled and project.sweep.naming.include_altitude:
             changes.append(("Altitude label (case names)", old_label, new_label))
-        note = f"Renames {renamed} case{'' if renamed == 1 else 's'}" if renamed else ""
+        if len(new.cases) != len(project.cases):
+            note = f"{len(project.cases)} cases become {len(new.cases)}"
+        else:
+            renamed = sum(1 for old, now in zip(project.cases, new.cases) if old.name != now.name)
+            note = f"Renames {renamed} case{'' if renamed == 1 else 's'}" if renamed else ""
         return ApplyPlan("settings", changes, note)
     if project.sweep.enabled:
         return ApplyPlan("blocked", reason=SWEEP_REASON)

@@ -146,9 +146,11 @@ def summarize(
         name = history.parent.name
         if name in skip:
             continue
+        altitude = None
         if name in case_index:
             values = case_index[name]
             mach, alpha, beta = values.get("mach"), values.get("alpha"), values.get("beta")
+            altitude = values.get("altitude_km")
         else:
             mach, alpha, beta = parse_case_name(name)
         if alpha is None:
@@ -162,14 +164,19 @@ def summarize(
         if not converged:
             warnings.append(f"{name}: {message}")
         averages = df.tail(max(1, min(last_n, len(df)))).mean(numeric_only=True)
-        row = {"Case": name, "Mach": mach, "Alpha": alpha, "Beta": beta, "Converged": converged}
+        row = {"Case": name, "Altitude": altitude, "Mach": mach, "Alpha": alpha, "Beta": beta, "Converged": converged}
         for col in columns:
             row[col] = averages.get(col, float("nan"))
         rows.append(row)
     if not rows:
         return pd.DataFrame(columns=SUMMARY_KEY_COLUMNS + list(columns)), warnings
     summary = pd.DataFrame(rows)
-    summary = summary.sort_values(["Mach", "Beta", "Alpha"], na_position="last").reset_index(drop=True)
+    order = ["Mach", "Beta", "Alpha"]
+    if summary["Altitude"].isna().all():  # no altitude sweep: the table is as before
+        summary = summary.drop(columns="Altitude")
+    else:
+        order.insert(0, "Altitude")
+    summary = summary.sort_values(order, na_position="last").reset_index(drop=True)
     return summary, warnings
 
 

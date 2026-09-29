@@ -7,7 +7,6 @@ from typing import Any, Optional
 
 from .cfg import build_cases
 from .errors import ProjectError
-from .freestream import naming_altitude
 from .models import Project, Settings
 
 MARKER_PREFIX = "MARKER_"
@@ -108,10 +107,23 @@ def unset_parameter(settings: Settings, key: str) -> None:
 KEEP: Any = object()  # set_freestream: leave this field as it is
 
 
+def rebuild_if_changed(project: Project) -> bool:
+    """Rebuild the cases when their names or altitudes would change (an empty Mach sweep stays empty);
+    returns whether they were rebuilt."""
+    if not project.cases and project.sweep.enabled and not project.sweep.mach:
+        return False
+    rebuilt = build_cases(project)
+    if [(c.name, c.altitude_km) for c in rebuilt] == [(c.name, c.altitude_km) for c in project.cases]:
+        return False
+    project.cases = rebuilt
+    return True
+
+
 def set_freestream(project: Project, *, mode: Any = KEEP, altitude_km: Any = KEEP,
                    reynolds_length: Any = KEEP) -> bool:
-    """Change how configs get their freestream (None clears a number); rebuild the cases when the altitude
-    label in their names changes. Returns whether anything changed."""
+    """Change how configs get their freestream (None clears a number); `altitude_km` is the single case's
+    altitude (a sweep's are its altitudes_km). Rebuilds the cases when their names or altitudes change.
+    Returns whether anything changed."""
     fs = project.settings.freestream
     if mode is not KEEP and mode not in ("manual", "altitude"):
         raise ProjectError(f"Freestream mode must be 'manual' or 'altitude', not {mode!r}")
@@ -119,15 +131,13 @@ def set_freestream(project: Project, *, mode: Any = KEEP, altitude_km: Any = KEE
         if value is not KEEP and value is not None and not math.isfinite(value):
             raise ProjectError(f"{what} must be a number")
     before = (fs.mode, fs.altitude_km, fs.reynolds_length)
-    label = naming_altitude(project)
     if mode is not KEEP:
         fs.mode = mode
     if altitude_km is not KEEP:
         fs.altitude_km = altitude_km
     if reynolds_length is not KEEP:
         fs.reynolds_length = reynolds_length
-    if naming_altitude(project) != label:
-        project.cases = build_cases(project)
+    rebuild_if_changed(project)
     return (fs.mode, fs.altitude_km, fs.reynolds_length) != before
 
 
@@ -139,16 +149,19 @@ def update_sweep(
     beta: Optional[list[float]] = None,
     altitude: Optional[str] = None,
     base_name: Optional[str] = None,
+    altitudes_km: Optional[list[float]] = None,
 ) -> bool:
     """Apply the given sweep fields; rebuild the cases when anything changed."""
     if mach is not None and any(m <= 0 for m in mach):
         raise ProjectError("Mach numbers must be greater than 0")
+    if altitudes_km is not None and not all(math.isfinite(a) for a in altitudes_km):
+        raise ProjectError("Altitudes must be numbers")
     if altitude is not None and project.settings.freestream.mode == "altitude":
-        raise ProjectError("The altitude label follows the altitude in altitude mode "
-                           "(set the altitude on the Aircraft page, or with --altitude-km)")
+        raise ProjectError("The altitude label follows the altitudes in altitude mode "
+                           "(set them on the Sweep page, or with --altitude-km)")
     sweep = project.sweep
     changed = False
-    for field, value in (("mach", mach), ("alpha", alpha), ("beta", beta)):
+    for field, value in (("mach", mach), ("alpha", alpha), ("beta", beta), ("altitudes_km", altitudes_km)):
         if value is not None:
             setattr(sweep, field, list(value))
             changed = True
@@ -161,3 +174,12 @@ def update_sweep(
     if changed:
         project.cases = build_cases(project)
     return changed
+
+
+def set_altitudes(project: Project, altitudes_km: list[float]) -> bool:
+    """The altitudes the cases run at: the sweep's list with the sweep on, else the single case's one."""
+    if project.sweep.enabled:
+        return update_sweep(project, altitudes_km=altitudes_km)
+    if len(altitudes_km) != 1:
+        raise ProjectError("A single case has one altitude; switch the sweep on to run several")
+    return set_freestream(project, altitude_km=altitudes_km[0])

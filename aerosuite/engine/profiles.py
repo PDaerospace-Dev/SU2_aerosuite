@@ -1,7 +1,7 @@
 """Aircraft profiles: what a new study of that aircraft starts from.
 
 A profile holds the Aircraft form's settings, naming, hints and, optionally, a master template, a mesh
-path (the file stays where it is), the sweep (Mach, alpha, beta, altitude label) and run settings.
+path (the file stays where it is), the sweep (Mach, alpha, beta, altitudes, altitude label) and run settings.
 Bundled profiles ship with AeroSuite; editing one saves the user's own copy under the same id, which
 replaces it until deleted.
 """
@@ -26,7 +26,7 @@ BUNDLED_PROFILES = Path(__file__).resolve().parents[1] / "resources" / "profiles
 PROFILE_FILE = "profile.json"
 _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _GROUPS = ("freestream", "reference", "numerics")
-SWEEP_KEYS = ("mach", "alpha", "beta", "altitude")
+SWEEP_KEYS = ("mach", "alpha", "beta", "altitudes_km", "altitude")
 RUN_KEYS = ("partitions", "sweep_script", "sweep_python")
 
 
@@ -239,7 +239,7 @@ def save_profile(project_dir: Path, project: Project, profile_id: str, name: str
         settings=saved_settings, hints=hints, naming=sweep.naming.model_dump(),
         mesh=project.mesh.path,
         sweep={"mach": list(sweep.mach), "alpha": list(sweep.alpha), "beta": list(sweep.beta),
-               "altitude": sweep.altitude},
+               "altitudes_km": list(sweep.altitudes_km), "altitude": sweep.altitude},
         run=project.run.model_dump(),
     )
     template = Path(project_dir) / project.template

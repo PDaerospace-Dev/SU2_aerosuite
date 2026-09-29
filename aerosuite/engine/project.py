@@ -67,8 +67,24 @@ def _v3_to_v4(data: dict, directory: Optional[Path]) -> dict:
     return data
 
 
+def _v4_to_v5(data: dict, directory: Optional[Path]) -> dict:
+    """Schema 5 sweeps altitudes: the one altitude becomes the sweep's list, and an altitude-mode sweep's
+    cases record it (so their restart choices stay attached)."""
+    freestream = data.get("settings", {}).get("freestream", {})
+    altitude = freestream.get("altitude_km")
+    if altitude is None:
+        return data
+    sweep = data.setdefault("sweep", {})
+    sweep["altitudes_km"] = [altitude]
+    if freestream.get("mode") == "altitude" and sweep.get("enabled", True):
+        for case in data.get("cases", []):
+            case["altitude_km"] = altitude
+    return data
+
+
 # {from_version: function(data, project folder or None) -> data at from_version + 1}
-MIGRATIONS: dict[int, Callable[[dict, Optional[Path]], dict]] = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4}
+MIGRATIONS: dict[int, Callable[[dict, Optional[Path]], dict]] = {
+    1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4, 4: _v4_to_v5}
 
 
 def create_project(directory: Path, name: Optional[str] = None) -> Project:
