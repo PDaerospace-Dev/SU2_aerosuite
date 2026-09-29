@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
@@ -19,6 +20,18 @@ ABSOLUTE_TOLERANCE = 1e-6  # a column this steady is converged whatever its mean
 SUMMARY_KEY_COLUMNS = ["Case", "Mach", "Alpha", "Beta", "Converged"]
 RESULTS_DIR = "results"
 SUMMARY_FILE = "summary.csv"
+ITERATION_COLUMNS = frozenset({"Time_Iter", "Outer_Iter", "Inner_Iter", "Cur_Time", "Iteration"})
+
+# Parameter groups for the Results page's picker, from SU2's column names
+GROUP_TOTALS = "Total coefficients"
+GROUP_FLOW = "Flow & other"
+GROUP_CONVERGENCE = "Convergence monitors"
+GROUP_SOLVER = "Solver"
+GROUP_RESIDUALS = "Residuals"
+MARKER_GROUP = "Marker: {}"
+_GROUP_RANK = {GROUP_TOTALS: 0, GROUP_FLOW: 2, GROUP_CONVERGENCE: 3, GROUP_SOLVER: 4, GROUP_RESIDUALS: 5}
+# Groups that describe the solver, not the flow: never used to judge convergence
+_NOT_FLOW = (GROUP_CONVERGENCE, GROUP_SOLVER, GROUP_RESIDUALS)
 
 
 def _fields(line: str) -> list[str]:
@@ -120,6 +133,61 @@ def check_convergence(
     return True, "Converged"
 
 
+def history_header(path: Path) -> list[str]:
+    """The column names of a history file (its first data header), or [] when it has none yet."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith(("TITLE", "ZONE", "#")):
+                    continue
+                if line.startswith("VARIABLES"):
+                    line = line.split("=", 1)[1]
+                return _fields(line)
+    except OSError:
+        pass
+    return []
+
+
+def history_columns(project_dir: Path) -> list[str]:
+    """Every parameter the study's history files hold (the union over cases, first seen first), without the
+    iteration counters."""
+    seen: dict[str, None] = {}
+    for history in sorted((Path(project_dir) / "runs").glob(f"*/{HISTORY_FILE}")):
+        for column in history_header(history):
+            if column not in ITERATION_COLUMNS:
+                seen.setdefault(column)
+    return list(seen)
+
+
+def group_of(column: str) -> str:
+    """The picker group of a history column: totals, one group per marker (CL(Wing), Avg_Massflow(outlet)), …"""
+    if re.match(r"^(rms|max|bgs)\[", column, re.IGNORECASE):
+        return GROUP_RESIDUALS
+    if column.startswith("Cauchy"):
+        return GROUP_CONVERGENCE
+    if re.match(r"^(LinSol|Avg_CFL|Min_CFL|Max_CFL)", column):
+        return GROUP_SOLVER
+    marker = re.match(r"^(.+)\((.+)\)$", column)
+    if marker:
+        return MARKER_GROUP.format(marker.group(2))
+    if re.match(r"^C[A-Z][A-Za-z]{0,3}$", column):
+        return GROUP_TOTALS
+    return GROUP_FLOW
+
+
+def ordered_groups(columns: Iterable[str]) -> list[str]:
+    """The groups present, totals first, then markers (by name), flow, and the solver groups last."""
+    groups = dict.fromkeys(group_of(column) for column in columns)
+    return sorted(groups, key=lambda group: (_GROUP_RANK.get(group, 1), group))
+
+
+def convergence_columns(chosen: Iterable[str], derived: Iterable[str] = ()) -> list[str]:
+    """The chosen parameters convergence is judged on: history columns that describe the flow."""
+    derived = set(derived)
+    return [c for c in chosen if c not in derived and group_of(c) not in _NOT_FLOW]
+
+
 def load_case_index(configs_dir: Path) -> dict[str, dict[str, float]]:
     """cases.json written by generate_configs, or {} for legacy runs."""
     path = Path(configs_dir) / CASE_INDEX_FILE
@@ -137,8 +205,12 @@ def summarize(
     last_n: int = 100,
     case_index: Optional[Mapping[str, Mapping[str, float]]] = None,
     skip: Iterable[str] = (),
+    convergence_columns: Optional[Sequence[str]] = None,
 ) -> tuple[pd.DataFrame, list[str]]:
-    """Average the last `last_n` rows of every case's history into one table."""
+    """Average the last `last_n` rows of every case's history into one table.
+
+    Converged is judged on `convergence_columns` (default: CL, CD, CMy); an empty list means not judged (None).
+    """
     case_index = case_index or {}
     skip = set(skip)
     rows, warnings = [], []
@@ -160,8 +232,13 @@ def summarize(
         if df.empty:
             warnings.append(f"{name}: history file is empty, skipped")
             continue
-        converged, message = check_convergence(df)
-        if not converged:
+        if convergence_columns is None:
+            converged, message = check_convergence(df)
+        elif not convergence_columns:
+            converged, message = None, ""
+        else:
+            converged, message = check_convergence(df, convergence_columns)
+        if converged is False:
             warnings.append(f"{name}: {message}")
         averages = df.tail(max(1, min(last_n, len(df)))).mean(numeric_only=True)
         row = {"Case": name, "Altitude": altitude, "Mach": mach, "Alpha": alpha, "Beta": beta, "Converged": converged}
