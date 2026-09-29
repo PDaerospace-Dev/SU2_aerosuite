@@ -262,8 +262,78 @@ def test_sweep_exits_mid_case(ready_project):
     assert job.case_status == {
         A0: CaseState.CONVERGED, A2: CaseState.FAILED, A4: CaseState.FAILED,
     }
-    assert job.failure_tail[A2].startswith("No history.csv was written")
-    assert "exited before this case started" in job.failure_tail[A4]
+    assert job.exit_code == 1
+    assert job.failure_tail[A2].startswith("The sweep stopped during this case (exit code 1).")
+    assert "No history.csv was written" in job.failure_tail[A2]
+    assert job.failure_tail[A4].startswith("The sweep script stopped (exit code 1) before this case started")
+
+
+def _running_partial(project_dir, project):
+    """A job whose first case has written an unconverged history and is still running."""
+    _prepare(project_dir, project, cases={A0: "partial"})
+    runner = LocalRunner()
+    job = runner.submit(project_dir, project)
+    log = project_dir / job.log_path
+    deadline = time.monotonic() + 20
+    while "PARTIAL WRITTEN" not in log.read_text() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return runner, job
+
+
+def test_a_sweep_killed_mid_case_fails_that_case(ready_project):
+    """E.g. the out-of-memory killer ends the sweep: the half-run case is Failed, not Unconverged."""
+    import psutil
+
+    project_dir, project = ready_project
+    runner, job = _running_partial(project_dir, project)
+    wrapper = psutil.Process(job.backend_ref["pid"])
+    script = wrapper.children()[0]
+    script.kill()
+    job = _wait(runner, project_dir, job, _finished)
+    assert job.state is JobState.FAILED
+    assert job.case_status == {A0: CaseState.FAILED, A2: CaseState.FAILED, A4: CaseState.FAILED}
+    assert job.exit_code != 0
+    assert job.failure_tail[A0].startswith("The sweep stopped during this case (")
+    assert not (project_dir / "jobs" / f"{job.id}.exit").exists()  # kept in the job record instead
+
+
+def test_a_sweep_killed_with_its_wrapper_fails_the_running_case(ready_project):
+    from aerosuite.engine.jobs.store import kill_tree
+
+    project_dir, project = ready_project
+    runner, job = _running_partial(project_dir, project)
+    kill_tree(job.backend_ref["pid"])  # from outside, not a Cancel: no exit code gets written
+    job = _wait(LocalRunner(), project_dir, load_job(project_dir, job.id), _finished)
+    assert job.state is JobState.FAILED and job.exit_code is None
+    assert job.failure_tail[A0].startswith("The sweep stopped during this case (it was killed).")
+
+
+def test_a_clean_run_records_exit_code_zero(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project)
+    runner = LocalRunner()
+    job = _wait(runner, project_dir, runner.submit(project_dir, project), _finished)
+    assert job.state is JobState.DONE and job.exit_code == 0
+    assert load_job(project_dir, job.id).exit_code == 0
+
+
+def test_a_job_started_before_the_wrapper_is_judged_by_its_files_alone(ready_project):
+    from aerosuite.engine.jobs.runner import JobRecord
+    from aerosuite.engine.jobs.store import save_job
+
+    project_dir, _ = ready_project
+    (project_dir / "jobs").mkdir()
+    (project_dir / "jobs" / "old.log").write_text(f"=== Running Case 1/1: {A0}.cfg ===\n")
+    folder = project_dir / RUNS_DIR / A0
+    folder.mkdir(parents=True)
+    rows = [f"{i}, {-2 - 0.1 * i}, {0.5 + 0.2 * (-1) ** i}, 0.02, -0.1" for i in range(50)]
+    (folder / "history.csv").write_text('"Inner_Iter","rms[Rho]","CL","CD","CMy"\n' + "\n".join(rows) + "\n")
+    job = JobRecord(id="old", backend="local", cases=[A0], log_path="jobs/old.log",
+                    backend_ref={"pid": -1, "create_time": 0.0}, state=JobState.RUNNING,
+                    case_status={A0: CaseState.RUNNING})
+    save_job(project_dir, job)
+    job = LocalRunner().refresh(project_dir, job)
+    assert job.case_status[A0] is CaseState.UNCONVERGED and job.exit_code is None
 
 
 def test_refresh_of_a_stale_copy_keeps_a_cancel_made_elsewhere(ready_project):

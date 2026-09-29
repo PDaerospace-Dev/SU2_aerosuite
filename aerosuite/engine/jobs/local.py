@@ -1,8 +1,9 @@
 """LocalRunner: runs the sweep script on this machine as a detached process.
 
 All state is derived from disk and the OS (process liveness, the job log's
-"Running Case i/n: <cfg>" banners, runs/<case>/error.log and history.csv), so a
-fresh LocalRunner — e.g. after a server restart — reports the same state.
+"Running Case i/n: <cfg>" banners, runs/<case>/error.log and history.csv, and the
+exit code sweep_wrapper.py writes to jobs/<id>.exit), so a fresh LocalRunner — e.g.
+after a server restart — reports the same state.
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ from .store import JOBS_DIR, active_lock, clear_lock, kill_tree, load_job, proce
 
 BANNER_RE = re.compile(r"Running Case\s+\d+/\d+:\s+(\S+?)\.cfg")
 TAIL_LINES = 50
+WRAPPER = Path(__file__).resolve().parent / "sweep_wrapper.py"
 
 
 def _read_text(path: Path) -> str:
@@ -81,12 +83,13 @@ def _remove_restart_copies(project_dir: Path, job: JobRecord) -> None:
 
 
 def _discard(project_dir: Path, job: JobRecord) -> None:
-    """Remove a job that never got going: its jobs/<id>/ folder and its log."""
+    """Remove a job that never got going: its jobs/<id>/ folder, its log and any exit code."""
     shutil.rmtree(project_dir / JOBS_DIR / job.id, ignore_errors=True)
-    try:
-        (project_dir / job.log_path).unlink()
-    except OSError:
-        pass
+    for name in (job.log_path, f"{JOBS_DIR}/{job.id}.exit"):
+        try:
+            (project_dir / name).unlink()
+        except OSError:
+            pass
 
 
 class LocalRunner:
@@ -113,6 +116,9 @@ class LocalRunner:
             except OSError as exc:
                 raise JobError(f"Cannot create {folder}: {exc}") from exc
 
+        python = resolve_sweep_python(project.run.sweep_python)
+        if shutil.which(python, path=sweep_environment().get("PATH", "")) is None and not Path(python).is_file():
+            raise JobError(f"Cannot start the sweep script: Python not found: {project.run.sweep_python}")
         selected = [case.name for case in project.cases] if cases is None else list(cases)
         job_id = new_job_id(project_dir)
         configs = prepare_job(project_dir, project, job_id, selected, continue_cases)
@@ -125,10 +131,13 @@ class LocalRunner:
             log_path=f"{JOBS_DIR}/{job_id}.log",
             case_status={name: CaseState.PENDING for name in names},
         )
-        cmd = [
-            resolve_sweep_python(project.run.sweep_python), str(sweep_script_path(project.run)),
+        exit_file = f"{JOBS_DIR}/{job_id}.exit"
+        sweep = [
+            python, str(sweep_script_path(project.run)),
             "-d", str(configs), "-c", str(control), "-n", str(project.run.partitions),
         ]
+        # -I: the sweep environment's PYTHONPATH (SU2's) must not reach AeroSuite's own Python.
+        cmd = [sys.executable, "-I", str(WRAPPER), str(project_dir / exit_file), *sweep]
         if sys.platform == "win32":
             detach = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         else:
@@ -157,7 +166,7 @@ class LocalRunner:
         except psutil.NoSuchProcess:
             create_time = 0.0
 
-        job.backend_ref = {"pid": proc.pid, "create_time": create_time}
+        job.backend_ref = {"pid": proc.pid, "create_time": create_time, "exit_file": exit_file}
         job.state = JobState.RUNNING
         try:
             write_lock(project_dir, job.id, proc.pid, create_time)
@@ -209,6 +218,8 @@ class LocalRunner:
         for name, state in job.case_status.items():
             if state in (CaseState.PENDING, CaseState.RUNNING):
                 job.case_status[name] = CaseState.CANCELLED
+        if "exit_file" in job.backend_ref:  # in case the script ended as the wrapper was stopped
+            (project_dir / job.backend_ref["exit_file"]).unlink(missing_ok=True)
         job.state = JobState.CANCELLED
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
@@ -286,16 +297,50 @@ class LocalRunner:
 
     def _finish(self, project_dir: Path, job: JobRecord) -> None:
         log_tail = _tail(_read_text(project_dir / job.log_path))
+        ended = "The sweep script exited"
+        if "exit_file" in job.backend_ref:  # jobs started before the wrapper have no exit code
+            job.exit_code = _take_exit_code(project_dir / job.backend_ref["exit_file"])
+            if job.exit_code != 0:
+                ended = f"The sweep script stopped ({_reason(job.exit_code)})"
+                self._fail_interrupted_case(project_dir, job)
         for name, state in job.case_status.items():
             if state is CaseState.PENDING:
                 job.case_status[name] = CaseState.FAILED
-                job.failure_tail[name] = "The sweep process exited before this case started.\n" + log_tail
+                job.failure_tail[name] = f"{ended} before this case started.\n" + log_tail
         ok = {CaseState.CONVERGED, CaseState.UNCONVERGED}
         job.state = JobState.DONE if all(s in ok for s in job.case_status.values()) else JobState.FAILED
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
         self._scan.pop(_key(project_dir, job), None)
         _remove_restart_copies(project_dir, job)
+
+
+    def _fail_interrupted_case(self, project_dir: Path, job: JobRecord) -> None:
+        """The sweep ended abnormally: the last case it started stopped part-way (unless it converged)."""
+        started = [name for name in self.started_cases(project_dir, job) if name in job.case_status]
+        if not started or job.case_status[started[-1]] is CaseState.CONVERGED:
+            return
+        name = started[-1]
+        detail = job.failure_tail.get(name) or _tail(_case_log_segment(_read_text(project_dir / job.log_path), name))
+        job.case_status[name] = CaseState.FAILED
+        job.failure_tail[name] = f"The sweep stopped during this case ({_reason(job.exit_code)}).\n" + detail
+
+
+def _take_exit_code(path: Path) -> Optional[int]:
+    """The code sweep_wrapper.py wrote (the file is then removed: the job record keeps it), or None."""
+    try:
+        code = int(path.read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    path.unlink(missing_ok=True)
+    return code
+
+
+def _reason(code: Optional[int]) -> str:
+    """Why an abnormal sweep ended: 'exit code 1', 'killed by signal 9', or 'it was killed' (no code)."""
+    if code is None:
+        return "it was killed"
+    return f"killed by signal {-code}" if code < 0 else f"exit code {code}"  # < 0: POSIX signal
 
 
 def _key(project_dir: Path, job: JobRecord) -> tuple[Path, str]:

@@ -48,6 +48,9 @@ class JobRecord(BaseModel):
     state: JobState = JobState.QUEUED
     case_status: dict[str, CaseState] = Field(default_factory=dict)
     failure_tail: dict[str, str] = Field(default_factory=dict)
+    # The sweep script's exit code once the job ended; None when unknown (killed, cancelled, or a job
+    # started before AeroSuite recorded it).
+    exit_code: Optional[int] = None
 
     @property
     def is_active(self) -> bool:

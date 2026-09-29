@@ -1,8 +1,9 @@
 """Test stand-in for aoa_sweep_v8.py: same CLI, banners and output layout, no SU2.
 
 Per-case behaviour comes from <cfg_dir>/fake_plan.json:
-    {"delay": 0.05, "cases": {"<case name>": "converge" | "diverge" | "fail" | "hang" | "exit"}}
-Cases not listed converge. "exit" ends the whole script (exit code 1) right after that case's banner.
+    {"delay": 0.05, "cases": {"<case name>": "converge" | "diverge" | "fail" | "hang" | "partial" | "exit"}}
+Cases not listed converge. "exit" ends the whole script (exit code 1) right after that case's banner;
+"partial" writes an unconverged history.csv, then hangs (a case killed mid-run leaves this behind).
 
 Each case folder gets restart_used.txt (its run_control.txt line) and restart_applied.txt: "yes" when
 the line asks for a restart (previous / from_case / custom) and the case cfg has RESTART_SOL= YES,
@@ -76,7 +77,10 @@ def main() -> int:
         if mode == "exit":
             sys.stdout.flush()
             sys.exit(1)
-        if mode == "hang":
+        if mode == "partial":
+            write_history(folder, diverge=True)
+            print("PARTIAL WRITTEN", flush=True)
+        if mode in ("hang", "partial"):
             while True:
                 time.sleep(0.1)
         time.sleep(delay)
