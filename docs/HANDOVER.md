@@ -107,6 +107,8 @@ altitude into the list. A single case keeps one altitude on the Aircraft page.
 Done 2026-09-29, **not yet checked on the workstation**: the sweep's exit code is recorded and a case the
 sweep dies in is Failed, not Unconverged (`f7987a4`); Cancel no longer freezes the web UI (`46abec2`). To check:
 Cancel a running job with real SU2 and see "Cancelling…" while other pages stay responsive.
+Also `ed2882c`: the template editor has line numbers (CodeMirror; saves 1 s after typing, on focusout and
+Ctrl+S), warnings fold into one row, and the Freestream card has the mode toggle in its head and one input row.
 
 Known smaller items (from reviews; none blocking):
 
