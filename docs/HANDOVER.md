@@ -119,7 +119,7 @@ Done 2026-09-29 and checked on the workstation with real SU2 (QuickStart NACA 00
   (saving after a pause, on Ctrl+S and on leaving; warnings row; mode toggle). Still for the user: clicking
   into the editor text with the mouse in a real window.
 
-Results page (2026-09-29, commits `e31a474`..Task 8, **not yet checked on the workstation**): ask the user
+Results page (2026-09-29, commits `e31a474`..`8fb1319`, **not yet checked on the workstation**): ask the user
 to open Results on a finished real study, choose parameters, add a derived value and a plot, compare a second
 study, and export.
 
