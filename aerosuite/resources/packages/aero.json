@@ -1,0 +1,23 @@
+{
+  "id": "aero",
+  "name": "Aerodynamic characteristics",
+  "description": "CL, CD and CMy against α, the drag polar, and the numbers read off them",
+  "parameters": ["CL", "CD", "CMy", "L/D"],
+  "derived": [
+    {"name": "L/D", "formula": "CL / CD", "unit": ""}
+  ],
+  "characteristics": [
+    {"name": "CLα", "formula": "slope(CL, Alpha, -2, 6)", "unit": "1/deg"},
+    {"name": "α₀", "formula": "at(Alpha, CL, 0)", "unit": "deg"},
+    {"name": "CD₀", "formula": "at(CD, CL, 0)", "unit": ""},
+    {"name": "(L/D)max", "formula": "max({L/D})", "unit": ""},
+    {"name": "α at (L/D)max", "formula": "argmax({L/D}, Alpha)", "unit": "deg"},
+    {"name": "CMα", "formula": "slope(CMy, Alpha, -2, 6)", "unit": "1/deg"}
+  ],
+  "plots": [
+    {"x": "Alpha", "y": ["CL"]},
+    {"x": "Alpha", "y": ["CD"]},
+    {"x": "Alpha", "y": ["CMy"]},
+    {"x": "CD", "y": ["CL"]}
+  ]
+}

@@ -1,19 +1,37 @@
-"""A study's results for the Results page: averaged parameters, derived values and characteristic values."""
+"""A study's results for the Results page: averaged parameters, derived values per case and characteristic values
+per curve, computed with the page's definitions (a compared study is read with the current study's definitions)."""
 from __future__ import annotations
 
+import json
+import math
 import re
-from typing import Optional, Union
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional, Union
+
+import pandas as pd
 
 from .atmosphere import ISACalculator
-from .cfg import case_mach
-from .formula import Missing
+from .cfg import CONFIGS_DIR, CASE_INDEX_FILE, case_mach, read_template
+from .errors import AeroSuiteError
+from .formula import FormulaError, Missing, evaluate, evaluate_curve, parse
 from .freestream import altitude_error, case_altitude
 from .models import Case, Project
+from .project import PROJECT_FILE, open_project
+from .restarts import RUNS_DIR
+from .results import HISTORY_FILE, convergence_columns, history_columns, load_case_index, summarize
 
+if TYPE_CHECKING:
+    from .packages import Definitions
+
+SWEEP_NAMES = ("Mach", "Alpha", "Beta", "Altitude")  # the summary's sweep columns, as formulas name them
+CURVE_KEYS = ("Altitude", "Mach", "Beta")  # a curve is one value of each of these, along α
 ISA_NAMES = ("rho_inf", "p_inf", "T_inf", "V_inf", "q_inf")
 CONSTANT_NAMES = ("S_ref", "L_ref") + ISA_NAMES
 _ISA_KEYS = {"rho_inf": "density", "p_inf": "pressure", "T_inf": "temperature", "V_inf": "true_airspeed",
              "q_inf": "dynamic_pressure"}
+_CACHE_SIZE = 32
 
 
 def _template_number(template: str, key: str) -> Optional[float]:
@@ -44,3 +62,143 @@ def study_constants(project: Project, case: Case, template: str) -> dict[str, Un
     isa = ISACalculator.calculate(altitude, case_mach(project, case, template), 1.0)
     values.update({name: isa[key] for name, key in _ISA_KEYS.items()})
     return values
+
+
+@dataclass
+class CurveValues:
+    curve: dict[str, float]  # the curve's sweep values, e.g. {"Mach": 0.8}
+    values: dict[str, Union[float, Missing]]  # characteristic value name -> value
+
+
+@dataclass
+class StudyResults:
+    name: str
+    folder: Path
+    table: pd.DataFrame  # Case, the sweep columns, Converged (True/False/None), parameters, derived values
+    characteristics: list[CurveValues] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # e.g. "v2 has no CL(Wing)"
+    warnings: list[str] = field(default_factory=list)  # per case, from reading the histories
+    reasons: dict[tuple[str, str], str] = field(default_factory=dict)  # (case, derived name) -> why it is empty
+
+    def reason(self, case: str, column: str) -> Optional[str]:
+        return self.reasons.get((case, column))
+
+
+_cache: "OrderedDict[tuple, StudyResults]" = OrderedDict()
+
+
+def _stamp(folder: Path) -> tuple:
+    """Changes whenever a history, the case index or project.json changes."""
+    paths = sorted((folder / RUNS_DIR).glob(f"*/{HISTORY_FILE}"))
+    paths += [folder / CONFIGS_DIR / CASE_INDEX_FILE, folder / PROJECT_FILE]
+    stamp = []
+    for path in paths:
+        try:
+            info = path.stat()
+            stamp.append((str(path), info.st_size, info.st_mtime_ns))
+        except OSError:
+            stamp.append((str(path), None, None))
+    return tuple(stamp)
+
+
+def _definitions_key(definitions: "Definitions") -> str:
+    return json.dumps({"parameters": definitions.parameters,
+                       "derived": [d.model_dump() for d in definitions.derived],
+                       "characteristics": [c.model_dump() for c in definitions.characteristics]})
+
+
+def study_results(folder: Path, definitions: "Definitions", last_n: int = 100) -> StudyResults:
+    """The study's results with `definitions`; cached until a history, the case index or project.json changes."""
+    folder = Path(folder).resolve()
+    key = (str(folder), last_n, _definitions_key(definitions), _stamp(folder))
+    if key in _cache:
+        _cache.move_to_end(key)
+        return _cache[key]
+    result = _compute(folder, definitions, last_n)
+    _cache[key] = result
+    while len(_cache) > _CACHE_SIZE:
+        _cache.popitem(last=False)
+    return result
+
+
+def _parsed(definitions: list, curve: bool) -> list:
+    out = []
+    for definition in definitions:
+        try:
+            out.append((definition, parse(definition.formula, curve=curve)))
+        except FormulaError as exc:
+            out.append((definition, Missing(f"formula error: {exc}")))
+    return out
+
+
+def _compute(folder: Path, definitions: "Definitions", last_n: int) -> StudyResults:
+    project = open_project(folder)
+    derived_names = definitions.derived_names
+    derived = _parsed(definitions.derived, curve=False)
+    characteristics = _parsed(definitions.characteristics, curve=True)
+    special = set(SWEEP_NAMES) | set(CONSTANT_NAMES) | derived_names
+    needed = [p for p in definitions.parameters if p not in special]
+    for _, formula in derived + characteristics:
+        if not isinstance(formula, Missing):
+            needed += sorted(formula.names)
+    needed = [n for n in dict.fromkeys(needed) if n not in special]
+    available = set(history_columns(folder))
+    notes = [f"{project.name} has no {name}" for name in needed if name not in available]
+
+    table, warnings = summarize(
+        folder / RUNS_DIR, needed, last_n=last_n, case_index=load_case_index(folder / CONFIGS_DIR),
+        convergence_columns=convergence_columns(definitions.parameters, derived_names))
+    try:
+        template = read_template(folder, project)
+    except AeroSuiteError:
+        template = ""
+    reasons: dict[tuple[str, str], str] = {}
+    if derived and not table.empty:
+        cases = {case.name: case for case in project.cases}
+        columns = {d.name: [] for d, _ in derived}
+        for _, row in table.iterrows():
+            case = cases.get(row["Case"]) or Case(
+                name=row["Case"], mach=_number(row.get("Mach")), alpha=_number(row.get("Alpha")),
+                beta=_number(row.get("Beta")), altitude_km=_optional(row.get("Altitude")))
+            values: dict = {name: _optional(row.get(name)) for name in needed}
+            values.update({name: _optional(row.get(name)) for name in SWEEP_NAMES})
+            values.update(study_constants(project, case, template))
+            for definition, formula in derived:
+                value = formula if isinstance(formula, Missing) else evaluate(formula, values)
+                if isinstance(value, Missing):
+                    reasons[(row["Case"], definition.name)] = value.reason
+                    columns[definition.name].append(math.nan)
+                else:
+                    columns[definition.name].append(value)
+                values[definition.name] = value
+        for name, column in columns.items():
+            table[name] = column
+    return StudyResults(project.name, folder, table, _curves(table, characteristics), notes, warnings, reasons)
+
+
+def _number(value) -> float:
+    number = _optional(value)
+    return 0.0 if number is None else number
+
+
+def _optional(value) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(number) else number
+
+
+def _curves(table: pd.DataFrame, characteristics: list) -> list[CurveValues]:
+    if not characteristics or table.empty:
+        return []
+    keys = [k for k in CURVE_KEYS if k in table.columns and table[k].notna().any()]
+    rows = []
+    for key, group in (table.groupby(keys, sort=True) if keys else [((), table)]):
+        key = key if isinstance(key, tuple) else (key,)
+        group = group.sort_values("Alpha")
+        series = {column: group[column].tolist() for column in group.columns if column not in ("Case", "Converged")}
+        values = {c.name: (formula if isinstance(formula, Missing) else evaluate_curve(formula, series))
+                  for c, formula in characteristics}
+        rows.append(CurveValues(dict(zip(keys, (float(k) for k in key))), values))
+    return rows
