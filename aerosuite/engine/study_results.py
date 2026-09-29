@@ -20,7 +20,8 @@ from .freestream import altitude_error, case_altitude
 from .models import Case, Project
 from .project import PROJECT_FILE, open_project
 from .restarts import RUNS_DIR
-from .results import HISTORY_FILE, convergence_columns, history_columns, load_case_index, summarize
+from .results import (HISTORY_FILE, RESULTS_DIR, convergence_columns, history_columns, load_case_index, summarize,
+                      write_summary)
 
 if TYPE_CHECKING:
     from .packages import Definitions
@@ -32,6 +33,8 @@ CONSTANT_NAMES = ("S_ref", "L_ref") + ISA_NAMES
 _ISA_KEYS = {"rho_inf": "density", "p_inf": "pressure", "T_inf": "temperature", "V_inf": "true_airspeed",
              "q_inf": "dynamic_pressure"}
 _CACHE_SIZE = 32
+CHARACTERISTICS_FILE = "characteristics.csv"
+_KEY_COLUMNS = ("Case", "Altitude", "Mach", "Alpha", "Beta", "Converged")
 
 
 def _template_number(template: str, key: str) -> Optional[float]:
@@ -202,3 +205,29 @@ def _curves(table: pd.DataFrame, characteristics: list) -> list[CurveValues]:
                   for c, formula in characteristics}
         rows.append(CurveValues(dict(zip(keys, (float(k) for k in key))), values))
     return rows
+
+
+def summary_frame(result: StudyResults, parameters: list[str]) -> pd.DataFrame:
+    """The table as exported: the key columns, then the chosen parameters in order (not the helper columns)."""
+    table = result.table
+    keys = [c for c in _KEY_COLUMNS if c in table.columns]
+    return table[keys + [p for p in parameters if p in table.columns and p not in keys]]
+
+
+def characteristics_frame(result: StudyResults) -> pd.DataFrame:
+    rows = [{**row.curve, **{name: (math.nan if isinstance(v, Missing) else v) for name, v in row.values.items()}}
+            for row in result.characteristics]
+    return pd.DataFrame(rows)
+
+
+def write_results(project_dir: Path, result: StudyResults, parameters: list[str]) -> list[Path]:
+    """results/summary.csv, and results/characteristics.csv when there are characteristic values."""
+    paths = [write_summary(project_dir, summary_frame(result, parameters))]
+    if result.characteristics:
+        path = Path(project_dir) / RESULTS_DIR / CHARACTERISTICS_FILE
+        try:
+            characteristics_frame(result).to_csv(path, index=False)
+        except OSError as exc:
+            raise AeroSuiteError(f"Cannot write {path}: {exc}") from exc
+        paths.append(path)
+    return paths

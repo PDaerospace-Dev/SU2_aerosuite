@@ -281,3 +281,27 @@ async def test_the_studys_own_definitions_save_as_a_package(user: User, results_
     package = load_package("wing-share")
     assert [d.name for d in package.derived] == ["CL share"] and package.parameters == ["CL", "CL share"]
     await user.should_see(marker="package-wing-share")
+
+
+# -- exports (Task 8) --------------------------------------------------------------
+
+
+async def test_copy_table_puts_the_shown_rows_on_the_clipboard(user: User, results_project, monkeypatch):
+    from nicegui import ui
+
+    copied = []
+    monkeypatch.setattr(ui.clipboard, "write", lambda text: copied.append(text))
+    await _open(user, results_project)
+    user.find(marker="results-copy").click()
+    lines = copied[0].splitlines()
+    assert lines[0] == "Case\tα (deg)\tCL\tCD\tCMy\tL/D\tStatus"  # α varies here, so it has a column
+    assert lines[2].startswith("M0p8_a2_b0\t2\t0.4\t")
+
+
+async def test_export_csv_writes_the_files_and_downloads_the_summary(user: User, results_project):
+    await _open(user, results_project)
+    user.find(marker="results-export").click()
+    summary = results_project / "results" / "summary.csv"
+    assert summary.is_file() and (results_project / "results" / "characteristics.csv").is_file()
+    response = await user.download.next()
+    assert response.content == summary.read_bytes()

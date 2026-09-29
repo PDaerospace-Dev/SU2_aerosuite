@@ -23,7 +23,7 @@ from ...engine.packages import (Package, availability, disable_package, effectiv
 from ...engine.study_results import CONSTANT_NAMES, SWEEP_NAMES
 from ...engine.project import PROJECT_FILE
 from ...engine.results import history_columns
-from ...engine.study_results import study_results
+from ...engine.study_results import study_results, write_results
 from ..fields import text_field
 from ..jobs import WATCHER
 from ..layout import ProjectFrame, open_session, project_url
@@ -31,7 +31,7 @@ from ..param_picker import ParamPicker
 from ..picker import pick_path
 from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
 from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, filter_rows, pin, remove_parameter,
-                            shown_values, status_counts, sweep_values, toggle_filter, varying)
+                            shown_values, status_counts, sweep_values, table_text, toggle_filter, varying)
 from ..theme import SERIES_COLORS
 from ..ui_kit import (banner, card, card_head, chip_button, field, hint, pill, primary_button, secondary_button,
                       summary_tile, table, td, td_box, th)
@@ -88,7 +88,10 @@ class ResultsPage:
         self.designs: list = []  # StudyResults: this study first, then the compared ones
         self.problems: list[tuple[str, str]] = []  # compared studies that cannot be read: (folder, why)
         self.picker = ParamPicker(self)
+        self._shown: tuple = ([], [])  # (rows per design, varying sweep variables) as last drawn
         with frame.actions:
+            secondary_button("Copy table", icon="content_copy", on_click=self.copy_table).mark("results-copy")
+            secondary_button("Export CSV", icon="download", on_click=self.export_csv).mark("results-export")
             secondary_button("Save as package…", icon="inventory_2", on_click=self.open_save_package).mark(
                 "package-save")
         self.body = ui.column().classes("w-full gap-4").mark("results-body")
@@ -270,6 +273,24 @@ class ResultsPage:
                 primary_button("Add parameter", on_click=save).mark("derived-save")
         dialog.open()
 
+    def copy_table(self) -> None:
+        rows, sweep = self._shown
+        text = table_text([(d.name, part) for d, part in zip(self.designs, rows)], sweep, self.definitions.parameters)
+        ui.clipboard.write(text)
+        ui.notify("Table copied: paste it into a spreadsheet", type="positive")
+
+    def export_csv(self) -> None:
+        """This study's results/summary.csv (and characteristics.csv), and the summary downloaded to the browser."""
+        if not self.designs:
+            return
+        try:
+            paths = write_results(self.directory, self.designs[0], self.definitions.parameters)
+        except AeroSuiteError as exc:
+            ui.notify(str(exc), type="negative")
+            return
+        ui.download.content(paths[0].read_bytes(), f"{self.frame.session.project.name}-summary.csv", "text/csv")
+        ui.notify("Saved " + " and ".join(str(p.relative_to(self.directory)) for p in paths), type="positive")
+
     def open_save_package(self) -> None:
         """Save this study's own parameters, derived and characteristic values and plots as a package."""
         with ui.dialog() as dialog, ui.card().classes("w-[30rem] max-w-full"):
@@ -372,6 +393,7 @@ class ResultsPage:
         values = sweep_values(d.table for d in self.designs)
         shown = shown_values(self.settings, values, comparing=len(self.designs) > 1)
         rows = [filter_rows(d.table, shown) for d in self.designs]
+        self._shown = (rows, varying(values))
         self.body.clear()
         with self.body:
             self._designs_card(values, shown)

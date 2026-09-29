@@ -75,3 +75,15 @@ def test_rows_are_filtered_and_counted():
 def test_absent_sweep_columns_are_ignored(missing):
     table = _table().drop(columns=[c for c in [missing] if c in _table().columns])
     assert missing not in sweep_values([table])
+
+
+def test_the_table_as_tab_separated_text():
+    from aerosuite.web.results_view import table_text
+
+    table = _table(machs=(0.8,), alphas=(0.0, 2.0))
+    table["Converged"] = [True, False]
+    text = table_text([("base", table)], sweep=["Alpha"], parameters=["CL"])
+    assert text.splitlines() == ["Case\tα (deg)\tCL\tStatus", "M0.8_a0.0\t0\t0\tConverged",
+                                 "M0.8_a2.0\t2\t0.2\tUnconverged"]
+    two = table_text([("base", table), ("v2", table)], sweep=[], parameters=["CL"])
+    assert two.splitlines()[0] == "Design\tCase\tCL\tStatus" and two.splitlines()[3].startswith("v2\t")

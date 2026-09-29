@@ -56,7 +56,7 @@ decided. Specs and implementation plans for each phase are in `docs/superpowers/
   from the bottom of every project page. Look lives in `theme.py`; building blocks in `ui_kit.py`.
 - The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python
   run_aerosuite.py`); it is retired in a later phase.
-- Tests: `uv run pytest` (756 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
+- Tests: `uv run pytest` (882 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
   user; `tests/fixtures/fake_sweep.py` stands in for SU2; `tests/engine/test_sweep_script.py` runs the
   real sweep script against a stand-in `SU2` package.
 
@@ -102,7 +102,10 @@ altitude into the list. A single case keeps one altitude on the Aircraft page.
 - Jobs run through `engine/jobs/sweep_wrapper.py` (AeroSuite's Python, `-I`), which records the sweep
   script's exit code in `jobs/<id>.exit` (kept as `exit_code` in the job record); an abnormal end fails the
   case that was running. The web cancels in a worker thread (`run.io_bound`).
-- Results page is a separate, later design; until then `aerosuite summarize`.
+- Results page (spec `docs/superpowers/specs/2026-09-29-results-design.md`): parameters from the history
+  files, derived values via `engine/formula.py` (an ast reader with an allowed list, never `eval`), packages
+  (bundled `resources/packages/aero.json`, user ones in `~/.aerosuite/packages/`), overlays read with the
+  current study's definitions, settings in `project.json` `results` (schema 6). `aerosuite summarize` uses them.
 
 ## Open items
 
@@ -115,6 +118,10 @@ Done 2026-09-29 and checked on the workstation with real SU2 (QuickStart NACA 00
 - `ed2882c` (line-numbered template editor, folded warnings, Freestream card): checked in headless Chrome
   (saving after a pause, on Ctrl+S and on leaving; warnings row; mode toggle). Still for the user: clicking
   into the editor text with the mouse in a real window.
+
+Results page (2026-09-29, commits `e31a474`..Task 8, **not yet checked on the workstation**): ask the user
+to open Results on a finished real study, choose parameters, add a derived value and a plot, compare a second
+study, and export.
 
 Known smaller items (from reviews; none blocking):
 
