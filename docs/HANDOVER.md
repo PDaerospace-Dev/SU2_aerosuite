@@ -54,7 +54,7 @@ decided. Specs and implementation plans for each phase are in `docs/superpowers/
   from the bottom of every project page. Look lives in `theme.py`; building blocks in `ui_kit.py`.
 - The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python
   run_aerosuite.py`); it is retired in a later phase.
-- Tests: `uv run pytest` (749 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
+- Tests: `uv run pytest` (756 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
   user; `tests/fixtures/fake_sweep.py` stands in for SU2; `tests/engine/test_sweep_script.py` runs the
   real sweep script against a stand-in `SU2` package.
 
@@ -95,20 +95,25 @@ altitude into the list. A single case keeps one altitude on the Aircraft page.
   template); neither is copied into the other.
 - Restart options are only `none` / `previous` / `custom`; the job's own copy of each cfg gets
   `RESTART_SOL` set from its line; the template and `configs/` are never changed by a run.
+- The bundled `aerosuite/resources/config_template.cfg` is SU2's original reference setup: never edit it
+  (e.g. its two `FREESTREAM_TEMPERATURE` lines, flow and solid zone, stay; AeroSuite sets both and warns).
+- Jobs run through `engine/jobs/sweep_wrapper.py` (AeroSuite's Python, `-I`), which records the sweep
+  script's exit code in `jobs/<id>.exit` (kept as `exit_code` in the job record); an abnormal end fails the
+  case that was running. The web cancels in a worker thread (`run.io_bound`).
 - Results page is a separate, later design; until then `aerosuite summarize`.
 
 ## Open items
+
+Done 2026-09-29, **not yet checked on the workstation**: the sweep's exit code is recorded and a case the
+sweep dies in is Failed, not Unconverged (`f7987a4`); Cancel no longer freezes the web UI (`46abec2`). To check:
+Cancel a running job with real SU2 and see "Cancelling…" while other pages stay responsive.
 
 Known smaller items (from reviews; none blocking):
 
 - Monitor shows the status twice; the job indicator, project switcher and study-kind tiles are not
   keyboard-reachable.
-- `LocalRunner` ignores the sweep script's exit code; `BREAKDOWN_FILENAME` is relative (files land in
-  `runs/`); an all-NaN history column counts as converged; `write_lock` creates the file before
-  writing it.
-- Run's Cancel can block the web server's event loop for up to ~20 s; `cancel()` doesn't reload the
-  job record first.
-- The bundled `config_template.cfg` has `FREESTREAM_TEMPERATURE` twice (both lines are replaced).
+- `BREAKDOWN_FILENAME` is relative (files land in `runs/`); an all-NaN history column counts as converged;
+  `write_lock` creates the file before writing it.
 - CLI `show`/`set` don't surface the profile or sweep-off state.
 - On Windows the test `test_losing_the_lock_race_leaves_nothing_behind` flaked once.
 
