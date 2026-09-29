@@ -104,11 +104,15 @@ altitude into the list. A single case keeps one altitude on the Aircraft page.
 
 ## Open items
 
-Done 2026-09-29, **not yet checked on the workstation**: the sweep's exit code is recorded and a case the
-sweep dies in is Failed, not Unconverged (`f7987a4`); Cancel no longer freezes the web UI (`46abec2`). To check:
-Cancel a running job with real SU2 and see "Cancelling…" while other pages stay responsive.
-Also `ed2882c`: the template editor has line numbers (CodeMirror; saves 1 s after typing, on focusout and
-Ctrl+S), warnings fold into one row, and the Freestream card has the mode toggle in its head and one input row.
+Done 2026-09-29 and checked on the workstation with real SU2 (QuickStart NACA 0012, 2 ranks):
+- the sweep's exit code is recorded (`f7987a4`): the sweep script and SU2 killed mid-case (SIGKILL) gave
+  that case Failed "The sweep stopped during this case (killed by signal 9)", the rest "stopped before this
+  case started", exit code -9, no SU2 left;
+- Cancel from the Run page (`46abec2`): "Cancelling…" shown, other pages answered within 0.35 s meanwhile,
+  job and cases Cancelled, no SU2 or lock left (this cancel took 1.4 s);
+- `ed2882c` (line-numbered template editor, folded warnings, Freestream card): checked in headless Chrome
+  (saving after a pause, on Ctrl+S and on leaving; warnings row; mode toggle). Still for the user: clicking
+  into the editor text with the mouse in a real window.
 
 Known smaller items (from reviews; none blocking):
 
