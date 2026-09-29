@@ -581,7 +581,9 @@ class ResultsPage:
         if not characteristics:
             return
         several = len(self.designs) > 1
-        keys = list(dict.fromkeys(k for d in self.designs for row in d.characteristics for k in row.curve))
+        curves = [row.curve for d in self.designs for row in d.characteristics]
+        keys = [k for k in dict.fromkeys(k for curve in curves for k in curve)
+                if k == "Mach" or len({curve.get(k) for curve in curves}) > 1]  # a constant β needs no column
         with section("Characteristic values", "read off each curve along α", opened="characteristics" not in
                      self.settings.folded, on_fold=lambda o: self.fold("characteristics", o),
                      mark="section-characteristics", flush=True):
