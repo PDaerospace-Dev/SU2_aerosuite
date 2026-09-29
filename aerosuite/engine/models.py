@@ -112,7 +112,8 @@ ResultsSection = Literal["plots", "characteristics", "results"]
 
 class ResultsSettings(BaseModel):
     """The Results page, per study."""
-    parameters: list[str] = Field(default_factory=list)  # history columns and derived names, in display order
+    # History columns and derived names, in display order; None: not chosen yet (the packages' or the first ones)
+    parameters: Optional[list[str]] = None
     derived: list[DerivedValue] = Field(default_factory=list)
     characteristics: list[DerivedValue] = Field(default_factory=list)
     plots: list[PlotSpec] = Field(default_factory=list)  # the user's own; packages bring their own

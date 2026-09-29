@@ -186,6 +186,20 @@ a.as-step:hover { background: #f6f8fa; }
 .as-btn-flat { background: transparent; color: var(--as-text); }
 .as-chip { background: #fff; color: var(--as-text); border: 1px solid var(--as-border); border-radius: 6px;
   min-height: 26px; padding: 0 10px; font-weight: 400; text-transform: none; }
+.as-chip-on { background: var(--as-accent-tint); color: var(--as-accent-text); border-color: #c7d2fe; }
+.as-section { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; }
+.as-section > .q-expansion-item__container > .q-item { padding: 12px 18px; min-height: 50px; }
+.as-section > .q-expansion-item__container > .q-expansion-item__content { padding: 0 18px 16px; }
+.as-section-flush > .q-expansion-item__container > .q-expansion-item__content { padding: 0; }
+.as-pick-group { border: 1px solid var(--as-hairline); border-radius: 8px; background: #fff; }
+.as-pick-group .q-item { min-height: 40px; padding: 4px 12px; }
+.as-pick-group .q-expansion-item__content { padding: 2px 12px 10px; }
+.as-pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; width: 100%; }
+.as-link { cursor: pointer; text-decoration: underline; }
+.as-design-chip-error { border-color: #ffd7d5; color: #a40e26; }
+.as-table-scroll { overflow-x: auto; }
+.as-sticky { position: sticky; left: 0; background: #fff; z-index: 1; }
+.as-design-chip { border: 1px solid var(--as-border); border-radius: 999px; padding: 3px 10px; background: #fff; }
 .as-chip:hover { background: var(--as-accent-tint); color: var(--as-accent-text); }
 
 .as-field .q-field__control { border-radius: 8px; }

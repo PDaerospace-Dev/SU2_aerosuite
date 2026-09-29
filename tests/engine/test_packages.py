@@ -79,6 +79,10 @@ def test_own_definitions_come_after_the_packages():
     assert [p.y for p in result.plots][-1] == ["CL(Wing)", "CL"]
 
 
+def test_an_empty_choice_stays_empty():
+    assert effective(ResultsSettings(parameters=[]), AERO_COLUMNS).parameters == []
+
+
 def test_enabling_and_disabling_a_package():
     save_package(_duct())
     settings = ResultsSettings(packages=[], parameters=["Avg_TotalPress(inlet)", "Avg_Massflow(outlet)"])

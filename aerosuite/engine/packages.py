@@ -187,8 +187,11 @@ def effective(settings: ResultsSettings, columns: Iterable[str]) -> Definitions:
     derived = _merge((d for p in packages for d in p.derived), settings.derived)
     characteristics = _merge((c for p in packages for c in p.characteristics), settings.characteristics)
     plots = [plot for p in packages for plot in p.plots] + list(settings.plots)
-    parameters = list(settings.parameters) or list(dict.fromkeys(n for p in packages for n in p.parameters))
-    if not parameters:
+    if settings.parameters is not None:
+        parameters = list(settings.parameters)
+    else:
+        parameters = list(dict.fromkeys(n for p in packages for n in p.parameters))
+    if settings.parameters is None and not parameters:
         solver_groups = (GROUP_CONVERGENCE, GROUP_SOLVER, GROUP_RESIDUALS)
         parameters = [c for c in columns if group_of(c) not in solver_groups][:DEFAULT_PARAMETER_COUNT]
     return Definitions([p.id for p in packages], parameters, derived, characteristics, plots)
@@ -199,11 +202,12 @@ def enable_package(settings: ResultsSettings, package: Package) -> None:
     settings.packages = list(settings.packages or [])
     if package.id not in settings.packages:
         settings.packages.append(package.id)
-    settings.parameters += [p for p in package.parameters if p not in settings.parameters]
+    chosen = list(settings.parameters or [])
+    settings.parameters = chosen + [p for p in package.parameters if p not in chosen]
 
 
 def disable_package(settings: ResultsSettings, package: Package, others: Optional[Iterable[Package]] = None) -> None:
     """Stop using `package`: its parameters go unless another package in use lists them."""
     settings.packages = [p for p in (settings.packages or []) if p != package.id]
     kept = {n for p in (others if others is not None else _loaded(settings.packages)) for n in p.parameters}
-    settings.parameters = [p for p in settings.parameters if p not in package.parameters or p in kept]
+    settings.parameters = [p for p in settings.parameters or [] if p not in package.parameters or p in kept]

@@ -11,7 +11,8 @@ from aerosuite.engine.project import PROJECT_FILE, create_project, open_project,
 def test_defaults():
     results = Project(name="p").results
     assert results == ResultsSettings()
-    assert (results.parameters, results.derived, results.plots, results.compare) == ([], [], [], [])
+    assert results.parameters is None  # not chosen yet: the packages' parameters (or the first ones)
+    assert (results.derived, results.plots, results.compare) == ([], [], [])
     assert results.packages is None  # not chosen yet: the page switches on the packages the history supports
     assert results.average_last == 100 and results.folded == []
 

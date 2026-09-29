@@ -14,7 +14,7 @@ def test_ready_project(ready_project):
     project_dir, project = ready_project
     assert step_badges(project_dir, project) == {
         "setup": "done", "config": "done", "aircraft": "done", "sweep": "todo",  # configs not generated yet
-        "run": "todo", "monitor": "plain", "results": "later",
+        "run": "todo", "monitor": "plain", "results": "plain",
     }
 
 

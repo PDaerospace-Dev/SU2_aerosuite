@@ -22,7 +22,7 @@ from .ui_kit import banner, status_dot
 
 WATCH_SECONDS = 2.0
 PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep", "run": "run",
-                "monitor": "monitor"}
+                "monitor": "monitor", "results": "results"}
 PAGE_TITLES = dict(STEPS)
 STEP_ICONS = {"setup": "tune", "config": "description", "aircraft": "flight", "sweep": "grid_on",
               "run": "play_arrow", "monitor": "show_chart", "results": "bar_chart"}

@@ -102,5 +102,5 @@ def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
         "sweep": sweep,
         "run": _run_badge(project_dir, project),
         "monitor": "plain",
-        "results": "later",
+        "results": "plain",
     }
