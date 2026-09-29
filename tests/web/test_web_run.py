@@ -120,6 +120,33 @@ async def test_cancel_asks_first(user: User, ready_project, su2_env, eventually)
     assert list_jobs(project_dir)[0].state is JobState.CANCELLED
 
 
+async def test_a_slow_cancel_does_not_freeze_the_page(user: User, ready_project, su2_env, eventually,
+                                                     monkeypatch):
+    """Stopping SU2 can take ~20 s; the page must stay responsive and show that it is cancelling."""
+    from aerosuite.web.jobs import WATCHER
+
+    project_dir, _ = ready_project
+    _plan(project_dir, **{A0: "hang"})
+    original = WATCHER.runner.cancel
+
+    def slow_cancel(directory, job):
+        time.sleep(1.5)
+        return original(directory, job)
+
+    monkeypatch.setattr(WATCHER.runner, "cancel", slow_cancel)
+    await _open(user, project_dir)
+    user.find(marker="submit").click()
+    await eventually(lambda: _text(user, f"status-{A0}") == "RUNNING", timeout=20)
+    user.find(marker="cancel").click()
+    await user.should_see(marker="cancel-confirm")
+    user.find(marker="cancel-confirm").click()
+    await user.should_see("Cancelling…", retries=10)
+    assert list_jobs(project_dir)[0].is_active  # the page answered while the cancel was still running
+    assert not _element(user, "cancel").enabled
+    await eventually(lambda: _text(user, f"status-{A0}") == "CANCELLED", timeout=20)
+    assert list_jobs(project_dir)[0].state is JobState.CANCELLED
+
+
 async def test_cases_changed_on_disk_follow_into_the_table(user: User, ready_project, su2_env, eventually):
     project_dir, _ = ready_project
     await _open(user, project_dir)

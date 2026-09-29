@@ -202,6 +202,12 @@ class LocalRunner:
         if not job.is_active:
             return job
         project_dir = Path(project_dir).resolve()
+        try:  # as in refresh(): the caller's copy may be stale, e.g. cancelled or finished elsewhere
+            job = load_job(project_dir, job.id)
+        except JobError:
+            pass
+        if not job.is_active:
+            return job
         alive = self._alive(project_dir, job)
         self._update_cases(project_dir, job, alive)  # mark the case that is running now
         if not alive:  # the sweep already ended: report its real outcome, as refresh() would

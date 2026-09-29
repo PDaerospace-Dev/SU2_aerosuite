@@ -1,7 +1,7 @@
 """Run: checks, each case's latest status, rerun selection, Submit / Cancel and job history."""
 from typing import NamedTuple, Optional
 
-from nicegui import ui
+from nicegui import run, ui
 
 from ...engine.cfg import generate_configs
 from ...engine.errors import AeroSuiteError
@@ -86,6 +86,7 @@ class RunPage:
         self.was_active = False
         self.shown: Optional[tuple] = None  # _snapshot() of the view on screen
         self.dialogs_open = 0  # a re-render while Cancel's confirm dialog awaits would orphan it
+        self.cancelling = False  # this page's Cancel is running (other tabs see WATCHER.is_cancelling)
         self.holder = ui.column().classes("as-content w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
@@ -233,7 +234,10 @@ class RunPage:
 
     def _actions(self, view: JobView, selection: _Selection) -> None:
         if view.active is not None:
-            danger_button("Cancel job", on_click=self.confirm_cancel).mark("cancel")
+            if self.cancelling or WATCHER.is_cancelling(self.directory):
+                danger_button("Cancelling…").mark("cancel").set_enabled(False)
+            else:
+                danger_button("Cancel job", on_click=self.confirm_cancel).mark("cancel")
         submit = primary_button(f"Submit {_plural(len(selection.ticked), 'case')}", on_click=self.submit)
         submit.mark("submit").set_enabled(view.active is None and bool(selection.ticked) and not self.has_errors)
 
@@ -331,11 +335,16 @@ class RunPage:
             self.dialogs_open -= 1
         if not confirmed:
             return
+        # Stopping SU2 can take ~20 s: in a worker thread, so the server keeps answering every page.
+        self.cancelling = True
+        self.render()  # shows "Cancelling…"
         try:
-            job = WATCHER.cancel(self.directory, self.project)
+            job = await run.io_bound(WATCHER.cancel, self.directory, self.project)
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
-            return
+            job = None
+        finally:
+            self.cancelling = False
         if job is not None:
             ui.notify(f"Job {job.id}: {job.state.value}", type="info")
         self.frame.refresh()

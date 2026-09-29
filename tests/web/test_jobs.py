@@ -51,6 +51,39 @@ def test_state_refreshes_an_active_job_at_most_every_two_seconds(ready_project):
     watcher.cancel(project_dir, project)
 
 
+def test_state_does_not_refresh_a_job_being_cancelled(ready_project):
+    """Cancel runs in a worker thread; a refresh meanwhile could record the dying job as Failed."""
+    import threading
+
+    project_dir, project = ready_project
+    _prepare(project_dir, project, **{A0: "hang"})
+    release, entered = threading.Event(), threading.Event()
+
+    class SlowCancel(CountingRunner):
+        def cancel(self, project_dir, job):
+            entered.set()
+            release.wait(10)
+            return super().cancel(project_dir, job)
+
+    now = [100.0]
+    runner = SlowCancel()
+    watcher = JobWatcher(runner=runner, clock=lambda: now[0])
+    watcher.submit(project_dir, project, [A0])
+    watcher.state(project_dir, project)
+    worker = threading.Thread(target=watcher.cancel, args=(project_dir, project))
+    worker.start()
+    assert entered.wait(10)
+    before = runner.refreshes
+    now[0] += 5.0
+    assert watcher.is_cancelling(project_dir)
+    assert watcher.state(project_dir, project).active is not None
+    assert runner.refreshes == before  # skipped while the cancel runs
+    release.set()
+    worker.join(10)
+    assert not watcher.is_cancelling(project_dir)
+    assert watcher.state(project_dir, project).active is None
+
+
 def test_refresh_throttle_holds_at_most_one_entry_per_project(ready_project):
     """The _refreshed throttle map must not grow with every job ever submitted."""
     project_dir, project = ready_project

@@ -71,12 +71,16 @@ class JobWatcher:
         # Most-recently-used last; evicted past FILE_BUFFER_LIMIT so opening many different
         # files over a session does not grow this without bound.
         self._file_buffers: "OrderedDict[Path, HistoryBuffer]" = OrderedDict()
+        # Projects whose job is being cancelled (in a worker thread, see cancel()): not refreshed meanwhile.
+        self._cancelling: set[Path] = set()
 
     def state(self, project_dir: Path, project: Project) -> JobView:
         directory = Path(project_dir).resolve()
         view = self._view(directory, project)
         if view.active is None:
             self._refreshed.pop(directory, None)
+            return view
+        if directory in self._cancelling:  # a refresh now could record the dying job as Failed
             return view
         now = self._clock()
         entry = self._refreshed.get(directory)
@@ -102,11 +106,20 @@ class JobWatcher:
                                   continue_cases=list(continue_cases))
 
     def cancel(self, project_dir: Path, project: Project) -> Optional[JobRecord]:
+        """Cancel the project's active job. Stopping SU2 can take ~20 s, so the web calls this in a worker
+        thread (run.io_bound); meanwhile state() leaves the job alone and is_cancelling() is True."""
         directory = Path(project_dir).resolve()
         active = self._view(directory, project).active
         if active is None:
             return None
-        return self.runner.cancel(directory, active)
+        self._cancelling.add(directory)
+        try:
+            return self.runner.cancel(directory, active)
+        finally:
+            self._cancelling.discard(directory)
+
+    def is_cancelling(self, project_dir: Path) -> bool:
+        return Path(project_dir).resolve() in self._cancelling
 
     def started_cases(self, project_dir: Path, job: JobRecord) -> list[str]:
         """Case names whose "Running Case" banner is in `job`'s log (see LocalRunner.started_cases)."""

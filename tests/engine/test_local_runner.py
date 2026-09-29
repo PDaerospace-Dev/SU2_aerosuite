@@ -353,6 +353,19 @@ def test_refresh_of_a_stale_copy_keeps_a_cancel_made_elsewhere(ready_project):
     assert load_job(project_dir, job.id).state is JobState.CANCELLED
 
 
+def test_cancel_of_a_stale_copy_keeps_the_newer_record(ready_project):
+    """E.g. a web page holds the RUNNING record while `aerosuite cancel` already cancelled the job."""
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A0: "hang"})
+    job = LocalRunner().submit(project_dir, project)
+    stale = _wait(LocalRunner(), project_dir, load_job(project_dir, job.id),
+                  lambda j: j.case_status[A0] is CaseState.RUNNING)
+    LocalRunner().cancel(project_dir, load_job(project_dir, job.id))
+    result = LocalRunner().cancel(project_dir, stale)
+    assert result.state is JobState.CANCELLED and result.case_status[A0] is CaseState.CANCELLED
+    assert load_job(project_dir, job.id).state is JobState.CANCELLED
+
+
 def test_two_projects_with_the_same_job_name_keep_apart(tmp_path):
     """Job names are only unique within a project (20260928-1358 in two studies started the same minute)."""
     from aerosuite.engine.jobs.runner import JobRecord
