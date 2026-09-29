@@ -78,14 +78,11 @@ Second round (2026-09-28, commits `e5299a0`..`414b14e`; the user confirmed it al
 - profiles also store the mesh path, sweep and run settings; `/profiles` page to edit them (editing
   a bundled profile saves the user's copy; Reset restores the bundled one).
 
-Altitude sweep (2026-09-29, commit `4326026`, spec `docs/superpowers/specs/2026-09-29-altitude-sweep-design.md`,
-**not yet checked on the workstation**): in *From altitude* mode the Sweep page has an **Altitudes (km)** list next
-to Mach, α, β; altitude is the outermost loop; each case gets its own label, temperature and Reynolds number;
-Set all → Previous starts each altitude block fresh; schema 5 moves the one altitude into the list. A single
-case keeps one altitude on the Aircraft page.
-
-Ask the user to try: an X07 study in *From altitude* with altitudes `0, 11`, check the Sweep page's Alt /
-Temperature / Reynolds columns, run a few cases, then `aerosuite summarize` (it has an Altitude column).
+Altitude sweep (2026-09-29, commit `4326026`, spec `docs/superpowers/specs/2026-09-29-altitude-sweep-design.md`;
+the user confirmed it works on the workstation 2026-09-29): in *From altitude* mode the Sweep page has an
+**Altitudes (km)** list next to Mach, α, β; altitude is the outermost loop; each case gets its own label,
+temperature and Reynolds number; Set all → Previous starts each altitude block fresh; schema 5 moves the one
+altitude into the list. A single case keeps one altitude on the Aircraft page.
 
 ## Decisions worth knowing
 
