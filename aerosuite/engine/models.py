@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 class Mesh(BaseModel):
@@ -94,6 +94,35 @@ class RunSettings(BaseModel):
     sweep_python: str = "python3"  # must be able to import SU2
 
 
+class DerivedValue(BaseModel):
+    """A per-case formula (derived) or a per-curve one (characteristic value); see engine/formula.py."""
+    name: str
+    formula: str
+    unit: str = ""
+
+
+class PlotSpec(BaseModel):
+    x: str  # a sweep variable (Mach, Alpha, Beta, Altitude) or a parameter
+    y: list[str] = Field(min_length=1)
+    split: Optional[str] = None  # the sweep variable that makes one line each; None = automatic
+
+
+ResultsSection = Literal["plots", "characteristics", "results"]
+
+
+class ResultsSettings(BaseModel):
+    """The Results page, per study."""
+    parameters: list[str] = Field(default_factory=list)  # history columns and derived names, in display order
+    derived: list[DerivedValue] = Field(default_factory=list)
+    characteristics: list[DerivedValue] = Field(default_factory=list)
+    plots: list[PlotSpec] = Field(default_factory=list)  # the user's own; packages bring their own
+    packages: Optional[list[str]] = None  # None: not chosen yet (the page enables what the history supports)
+    compare: list[str] = Field(default_factory=list)  # other study folders drawn over this one
+    filters: dict[str, list[float]] = Field(default_factory=dict)  # sweep variable -> values shown; absent = all
+    average_last: int = Field(default=100, ge=1)
+    folded: list[ResultsSection] = Field(default_factory=list)
+
+
 class Project(BaseModel):
     schema_version: int = SCHEMA_VERSION
     name: str
@@ -107,3 +136,4 @@ class Project(BaseModel):
     sweep: SweepSpec = Field(default_factory=SweepSpec)
     cases: list[Case] = Field(default_factory=list)
     run: RunSettings = Field(default_factory=RunSettings)
+    results: ResultsSettings = Field(default_factory=ResultsSettings)
