@@ -1,4 +1,4 @@
-# AeroSuite Pro V2
+# AeroSuite Pro V3
 
 AeroSuite Pro is a desktop application for preparing, running, and reviewing SU2 CFD studies. From mesh loading through config (CFG) generation, parametric sweeps, execution, convergence monitoring, and results analysis.
 
@@ -98,6 +98,7 @@ uv sync
 ```
 
 ### Running
+Run the following python script in the terminal from the folder
 ```bash
 uv run python run_aerosuite.py
 ```
@@ -117,6 +118,7 @@ alias su2aero2='uv run --project /path/to/SU2_aerosuite python /path/to/SU2_aero
 ### Tests
 ```bash
 uv run pytest
+su2aero
 ```
 
 ## Web UI
@@ -193,4 +195,10 @@ Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator setting
 Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
 
 ## Future Plans
-- 
+-   
+
+## Contributors
+Thanks to the following contributors for their work on this project:
+1. Midhun
+2. Martino
+3. Daniel
