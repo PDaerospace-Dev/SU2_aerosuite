@@ -14,7 +14,8 @@ a CLAUDE.md.
   interpreter: keep it Python 3.7 compatible, and never resolve the sweep interpreter inside
   AeroSuite's own venv. Set `export AEROSUITE_SWEEP_PYTHON="$(which python3)"` in a shell where conda
   base is active, or set *Setup → Advanced → Python for the sweep script*.
-- The user reaches it from Windows with MobaXterm. The web UI (`uv run aerosuite serve --root ~/cfd`)
+- The user reaches it from Windows with MobaXterm. The web UI (`uv run aerosuite serve`; `--root` only sets where the
+  file picker starts, default home)
   listens on 127.0.0.1:8080 only; from the PC it needs an SSH tunnel
   (`ssh -L 8080:127.0.0.1:8080 pdas@<workstation>`, or MobaXterm's Tunneling tool), then
   http://localhost:8080.
@@ -53,7 +54,7 @@ decided. Specs and implementation plans for each phase are in `docs/superpowers/
   from the bottom of every project page. Look lives in `theme.py`; building blocks in `ui_kit.py`.
 - The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python
   run_aerosuite.py`); it is retired in a later phase.
-- Tests: `uv run pytest` (728 passing on 2026-09-28, on Windows). Web tests use NiceGUI's simulated
+- Tests: `uv run pytest` (727 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
   user; `tests/fixtures/fake_sweep.py` stands in for SU2; `tests/engine/test_sweep_script.py` runs the
   real sweep script against a stand-in `SU2` package.
 
@@ -108,8 +109,6 @@ Known smaller items (from reviews; none blocking):
   job record first.
 - The bundled `config_template.cfg` has `FREESTREAM_TEMPERATURE` twice (both lines are replaced).
 - CLI `show`/`set` don't surface the profile or sweep-off state.
-- `.claude/launch.json` (the dev-server preview config) points `--root` at a Windows temp folder;
-  change it on Linux.
 - On Windows the test `test_losing_the_lock_race_leaves_nothing_behind` flaked once.
 
 ## Working notes for Claude

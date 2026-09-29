@@ -4,7 +4,7 @@
     {
       "name": "aerosuite-web",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "aerosuite", "serve", "--root", "C:/Users/m_vij/AppData/Local/Temp/claude/D--ClaudeCODE-SU2-aerosuite/0c7405a2-ce64-4b81-8031-eb4f580db19d/scratchpad/visual", "--port", "8765"],
+      "runtimeArgs": ["run", "aerosuite", "serve", "--port", "8765"],
       "port": 8765
     }
   ]
