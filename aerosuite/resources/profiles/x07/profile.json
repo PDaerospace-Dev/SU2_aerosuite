@@ -1,0 +1,17 @@
+{
+  "id": "x07",
+  "name": "X07",
+  "description": "X07 aircraft: the desktop app's Aircraft Aero defaults. No master template yet; add it with Save as profile.",
+  "settings": {
+    "freestream": {"reynolds_length": 1},
+    "reference": {"ref_length": 6, "ref_area": 16.213, "origin_x": 5.16, "origin_y": 0, "origin_z": 0},
+    "numerics": {"conv_method": "ROE", "muscl": "YES", "turb_model": "SST", "cfl": 1.0, "iter": 1500}
+  },
+  "hints": {
+    "MARKER_HEATFLUX": "( Fuselage, Wing, VT, HT )",
+    "MARKER_FAR": "( FarField )",
+    "MARKER_PLOTTING": "( Fuselage, Wing, VT, HT )",
+    "MARKER_MONITORING": "( Fuselage, Wing, VT, HT )"
+  },
+  "naming": {}
+}

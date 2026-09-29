@@ -7,6 +7,8 @@ dependencies = [
     "pandas>=2.1",
     "pydantic>=2.6",
     "psutil>=5.9",
+    "typer>=0.12",
+    "nicegui>=3.17",
     # Legacy PyQt5 app — removed in Phase 5
     "PyQt5>=5.15.10",
     "PyQt5-Qt5==5.15.2; sys_platform == 'win32'",  # newer Qt5 builds ship no Windows wheels
@@ -15,7 +17,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+aerosuite = "aerosuite.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -25,7 +30,11 @@ build-backend = "setuptools.build_meta"
 include = ["aerosuite*"]
 
 [tool.setuptools.package-data]
-aerosuite = ["resources/*"]
+aerosuite = ["resources/*", "resources/profiles/*/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-p nicegui.testing.user_plugin"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+main_file = "tests/web/main_app.py"

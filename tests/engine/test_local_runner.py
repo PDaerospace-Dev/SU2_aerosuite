@@ -127,20 +127,86 @@ def test_submit_with_missing_python(ready_project):
     with pytest.raises(JobError, match="Cannot start"):
         LocalRunner().submit(project_dir, project)
     assert read_lock(project_dir) is None
+    assert list((project_dir / "jobs").iterdir()) == []  # no job folder and no job log
 
 
-def test_cases_come_from_run_control(ready_project):
-    """A hand-edited run_control.txt decides which cases the job tracks."""
+def test_losing_the_lock_race_leaves_nothing_behind(ready_project, monkeypatch):
+    """Another submit took the lock between our check and our write_lock: undo everything."""
+    import aerosuite.engine.jobs.local as local
+
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A0: "hang"})
+    started = []
+
+    def lost(project_dir, job_id, pid, create_time):
+        started.append((pid, create_time))
+        raise JobError("A job is already running for this project")
+
+    monkeypatch.setattr(local, "write_lock", lost)
+    with pytest.raises(JobError, match="already running"):
+        LocalRunner().submit(project_dir, project)
+    assert not process_alive(*started[0])
+    assert list((project_dir / "jobs").iterdir()) == []
+
+
+def test_a_previous_case_really_restarts_from_the_case_before(ready_project):
+    project_dir, project = ready_project
+    project.cases[1].restart = "previous"
+    _prepare(project_dir, project)
+    runner = LocalRunner()
+    job = _wait(runner, project_dir, runner.submit(project_dir, project), _finished)
+    assert job.state is JobState.DONE
+    applied = {n: (project_dir / RUNS_DIR / n / "restart_applied.txt").read_text() for n in (A0, A2, A4)}
+    assert applied == {A0: "no\n", A2: "yes\n", A4: "no\n"}
+    assert (project_dir / RUNS_DIR / A2 / "restart_used.txt").read_text() == f"{A2}.cfg, previous\n"
+
+
+def test_cancel_removes_the_restart_folder(ready_project):
     project_dir, project = ready_project
     _prepare(project_dir, project)
-    control = project_dir / CONFIGS_DIR / "run_control.txt"
-    control.write_text(f"# edited by hand\n{A0}.cfg, none\n\n{A4}.cfg, previous\n")
     runner = LocalRunner()
-    job = runner.submit(project_dir, project)
-    assert job.cases == [A0, A4]
+    _wait(runner, project_dir, runner.submit(project_dir, project, cases=[A2]), _finished)
+    _prepare(project_dir, project, cases={A2: "hang"})
+    job = runner.submit(project_dir, project, cases=[A2], continue_cases=[A2])
+    restart = project_dir.resolve() / "jobs" / job.id / "restart"
+    assert restart.is_dir()
+    job = _wait(runner, project_dir, job, lambda j: j.case_status[A2] is CaseState.RUNNING)
+    job = runner.cancel(project_dir, job)
+    assert job.state is JobState.CANCELLED
+    assert not restart.exists()
+    assert (project_dir / RUNS_DIR / A2 / "restart_applied.txt").read_text() == "yes\n"
+
+
+def test_subset_runs_only_the_selected_cases(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project)
+    earlier = project_dir / RUNS_DIR / A2
+    earlier.mkdir(parents=True)
+    (earlier / "keep.txt").write_text("earlier run")
+    runner = LocalRunner()
+    job = runner.submit(project_dir, project, cases=[A4, A0])
+    assert job.cases == [A0, A4]  # project order
     job = _wait(runner, project_dir, job, _finished)
-    assert job.state is JobState.DONE
     assert job.case_status == {A0: CaseState.CONVERGED, A4: CaseState.CONVERGED}
+    assert (earlier / "keep.txt").read_text() == "earlier run"
+    assert (project_dir / "jobs" / job.id / "configs" / "run_control.txt").is_file()
+
+
+def test_continue_reruns_a_case_from_its_own_solution(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A2: "diverge"})
+    runner = LocalRunner()
+    first = _wait(runner, project_dir, runner.submit(project_dir, project), _finished)
+    assert first.case_status[A2] is CaseState.UNCONVERGED
+    _prepare(project_dir, project)  # this time it converges
+    second = _wait(runner, project_dir, runner.submit(project_dir, project, cases=[A2], continue_cases=[A2]),
+                   _finished)
+    assert second.case_status == {A2: CaseState.CONVERGED}
+    copy = project_dir.resolve() / "jobs" / second.id / "restart" / A2 / "restart_flow.dat"
+    assert (project_dir / RUNS_DIR / A2 / "restart_used.txt").read_text() == f"{A2}.cfg, custom, {copy}\n"
+    assert (project_dir / RUNS_DIR / A2 / "restart_applied.txt").read_text() == "yes\n"
+    assert "RESTART_SOL= YES" in (project_dir / RUNS_DIR / A2 / f"{A2}.cfg").read_text()
+    assert not copy.parent.parent.exists()  # the job's restart/ folder goes when the job ends
 
 
 def test_submit_os_error_is_a_job_error(ready_project):
@@ -196,5 +262,119 @@ def test_sweep_exits_mid_case(ready_project):
     assert job.case_status == {
         A0: CaseState.CONVERGED, A2: CaseState.FAILED, A4: CaseState.FAILED,
     }
-    assert job.failure_tail[A2].startswith("No history.csv was written")
-    assert "exited before this case started" in job.failure_tail[A4]
+    assert job.exit_code == 1
+    assert job.failure_tail[A2].startswith("The sweep stopped during this case (exit code 1).")
+    assert "No history.csv was written" in job.failure_tail[A2]
+    assert job.failure_tail[A4].startswith("The sweep script stopped (exit code 1) before this case started")
+
+
+def _running_partial(project_dir, project):
+    """A job whose first case has written an unconverged history and is still running."""
+    _prepare(project_dir, project, cases={A0: "partial"})
+    runner = LocalRunner()
+    job = runner.submit(project_dir, project)
+    log = project_dir / job.log_path
+    deadline = time.monotonic() + 20
+    while "PARTIAL WRITTEN" not in log.read_text() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return runner, job
+
+
+def test_a_sweep_killed_mid_case_fails_that_case(ready_project):
+    """E.g. the out-of-memory killer ends the sweep: the half-run case is Failed, not Unconverged."""
+    import psutil
+
+    project_dir, project = ready_project
+    runner, job = _running_partial(project_dir, project)
+    wrapper = psutil.Process(job.backend_ref["pid"])
+    script = wrapper.children()[0]
+    script.kill()
+    job = _wait(runner, project_dir, job, _finished)
+    assert job.state is JobState.FAILED
+    assert job.case_status == {A0: CaseState.FAILED, A2: CaseState.FAILED, A4: CaseState.FAILED}
+    assert job.exit_code != 0
+    assert job.failure_tail[A0].startswith("The sweep stopped during this case (")
+    assert not (project_dir / "jobs" / f"{job.id}.exit").exists()  # kept in the job record instead
+
+
+def test_a_sweep_killed_with_its_wrapper_fails_the_running_case(ready_project):
+    from aerosuite.engine.jobs.store import kill_tree
+
+    project_dir, project = ready_project
+    runner, job = _running_partial(project_dir, project)
+    kill_tree(job.backend_ref["pid"])  # from outside, not a Cancel: no exit code gets written
+    job = _wait(LocalRunner(), project_dir, load_job(project_dir, job.id), _finished)
+    assert job.state is JobState.FAILED and job.exit_code is None
+    assert job.failure_tail[A0].startswith("The sweep stopped during this case (it was killed).")
+
+
+def test_a_clean_run_records_exit_code_zero(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project)
+    runner = LocalRunner()
+    job = _wait(runner, project_dir, runner.submit(project_dir, project), _finished)
+    assert job.state is JobState.DONE and job.exit_code == 0
+    assert load_job(project_dir, job.id).exit_code == 0
+
+
+def test_a_job_started_before_the_wrapper_is_judged_by_its_files_alone(ready_project):
+    from aerosuite.engine.jobs.runner import JobRecord
+    from aerosuite.engine.jobs.store import save_job
+
+    project_dir, _ = ready_project
+    (project_dir / "jobs").mkdir()
+    (project_dir / "jobs" / "old.log").write_text(f"=== Running Case 1/1: {A0}.cfg ===\n")
+    folder = project_dir / RUNS_DIR / A0
+    folder.mkdir(parents=True)
+    rows = [f"{i}, {-2 - 0.1 * i}, {0.5 + 0.2 * (-1) ** i}, 0.02, -0.1" for i in range(50)]
+    (folder / "history.csv").write_text('"Inner_Iter","rms[Rho]","CL","CD","CMy"\n' + "\n".join(rows) + "\n")
+    job = JobRecord(id="old", backend="local", cases=[A0], log_path="jobs/old.log",
+                    backend_ref={"pid": -1, "create_time": 0.0}, state=JobState.RUNNING,
+                    case_status={A0: CaseState.RUNNING})
+    save_job(project_dir, job)
+    job = LocalRunner().refresh(project_dir, job)
+    assert job.case_status[A0] is CaseState.UNCONVERGED and job.exit_code is None
+
+
+def test_refresh_of_a_stale_copy_keeps_a_cancel_made_elsewhere(ready_project):
+    """E.g. `status --watch` holds the RUNNING record while the web cancels the job."""
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A0: "hang"})
+    web = LocalRunner()
+    job = web.submit(project_dir, project)
+    stale = _wait(LocalRunner(), project_dir, load_job(project_dir, job.id),
+                  lambda j: j.case_status[A0] is CaseState.RUNNING)
+    web.cancel(project_dir, load_job(project_dir, job.id))
+    watcher = LocalRunner()
+    assert stale.state is JobState.RUNNING
+    refreshed = watcher.refresh(project_dir, stale)
+    assert refreshed.state is JobState.CANCELLED
+    assert refreshed.case_status[A0] is CaseState.CANCELLED
+    assert load_job(project_dir, job.id).state is JobState.CANCELLED
+
+
+def test_cancel_of_a_stale_copy_keeps_the_newer_record(ready_project):
+    """E.g. a web page holds the RUNNING record while `aerosuite cancel` already cancelled the job."""
+    project_dir, project = ready_project
+    _prepare(project_dir, project, cases={A0: "hang"})
+    job = LocalRunner().submit(project_dir, project)
+    stale = _wait(LocalRunner(), project_dir, load_job(project_dir, job.id),
+                  lambda j: j.case_status[A0] is CaseState.RUNNING)
+    LocalRunner().cancel(project_dir, load_job(project_dir, job.id))
+    result = LocalRunner().cancel(project_dir, stale)
+    assert result.state is JobState.CANCELLED and result.case_status[A0] is CaseState.CANCELLED
+    assert load_job(project_dir, job.id).state is JobState.CANCELLED
+
+
+def test_two_projects_with_the_same_job_name_keep_apart(tmp_path):
+    """Job names are only unique within a project (20260928-1358 in two studies started the same minute)."""
+    from aerosuite.engine.jobs.runner import JobRecord
+
+    runner = LocalRunner()
+    logs = {"a": "=== Running Case 1/2: A1.cfg ===\n", "b": "=== Running Case 1/2: B1.cfg ===\n"}
+    for name, text in logs.items():
+        (tmp_path / name / "jobs").mkdir(parents=True)
+        (tmp_path / name / "jobs" / "20260928-1358.log").write_text(text)
+    job = JobRecord(id="20260928-1358", backend="local", cases=[], log_path="jobs/20260928-1358.log")
+    assert runner.started_cases(tmp_path / "a", job) == ["A1"]
+    assert runner.started_cases(tmp_path / "b", job) == ["B1"]

@@ -57,29 +57,89 @@ def test_newer_schema_is_refused(tmp_path):
         open_project(tmp_path)
 
 
+def test_schema_2_restarts_migrate_to_three_options(tmp_path):
+    create_project(tmp_path)
+    data = json.loads((tmp_path / PROJECT_FILE).read_text())
+    data["schema_version"] = 2
+    data["run"]["initial_restart"] = "/data/init.dat"
+    data["cases"] = [
+        {"name": "a", "mach": 0.8, "alpha": 0, "beta": 0, "restart": "initial"},
+        {"name": "b", "mach": 0.8, "alpha": 2, "beta": 0, "restart": "from_case", "restart_ref": "a"},
+        {"name": "c", "mach": 0.8, "alpha": 4, "beta": 0, "restart": "from_case", "restart_ref": "a"},
+        {"name": "d", "mach": 0.8, "alpha": 6, "beta": 0, "restart": "previous"},
+    ]
+    (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
+    project = open_project(tmp_path)
+    assert project.schema_version == models.SCHEMA_VERSION
+    assert [(c.restart, c.restart_ref) for c in project.cases] == [
+        ("custom", "/data/init.dat"),
+        ("previous", None),
+        ("custom", str((tmp_path / "runs" / "a").resolve())),
+        ("previous", None),
+    ]
+    assert "initial_restart" not in project.run.model_dump()
+
+
+def test_initial_without_a_file_migrates_to_custom_without_a_path(tmp_path):
+    create_project(tmp_path)
+    data = json.loads((tmp_path / PROJECT_FILE).read_text())
+    data["schema_version"] = 2
+    data["cases"] = [{"name": "a", "mach": 0.8, "alpha": 0, "beta": 0, "restart": "initial"}]
+    (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
+    assert [(c.restart, c.restart_ref) for c in open_project(tmp_path).cases] == [("custom", None)]
+
+
 def test_migrations_run_in_order(tmp_path, monkeypatch):
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+    current = models.SCHEMA_VERSION
+    monkeypatch.setattr(models, "SCHEMA_VERSION", current + 1)
 
-    def v1_to_v2(data):
+    def v3_to_v4(data, directory):
         data["name"] = data["name"] + "-migrated"
         return data
 
-    monkeypatch.setattr(project_mod, "MIGRATIONS", {1: v1_to_v2})
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {current: v3_to_v4})
     opened = open_project(tmp_path)
     assert opened.name.endswith("-migrated")
-    assert opened.schema_version == 2
+    assert opened.schema_version == current + 1
 
 
-def test_set_template_copies_into_project(tmp_path):
+def test_set_template_copies_into_project_keeping_its_name(tmp_path):
     project = create_project(tmp_path / "p")
     source = tmp_path / "master.cfg"
     source.write_text("AOA= 0\n")
     set_template(tmp_path / "p", project, source)
-    assert (tmp_path / "p" / TEMPLATE_FILE).read_text() == "AOA= 0\n"
-    assert project.template == TEMPLATE_FILE
+    assert (tmp_path / "p" / "master.cfg").read_text() == "AOA= 0\n"
+    assert project.template == "master.cfg"
     with pytest.raises(TemplateError):
         set_template(tmp_path / "p", project, tmp_path / "missing.cfg")
+
+
+def test_a_new_template_replaces_the_old_copy(tmp_path):
+    """The project folder holds one template: the copy of the one chosen last."""
+    project = create_project(tmp_path / "p")
+    (tmp_path / "a.cfg").write_text("AOA= 1\n")
+    (tmp_path / "b.cfg").write_text("AOA= 2\n")
+    set_template(tmp_path / "p", project, tmp_path / "a.cfg")
+    set_template(tmp_path / "p", project, tmp_path / "b.cfg")
+    assert project.template == "b.cfg"
+    assert not (tmp_path / "p" / "a.cfg").exists()
+    assert (tmp_path / "a.cfg").read_text() == "AOA= 1\n"  # the original is never touched
+
+
+def test_choosing_the_projects_own_copy_again_keeps_it(tmp_path):
+    project = create_project(tmp_path / "p")
+    (tmp_path / "a.cfg").write_text("AOA= 1\n")
+    set_template(tmp_path / "p", project, tmp_path / "a.cfg")
+    set_template(tmp_path / "p", project, tmp_path / "p" / "a.cfg")
+    assert (tmp_path / "p" / "a.cfg").read_text() == "AOA= 1\n"
+
+
+def test_a_template_may_not_take_the_name_of_the_project_file(tmp_path):
+    project = create_project(tmp_path / "p")
+    (tmp_path / "project.json").write_text("AOA= 1\n")
+    with pytest.raises(TemplateError, match="project.json"):
+        set_template(tmp_path / "p", project, tmp_path / "project.json")
 
 
 def test_set_mesh_reads_markers(tmp_path):
@@ -104,7 +164,7 @@ def test_migrate_rejects_invalid_schema_version(tmp_path):
 
 def test_migrate_rejects_missing_migration(tmp_path, monkeypatch):
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+    monkeypatch.setattr(models, "SCHEMA_VERSION", models.SCHEMA_VERSION + 1)
     monkeypatch.setattr(project_mod, "MIGRATIONS", {})
     with pytest.raises(ProjectError, match="No migration"):
         open_project(tmp_path)
@@ -123,12 +183,13 @@ def test_migration_error_propagates(tmp_path, monkeypatch):
     from aerosuite.engine.project import migrate
 
     create_project(tmp_path)
-    monkeypatch.setattr(models, "SCHEMA_VERSION", 2)
+    current = models.SCHEMA_VERSION
+    monkeypatch.setattr(models, "SCHEMA_VERSION", current + 1)
 
-    def broken_migration(data):
+    def broken_migration(data, directory):
         raise KeyError("boom")
 
-    monkeypatch.setattr(project_mod, "MIGRATIONS", {1: broken_migration})
+    monkeypatch.setattr(project_mod, "MIGRATIONS", {current: broken_migration})
     data = json.loads((tmp_path / PROJECT_FILE).read_text())
     with pytest.raises(KeyError, match="boom"):
         migrate(data)

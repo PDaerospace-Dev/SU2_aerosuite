@@ -1,5 +1,7 @@
 import json
+import os
 
+import psutil
 import pytest
 
 from aerosuite.engine.cfg import (
@@ -10,11 +12,13 @@ from aerosuite.engine.cfg import (
     build_cases,
     extract_markers,
     generate_configs,
+    read_template,
     render_case,
     run_control_text,
     settings_parameters,
 )
 from aerosuite.engine.errors import GenerationError, ProjectError, TemplateError
+from aerosuite.engine.jobs.store import write_lock
 from aerosuite.engine.models import Case, Project
 
 TEMPLATE = """\
@@ -116,16 +120,19 @@ def test_run_control_text():
         Case(name="c1", mach=0.8, alpha=0, beta=0),
         Case(name="c2", mach=0.8, alpha=2, beta=0, restart="previous"),
         Case(name="c3", mach=0.8, alpha=4, beta=0, restart="custom", restart_ref="/r/restart.dat"),
-        Case(name="c4", mach=0.8, alpha=6, beta=0, restart="from_case", restart_ref="c1"),
-        Case(name="c5", mach=0.8, alpha=8, beta=0, restart="initial"),
     ]
     assert run_control_text(cases) == (
         "c1.cfg, none\n"
         "c2.cfg, previous\n"
         "c3.cfg, custom, /r/restart.dat\n"
-        "c4.cfg, from_case, c1.cfg\n"
-        "c5.cfg, initial\n"
     )
+
+
+def test_read_template_reports_non_utf8_bytes_as_a_template_error(tmp_path):
+    (tmp_path / "template.cfg").write_bytes(b"% Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    project = Project(name="t")
+    with pytest.raises(TemplateError, match="not UTF-8 text"):
+        read_template(tmp_path, project)
 
 
 def test_generate_configs_writes_cfgs_control_and_index(tmp_path):
@@ -158,10 +165,8 @@ def test_generate_configs_missing_template(tmp_path):
 def test_generate_configs_requires_restart_reference(tmp_path):
     (tmp_path / "template.cfg").write_text(TEMPLATE)
     project = _project(alpha=[0.0, 2.5])
-    project.cases[0].restart = "from_case"
-    project.cases[0].restart_ref = None
-    project.cases[1].restart = "custom"
-    project.cases[1].restart_ref = None
+    for case in project.cases:
+        case.restart, case.restart_ref = "custom", None
     with pytest.raises(GenerationError, match="M0p8_a0_b0.*M0p8_a2p5_b0"):
         generate_configs(tmp_path, project)
 
@@ -171,3 +176,11 @@ def test_generate_configs_os_error_is_a_generation_error(tmp_path):
     (tmp_path / CONFIGS_DIR).write_text("a file where the configs folder should be")
     with pytest.raises(GenerationError, match="Cannot write configs"):
         generate_configs(tmp_path, _project())
+
+
+def test_generate_configs_refuses_while_a_job_runs(tmp_path):
+    (tmp_path / "template.cfg").write_text(TEMPLATE)
+    write_lock(tmp_path, "j1", os.getpid(), psutil.Process().create_time())
+    with pytest.raises(GenerationError, match="Job j1 is still running for this project; wait for it or cancel it"):
+        generate_configs(tmp_path, _project())
+    assert not (tmp_path / CONFIGS_DIR).exists()

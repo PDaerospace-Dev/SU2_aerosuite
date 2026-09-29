@@ -5,7 +5,6 @@ import psutil
 
 from aerosuite.engine.cfg import generate_configs
 from aerosuite.engine.jobs.store import write_lock
-from aerosuite.engine.models import Case
 from aerosuite.engine.preflight import Problem, has_errors, preflight
 
 
@@ -57,15 +56,48 @@ def test_restart_problems(ready_project, tmp_path):
     project_dir, project = ready_project
     a0, a2, a4 = project.cases
     a0.restart = "previous"
-    a2.restart, a2.restart_ref = "from_case", "M0p8_a4_b0"  # later case: invalid
-    a4.restart, a4.restart_ref = "custom", str(tmp_path / "missing.dat")
-    project.cases.append(Case(name="extra", mach=0.8, alpha=6, beta=0, restart="initial"))
+    a2.restart, a2.restart_ref = "custom", str(tmp_path / "missing.dat")
+    a4.restart, a4.restart_ref = "custom", None
     problems = preflight(project_dir, project, "generate")
     assert any("first case" in m for m in _messages(problems, "warning"))
     errors = _messages(problems, "error")
-    assert any("M0p8_a2_b0" in m and "earlier case" in m for m in errors)
-    assert any("M0p8_a4_b0" in m and "restart file not found" in m for m in errors)
-    assert any("extra" in m and "initial_restart" in m for m in errors)
+    assert any("M0p8_a2_b0" in m and "restart path not found" in m for m in errors)
+    assert any("M0p8_a4_b0" in m and "needs a restart file or case folder" in m for m in errors)
+
+
+def test_custom_restart_paths(ready_project, tmp_path):
+    project_dir, project = ready_project
+    a0, a2, a4 = project.cases
+    empty = tmp_path / "empty_case"
+    empty.mkdir()
+    solved = tmp_path / "solved_case"
+    solved.mkdir()
+    (solved / "restart_flow.dat").write_text("x")
+    a0.restart, a0.restart_ref = "custom", "solution.dat"
+    a2.restart, a2.restart_ref = "custom", str(empty)
+    a4.restart, a4.restart_ref = "custom", str(solved)
+    assert _messages(preflight(project_dir, project, "generate"), "error") == [
+        "M0p8_a0_b0: restart path must be an absolute path (the sweep runs from the runs/ folder): solution.dat",
+        f"M0p8_a2_b0: no restart file found in folder {empty}",
+    ]
+
+
+def test_custom_restart_path_with_a_comma_is_an_error(ready_project, tmp_path):
+    project_dir, project = ready_project
+    odd = tmp_path / "run,2"
+    odd.mkdir()
+    (odd / "restart_flow.dat").write_text("x")
+    project.cases[0].restart, project.cases[0].restart_ref = "custom", str(odd)
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert errors == [f"M0p8_a0_b0: restart path must not contain a comma (run_control.txt separates "
+                      f"fields with commas): {odd}"]
+
+
+def test_custom_restart_to_a_case_of_this_project_is_allowed_before_it_ran(ready_project):
+    project_dir, project = ready_project
+    project.cases[2].restart = "custom"
+    project.cases[2].restart_ref = str(project_dir / "runs" / "M0p8_a0_b0")
+    assert _messages(preflight(project_dir, project, "generate"), "error") == []
 
 
 def test_run_checks(ready_project, monkeypatch):
@@ -129,22 +161,34 @@ def test_relative_mesh_path_is_an_error(ready_project):
         assert not any("Mesh not found" in m for m in errors)
 
 
-def test_relative_custom_restart_is_an_error(ready_project):
-    project_dir, project = ready_project
-    project.cases[1].restart, project.cases[1].restart_ref = "custom", "restart.dat"
-    errors = _messages(preflight(project_dir, project, "generate"), "error")
-    assert errors == [
-        "M0p8_a2_b0: restart file must be an absolute path (the sweep runs from the runs/ folder): restart.dat"
-    ]
 
 
-def test_relative_initial_restart_is_an_error(ready_project):
+def test_live_lock_blocks_generate(ready_project):
     project_dir, project = ready_project
-    project.run.initial_restart = "solution.dat"
-    assert preflight(project_dir, project, "generate") == []  # not used by any case
-    project.cases[0].restart = "initial"
+    write_lock(project_dir, "j1", os.getpid(), psutil.Process().create_time())
     errors = _messages(preflight(project_dir, project, "generate"), "error")
-    assert errors == [
-        "M0p8_a0_b0: initial restart file must be an absolute path "
-        "(the sweep runs from the runs/ folder): solution.dat"
-    ]
+    assert errors == ["Job j1 is still running for this project"]
+
+
+def test_empty_mach_list_is_an_error(ready_project):
+    project_dir, project = ready_project
+    project.sweep.mach = []
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert "No Mach numbers in the sweep" in errors
+
+
+def test_non_utf8_template_is_a_problem_not_a_crash(ready_project):
+    project_dir, project = ready_project
+    (project_dir / "template.cfg").write_bytes(b"% comment with a Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    errors = _messages(preflight(project_dir, project, "generate"), "error")
+    assert any("not UTF-8 text" in m for m in errors)
+
+
+def test_submit_checks_skip_the_generated_config_state(ready_project, monkeypatch):
+    monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    project_dir, project = ready_project  # configs never generated
+    run_errors = _messages(preflight(project_dir, project, "run"), "error")
+    assert any("Configs have not been generated" in m for m in run_errors)
+    assert _messages(preflight(project_dir, project, "submit"), "error") == []
+    monkeypatch.delenv("SU2_RUN")
+    assert any("SU2_RUN is not set" in m for m in _messages(preflight(project_dir, project, "submit"), "error"))

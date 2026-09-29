@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import os
-import secrets
 import shutil
 import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Protocol
+from typing import Any, Iterable, Optional, Protocol, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -49,6 +48,9 @@ class JobRecord(BaseModel):
     state: JobState = JobState.QUEUED
     case_status: dict[str, CaseState] = Field(default_factory=dict)
     failure_tail: dict[str, str] = Field(default_factory=dict)
+    # The sweep script's exit code once the job ended; None when unknown (killed, cancelled, or a job
+    # started before AeroSuite recorded it).
+    exit_code: Optional[int] = None
 
     @property
     def is_active(self) -> bool:
@@ -56,15 +58,26 @@ class JobRecord(BaseModel):
 
 
 class Runner(Protocol):
-    def submit(self, project_dir: Path, project: Project) -> JobRecord: ...
+    def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
+               continue_cases: Iterable[str] = ()) -> JobRecord: ...
 
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 
     def cancel(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 
 
-def new_job_id() -> str:
-    return datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(2)
+def new_job_id(project_dir: Path, now: Optional[datetime] = None) -> str:
+    """Date and minute, e.g. 20260928-1358; a second job in the same minute gets -2, then -3, ..."""
+    from .store import JOBS_DIR  # store imports this module
+
+    jobs = Path(project_dir) / JOBS_DIR
+    base = (now or datetime.now()).strftime("%Y%m%d-%H%M")
+    candidate, count = base, 1
+    # Any of a job's files (record, log, folder) marks the name as taken.
+    while any((jobs / name).exists() for name in (f"{candidate}.json", f"{candidate}.log", candidate)):
+        count += 1
+        candidate = f"{base}-{count}"
+    return candidate
 
 
 def sweep_script_path(run: RunSettings) -> Path:

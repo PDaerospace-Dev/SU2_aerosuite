@@ -68,7 +68,7 @@ aerosuite/
 │       ├── runner.py       Runner protocol + JobRecord
 │       ├── local.py        LocalRunner (runs aoa_sweep_v8.py)
 │       └── store.py        read/write jobs/<id>.json, project lock, process liveness / tree kill (psutil)
-├── cli.py                  `aerosuite` command (Typer)
+├── cli/                    `aerosuite` command (Typer): app.py, project_cmds.py, run_cmds.py
 ├── web/                    NiceGUI app; one module per page (section 7)
 ├── resources/              config_template.cfg, aoa_sweep_v8.py, presets/*.json
 └── ui/, main.py            legacy PyQt5 app — kept until Phase 5
@@ -76,7 +76,7 @@ aerosuite/
 
 Rules:
 
-- `web/` and `cli.py` never read/write project files or manage processes directly; they call engine functions.
+- `web/` and `cli/` never read/write project files or manage processes directly; they call engine functions.
 - A new feature = an engine function (tested) + a page or CLI command.
 - `aerosuite/core/` is moved into `engine/` in Phase 1; `core/` remains as thin re-export shims until the PyQt5 app is retired.
 
@@ -181,7 +181,7 @@ A single asyncio task in the web server refreshes active jobs every 2 s. History
 
 ### Preflight
 
-`preflight(project, action) -> list[Problem]` where `Problem` has `severity` (`error` / `warning`) and `message`. Checks: template exists; mesh exists; case-name collisions; markers referenced in `settings.markers` but absent from `mesh.markers` (warning); `SU2_RUN` set and `sweep_script` exists (run only); project lock held by a live job (run only); `custom`/`initial`/`from_case` restarts have a valid reference. Errors block the action; warnings are shown and can be acknowledged.
+`preflight(project, action) -> list[Problem]` where `Problem` has `severity` (`error` / `warning`) and `message`. Checks: template exists; mesh exists; case-name collisions; markers referenced in `settings.markers` but absent from `mesh.markers` (warning); `SU2_RUN` set and `sweep_script` exists (run only); project lock held by a live job (generate and run); `custom`/`initial`/`from_case` restarts have a valid reference. Errors block the action; warnings are shown and can be acknowledged.
 
 ### Errors
 
@@ -189,7 +189,11 @@ Engine functions raise `AeroSuiteError` subclasses (`ProjectError`, `TemplateErr
 
 ### Access and security
 
-The server binds to `127.0.0.1:8080` by default. Remote use is via `ssh -L 8080:localhost:8080 <workstation>`. There is no authentication; binding to a non-local address requires adding authentication first, and the server refuses a non-local bind unless `--i-understand-no-auth` is passed.
+The server binds to `127.0.0.1:8080` by default. Remote use is via `ssh -L 8080:127.0.0.1:8080 <workstation>`. There is no authentication; binding to a non-local address requires adding authentication first, and the server refuses a non-local bind unless `--i-understand-no-auth` is passed.
+
+The server also rejects any request whose `Host` header is not a local name (`localhost`, `127.0.0.1`, `[::1]`, plus the explicit `--host` address; the port is not checked, so a tunnel on any local port works). This defends against DNS rebinding, where a web page in the user's browser re-points its own domain at 127.0.0.1 to drive the UI. A wildcard bind (`0.0.0.0`, `::`) with `--i-understand-no-auth` accepts any `Host`.
+
+On a multi-user workstation, binding to 127.0.0.1 is not a boundary between local users: any account on the machine can connect to the port. A startup token (Jupyter-style: printed in the launch URL and required by the server) must be decided before Phase 3b adds job execution.
 
 ## 7. Web UI
 
@@ -208,19 +212,47 @@ Left sidebar in workflow order with status badges (✓ complete, ● needs atten
 
 Each page module targets ≤ ~200 lines and calls only engine functions.
 
-Launch: `aerosuite serve [--port 8080]`.
+Launch: `aerosuite serve [--root DIR] [--port 8080] [--host 127.0.0.1] [--i-understand-no-auth]`.
+
+### 7.1 Phase 3a design (setup side)
+
+Phase 3 is split: **3a** = serve, app shell, Projects, Setup, Settings, Sweep; **3b** = Run, Monitor, Results (sidebar shows them greyed until then). Calculators, presets and profile import stay in Phase 4.
+
+- **Package:** `aerosuite/web/` — `server.py` (start NiceGUI), `config.py` (picker root), `app.py` (registers pages), `session.py` (ProjectSession), `status.py` (sidebar badges), `recent.py` (recent projects), `files.py` (directory listings), `fields.py` (autosaving text field), `picker.py` (file/folder dialog), `layout.py` (header, sidebar, outside-change watcher), `pages/` (projects, setup, settings, sweep). `session.py`, `status.py`, `recent.py`, `files.py` do not import NiceGUI and are unit-tested.
+- **Which project:** the page URL carries it — `/<page>?project=<absolute folder>` — so tabs and bookmarks work and the server keeps no per-user state.
+- **Autosave:** text fields commit on blur or Enter (unchanged text is not re-saved); selects, checkboxes and switches commit on change. Every commit runs `ProjectSession.apply(change)`: apply to a deep copy, re-validate with pydantic, `save_project`, and only then replace the in-memory project. An invalid value shows the engine's message under the field and saves nothing.
+- **Outside changes:** a 2-second timer compares project.json's (mtime_ns, size); on change the page reloads the project, re-renders and notifies "Project changed on disk; reloaded".
+- **File choice:** a workstation-side picker dialog (starts at `--root`, default the home folder; folders first, project folders marked, files filtered by suffix) plus a paste box on every path field.
+- **Recent projects:** `$AEROSUITE_HOME/recent.json` (default `~/.aerosuite/recent.json`), most recent first, max 15, missing folders dropped; failures to write it never block opening a project.
+- **Pages:**
+  - Projects (`/`): recent list; open (picker or paste); new (parent folder + name → `create_project`; template and mesh are then set on Setup).
+  - Setup: mesh (path, markers), template (copied in), partitions, sweep Python (resolved interpreter shown, warning when it is AeroSuite's own), sweep script.
+  - Settings: freestream / reference / numerics fields (empty = template value); Markers table (value, "Remove line" switch, delete, add — keys must start with `MARKER_`); Overrides table (add/delete; per-case keys refused by the engine); mesh markers listed for reference; live preview of the selected case's `.cfg` via `render_case`.
+  - Sweep: Mach/α/β lists (`parse_value_list`), altitude, base name, include-in-name checkboxes, initial restart file, case table (restart option per case; `from_case` picks an earlier case, `custom` takes a file path; duplicate names highlighted), preflight problems for "generate", Generate button (disabled while there are errors).
+- **Badges** (`status.step_badges`): Setup ✓ template and mesh present, ● one set but missing/broken, ○ neither; Settings ✓ template present; Sweep ○ no Mach and no cases, ● any error from `preflight.sweep_problems`, ✓ otherwise; Configs ○ never generated, ● cases.json differs from the cases or is unreadable, ✓ matches; Run/Monitor/Results greyed.
+- **Engine additions:** `preflight.sweep_problems(project)` (empty Mach, no cases, duplicates, restart problems — reused by `preflight`); `editing.set_parameter` rejects an empty value.
+- **Testing:** unit tests for the non-NiceGUI modules; page tests with NiceGUI's simulated user (`nicegui.testing.user_plugin`, `pytest-asyncio`, `main_file = tests/web/main_app.py`); no real browser.
 
 ## 8. CLI
 
-Typer app installed as the `aerosuite` command:
+Typer app installed as the `aerosuite` command (also runnable as `python -m aerosuite.cli`). Commands only parse input, call engine functions and print; engine errors print as `Error: <message>` with exit code 1 and no traceback; preflight warnings print without blocking.
 
-- `aerosuite new <dir> --template <cfg> --mesh <su2>`
+- `aerosuite new <dir> [--template <cfg>] [--mesh <su2>] [--name N]` — create a project folder
+- `aerosuite show <dir>` — print template, mesh and markers, sweep, settings, run settings and the case list
+- `aerosuite set <dir> [--mach V] [--alpha V] [--beta V] [--altitude A] [--base-name B] [--template T] [--mesh M] [--partitions N] [--sweep-python P] [--key K=V ...] [--unset K ...]`
+  - value lists are comma- or space-separated; `start:stop:step` expands inclusively (`--alpha=-4:12:2`); values are rounded to 10 decimals
+  - changing the sweep rebuilds the cases (restart choices kept for cases whose name survives)
+  - `--key MARKER_X=V` sets a marker line, `--key MARKER_X=none` removes it; other keys become overrides; keys set per case by the sweep (`MACH_NUMBER`, `AOA`, `SIDESLIP_ANGLE`, `MESH_FILENAME`, `BREAKDOWN_FILENAME`) are refused
+  - `--unset K` removes a marker or override so the template value applies again
+- `aerosuite edit <dir>` — open a copy of project.json in `$VISUAL`/`$EDITOR` (default `nano`, `notepad` on Windows); on save it is validated; if invalid the errors are shown and the user may re-open or discard; project.json changes only when the edit is valid; a changed sweep rebuilds the cases. Per-case restart options are set here.
 - `aerosuite generate <dir>` — preflight + write configs
-- `aerosuite run <dir> [-n N]` — submit via LocalRunner
-- `aerosuite status <dir>` — refresh and print jobs and case states
-- `aerosuite cancel <dir> [job_id]`
-- `aerosuite summarize <dir> [--last N]`
-- `aerosuite serve [--port]`
+- `aerosuite run <dir> [-n N]` — preflight + submit via LocalRunner, then return immediately with the job id; the sweep survives closing the terminal or SSH session
+- `aerosuite status <dir> [--watch]` — refresh and print the latest job and its case states (with failure tails); `--watch` re-prints on change every 2 s until the job ends; Ctrl-C stops watching, not the job
+- `aerosuite cancel <dir> [job_id]` — cancel the given job, or the running one
+- `aerosuite summarize <dir> [--last N] [--columns CL,CD,CMy]` — write results/summary.csv and print it
+- `aerosuite serve [--root DIR] [--host 127.0.0.1] [--port 8080] [--i-understand-no-auth]` — start the web UI; `--root` is where the file picker starts (default: home); a `--host` other than `127.0.0.1`, `localhost` or `::1` is refused unless `--i-understand-no-auth` is passed
+
+Value parsing, parameter editing, project-text validation and summary writing live in the engine (`engine/editing.py`, `engine/project.py`, `engine/results.py`) so the web UI reuses them.
 
 ## 9. Environment
 

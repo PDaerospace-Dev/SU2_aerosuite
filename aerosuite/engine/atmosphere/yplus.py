@@ -36,24 +36,32 @@ FORMULAS: Dict[Tuple[str, str], dict] = {
         "latex":  "Cf = 0.664 / Re^(1/2)",
         "detail": "Valid for Re < 5×10⁵  |  Flat plate boundary layer",
         "fn":     _cf_laminar_external,
+        "re_min": None,  # exclusive bounds of the formula's valid Reynolds range
+        "re_max": 5e5,
     },
     ("Turbulent", "External"): {
         "name":   "Schlichting Power-Law (Turbulent)",
         "latex":  "Cf = 0.027 / Re^(1/7)",
         "detail": "Valid for 5×10⁵ < Re < 10⁷  |  Turbulent flat plate",
         "fn":     _cf_turbulent_external,
+        "re_min": 5e5,
+        "re_max": 1e7,
     },
     ("Laminar", "Internal"): {
         "name":   "Hagen-Poiseuille (Laminar Pipe)",
         "latex":  "Cf = 16 / Re",
         "detail": "Valid for Re < 2300  |  Fully-developed pipe/channel flow",
         "fn":     _cf_laminar_internal,
+        "re_min": None,
+        "re_max": 2300.0,
     },
     ("Turbulent", "Internal"): {
         "name":   "Petukhov Correlation (Turbulent Pipe)",
         "latex":  "Cf = (0.790·ln(Re) - 1.64)^-2",
         "detail": "Valid for 3000 < Re < 5×10⁶  |  Smooth pipe, Darcy-Weisbach",
         "fn":     _cf_turbulent_internal,
+        "re_min": 3000.0,
+        "re_max": 5e6,
     },
 }
 
@@ -110,7 +118,8 @@ def calculate(
     Returns
     -------
     dict with keys: Re, Cf, tau_w, u_tau, y1, y1_mm,
-                    n_layers, formula, flow_type, regime_label
+                    n_layers, formula, flow_type, regime_label,
+                    in_range (Re inside the formula's valid range)
     """
     nu = viscosity / density
     Re = velocity * length / nu
@@ -130,6 +139,9 @@ def calculate(
     else:
         delta = length / 2.0
 
+    re_min, re_max = formula["re_min"], formula["re_max"]
+    in_range = (re_min is None or Re > re_min) and (re_max is None or Re < re_max)
+
     return {
         "Re":           Re,
         "Cf":           Cf,
@@ -141,4 +153,5 @@ def calculate(
         "formula":      formula,
         "flow_type":    flow_type,
         "regime_label": regime_label,
+        "in_range":     in_range,
     }

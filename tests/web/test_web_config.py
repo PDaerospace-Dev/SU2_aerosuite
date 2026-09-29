@@ -1,0 +1,199 @@
+import asyncio
+import json
+
+from nicegui.testing import User
+
+from aerosuite.engine.cfg import build_cases
+from aerosuite.engine.project import TEMPLATE_FILE, open_project, save_project
+from aerosuite.web import layout
+from aerosuite.web.layout import project_url
+
+
+def _element(user, marker):
+    return next(iter(user.find(marker=marker).elements))
+
+
+def _single(project_dir):
+    project = open_project(project_dir)
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    save_project(project_dir, project)
+
+
+async def _open(user, project_dir):
+    await user.open(project_url("config", project_dir))
+
+
+async def test_editor_shows_and_saves_the_template(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    editor = _element(user, "config-text")
+    assert editor.value.startswith("MACH_NUMBER= 0.3")
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("focusout")
+    assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
+
+
+async def test_editor_has_a_fixed_scrolling_height_and_line_numbers(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    editor = _element(user, "config-text")
+    assert editor._style.get("height") == "70vh"
+    assert editor.props["line-wrapping"] is False  # line N on screen is line N in the file
+
+
+async def test_typing_saves_shortly_after_it_stops(user: User, ready_project, monkeypatch, eventually):
+    from aerosuite.web import template_editor
+
+    monkeypatch.setattr(template_editor, "SAVE_DELAY", 0.1)
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n")  # no focusout: the pause saves it
+    await eventually(lambda: (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n"), timeout=5)
+
+
+async def test_ctrl_s_saves_at_once(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("keybinding", {"key": "Mod-s"})
+    assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
+
+
+async def test_warnings_are_shown_but_do_not_block(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="config-text").type("oops\nAOA= 5\n").trigger("focusout")
+    group = _element(user, "config-warning")
+    assert group._props["label"] == "2 warnings" and not group.value  # folded until opened
+    with user:
+        group.open()
+    await user.should_see("is not an option or a comment")
+    await user.should_see("AOA is set on lines")
+    assert "oops" in (project_dir / TEMPLATE_FILE).read_text()
+
+
+async def test_insert_from_the_reference(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="ref-search").type("marker_euler")
+    user.find(marker="ref-insert-MARKER_EULER").click()
+    text = (project_dir / TEMPLATE_FILE).read_text()
+    assert text.endswith("% --- added from reference ---\nMARKER_EULER= ( airfoil )\n")
+    await user.should_see(marker="ref-in-config-MARKER_EULER")
+    user.find(marker="ref-search").clear().type("marker_sym")
+    user.find(marker="ref-insert-MARKER_SYM").click()
+    text = (project_dir / TEMPLATE_FILE).read_text()
+    assert text.count("% --- added from reference ---") == 1
+    assert text.endswith("MARKER_EULER= ( airfoil )\nMARKER_SYM= ( NONE )\n")
+
+
+async def test_insert_of_an_option_already_typed(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="ref-search").type("marker_euler")
+    user.find(marker="config-text").type("MARKER_EULER= ( wing )\n")  # typed, not yet saved
+    user.find(marker="ref-insert-MARKER_EULER").click()
+    await user.should_see("MARKER_EULER is already set on line")
+
+
+async def test_preview_of_a_sweep_case(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    assert _element(user, "side-tabs").value == "preview"
+    assert "MACH_NUMBER= 0.8" in _element(user, "preview").content
+    await user.should_not_see(marker="config-checks")  # sweep on: Generate lives on the Sweep page
+
+
+async def test_an_outside_project_json_change_does_not_drop_unsaved_editor_text(
+        user: User, ready_project, monkeypatch):
+    monkeypatch.setattr(layout, "WATCH_SECONDS", 0.1)
+    project_dir, project = ready_project
+    await _open(user, project_dir)
+    user.find(marker="config-text").type("CFL_NUMBER= 5\n")  # not yet blurred
+
+    other = open_project(project_dir)
+    other.name = "renamed-elsewhere"
+    save_project(project_dir, other)
+    await asyncio.sleep(0.5)  # the watcher notices and reloads project.json
+    await user.should_see("Project changed on disk; reloaded")
+
+    editor = _element(user, "config-text")
+    assert editor.value.endswith("CFL_NUMBER= 5\n")  # the typed text survived the reload
+    assert "CFL_NUMBER= 5" not in (project_dir / TEMPLATE_FILE).read_text()  # not yet saved
+
+    user.find(marker="config-text").trigger("focusout")
+    assert (project_dir / TEMPLATE_FILE).read_text().endswith("CFL_NUMBER= 5\n")
+    assert _element(user, "config-text").value.endswith("CFL_NUMBER= 5\n")
+
+
+async def test_non_utf8_template_shows_an_error_and_a_read_only_editor(user: User, ready_project):
+    project_dir, _ = ready_project
+    (project_dir / TEMPLATE_FILE).write_bytes(b"% Latin-1 degree sign \xb0\nAOA= 0.0\n")
+    await _open(user, project_dir)
+    await user.should_see("not UTF-8 text")
+    editor = _element(user, "config-text")
+    assert editor.value == ""
+    assert not editor.enabled
+    before = (project_dir / TEMPLATE_FILE).read_bytes()
+    user.find(marker="config-text").type("MACH_NUMBER= 0.5\n").trigger("focusout")
+    assert (project_dir / TEMPLATE_FILE).read_bytes() == before  # the real content is not overwritten
+
+
+async def test_single_case_preview_checks_and_generate(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single(project_dir)
+    await _open(user, project_dir)
+    content = _element(user, "preview").content
+    assert "MACH_NUMBER= 0.3" in content and "BREAKDOWN_FILENAME" not in content
+    await user.should_see(marker="config-checks")
+    user.find(marker="generate").click()
+    await user.should_see("Wrote 1 config")
+    index = json.loads((project_dir / "configs" / "cases.json").read_text())
+    assert index == {"study": {"mach": 0.3, "alpha": 0.0, "beta": 0.0}}
+
+
+async def test_config_generate_sits_in_the_actions_when_the_sweep_is_off(user: User, ready_project):
+    project_dir, project = ready_project
+    project.sweep.enabled = False
+    project.cases = build_cases(project)
+    save_project(project_dir, project)
+    await user.open(project_url("config", project_dir))
+    generate = next(iter(user.find(marker="generate").elements))
+    assert generate.parent_slot.parent is next(iter(user.find(marker="page-actions").elements))
+
+
+async def test_template_warnings_fold_into_one_row_above_the_editor(user: User, ready_project):
+    project_dir, _ = ready_project
+    (project_dir / "template.cfg").write_text("AOA= 0.0\nAOA= 2.0\n")
+    await user.open(project_url("config", project_dir))
+    group = _element(user, "config-warning")
+    assert "as-warn-group" in group.classes and group._props["label"] == "1 warning"
+    assert "as-code" in next(iter(user.find(marker="config-text").elements)).classes
+
+
+async def test_the_sweep_can_be_switched_off_and_on_here(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    await user.should_not_see(marker="generate")  # sweep on: Generate is on the Sweep page
+    with user:
+        _element(user, "config-sweep").set_value(False)
+    project = open_project(project_dir)
+    assert project.sweep.enabled is False and [c.name for c in project.cases] == ["study"]
+    await user.should_see(marker="generate")
+    with user:
+        _element(user, "config-sweep").set_value(True)
+    assert len(open_project(project_dir).cases) == 3
+    await user.should_not_see(marker="generate")
+
+
+async def test_with_the_sweep_off_each_template_warning_shows_once(user: User, ready_project):
+    """The checks above Generate already list the template's warnings; no second banner for each."""
+    project_dir, _ = ready_project
+    _single(project_dir)
+    (project_dir / "template.cfg").write_text("AOA= 0.0\nAOA= 2.0\n")
+    await _open(user, project_dir)
+    await user.should_see(marker="config-checks")
+    shown = [label.text for label in user.find("AOA is set on lines 1 and 2").elements]
+    assert len(shown) == 1, shown
+    user.find(marker="config-text").type("AOA= 3.0\n").trigger("focusout")  # after a save, still once
+    shown = [label.text for label in user.find("AOA is set on lines").elements]
+    assert len(shown) == 1, shown

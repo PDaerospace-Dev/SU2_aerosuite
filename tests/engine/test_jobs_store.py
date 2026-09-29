@@ -53,8 +53,21 @@ def test_load_missing_job(tmp_path):
         load_job(tmp_path, "nope")
 
 
-def test_ids_and_script_path():
-    assert new_job_id() != new_job_id()
+def test_job_ids_are_date_and_minute_with_a_counter_only_when_taken(tmp_path):
+    at = datetime(2026, 9, 28, 13, 58, 41)
+    assert new_job_id(tmp_path, at) == "20260928-1358"
+    jobs = tmp_path / "jobs"
+    jobs.mkdir()
+    (jobs / "20260928-1358.json").write_text("{}")
+    assert new_job_id(tmp_path, at) == "20260928-1358-2"
+    (jobs / "20260928-1358-2").mkdir()  # a job folder alone (a submit that failed half-way) counts too
+    (jobs / "20260928-1358-3.log").write_text("")
+    assert new_job_id(tmp_path, at) == "20260928-1358-4"
+    assert new_job_id(tmp_path, datetime(2026, 9, 28, 13, 59)) == "20260928-1359"
+
+
+def test_ids_and_script_path(tmp_path):
+    assert new_job_id(tmp_path).count("-") == 1
     assert sweep_script_path(RunSettings()) == BUNDLED_SWEEP_SCRIPT
     assert BUNDLED_SWEEP_SCRIPT.is_file()
     assert str(sweep_script_path(RunSettings(sweep_script="/x/s.py"))).endswith("s.py")
@@ -135,3 +148,12 @@ def test_process_we_cannot_inspect_counts_as_alive(monkeypatch):
 
     monkeypatch.setattr(store.psutil, "Process", Denied)
     assert process_alive(4242, 0.0)
+
+
+@pytest.mark.parametrize("text", ["[]", '"x"', "7", '{"pid": "x", "create_time": 0}', '{"pid": 1, "create_time": null}',
+                                  '{"pid": [1]}'])
+def test_a_lock_of_the_wrong_shape_is_stale(tmp_path, text):
+    # Valid JSON that is not a lock must not crash every caller (sidebar badges, preflight, the CLI).
+    (tmp_path / ".lock").write_text(text, encoding="utf-8")
+    assert active_lock(tmp_path) is None
+    assert not (tmp_path / ".lock").exists()

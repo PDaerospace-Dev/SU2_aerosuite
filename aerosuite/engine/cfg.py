@@ -3,10 +3,14 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from .errors import GenerationError, ProjectError, TemplateError
+from .freestream import (CaseFreestream, case_altitude, freestream_for, freestream_values, label_for,
+                         sweeps_altitude)
+from .jobs.store import active_lock
 from .models import Case, Project, Settings
 from .naming import case_name, find_collisions, format_value
 
@@ -52,6 +56,24 @@ def _number(value) -> Optional[str]:
     return None if value is None else format_value(value)
 
 
+def single_case_name(project: Project) -> str:
+    """The one case of a sweep-off project: the project name as a safe file stem."""
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", project.name).strip("._")
+    return stem or "case"
+
+
+def template_case_values(template: str) -> tuple[float, float, float]:
+    """MACH_NUMBER, AOA and SIDESLIP_ANGLE as written in a template (0.0 if missing or not a number)."""
+    values = []
+    for key in ("MACH_NUMBER", "AOA", "SIDESLIP_ANGLE"):
+        match = re.search(rf"^{key}\s*=\s*([^\s%]+)", template, re.MULTILINE)
+        try:
+            values.append(float(match.group(1)) if match else 0.0)
+        except ValueError:
+            values.append(0.0)
+    return values[0], values[1], values[2]
+
+
 def settings_parameters(settings: Settings) -> dict[str, Optional[str]]:
     """Project-wide parameters; unset fields are omitted so the template value stands."""
     fs, ref, num = settings.freestream, settings.reference, settings.numerics
@@ -77,12 +99,14 @@ def settings_parameters(settings: Settings) -> dict[str, Optional[str]]:
 
 
 def case_parameters(project: Project, case: Case) -> dict[str, str]:
-    params = {
-        "MACH_NUMBER": format_value(case.mach),
-        "AOA": format_value(case.alpha),
-        "SIDESLIP_ANGLE": format_value(case.beta),
-        "BREAKDOWN_FILENAME": f"{case.name}_FB.dat",
-    }
+    params: dict[str, str] = {}
+    if project.sweep.enabled:
+        params.update({
+            "MACH_NUMBER": format_value(case.mach),
+            "AOA": format_value(case.alpha),
+            "SIDESLIP_ANGLE": format_value(case.beta),
+            "BREAKDOWN_FILENAME": f"{case.name}_FB.dat",
+        })
     if project.mesh.path:
         # Absolute, because the sweep runs from runs/ rather than from the cfg folder.
         params["MESH_FILENAME"] = str(Path(project.mesh.path).resolve())
@@ -93,59 +117,107 @@ def read_template(project_dir: Path, project: Project) -> str:
     path = Path(project_dir) / project.template
     try:
         return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise TemplateError(f"{path} is not UTF-8 text: {exc}") from exc
     except OSError as exc:
         raise TemplateError(f"Cannot read template {path}: {exc}") from exc
+
+
+def case_mach(project: Project, case: Case, template: str) -> float:
+    """The Mach a case runs at: its sweep Mach, or the template's MACH_NUMBER for a single case."""
+    return case.mach if project.sweep.enabled else template_case_values(template)[0]
 
 
 def render_case(template: str, project: Project, case: Case) -> str:
     """Template -> settings -> overrides -> case values; later layers win."""
     params = settings_parameters(project.settings)
     params.update(case_parameters(project, case))
+    freestream = freestream_for(project.settings, case_mach(project, case, template), case_altitude(project, case))
+    if freestream:
+        params.update(freestream)  # per case, so it wins over a by-hand value and an override
     return apply_parameters(template, params)
 
 
+def case_freestream(project: Project, template: str) -> list[CaseFreestream]:
+    """Each case's altitude-mode values, or why they cannot be computed (for checks and the pages)."""
+    rows = []
+    for case in project.cases:
+        mach, altitude = case_mach(project, case, template), case_altitude(project, case)
+        try:
+            values = freestream_values(project.settings.freestream, mach, altitude)
+            rows.append(CaseFreestream(case.name, mach, values, "", altitude))
+        except ProjectError as exc:
+            rows.append(CaseFreestream(case.name, mach, None, str(exc), altitude))
+    return rows
+
+
 def build_cases(project: Project) -> list[Case]:
-    """Expand the sweep into cases, keeping restart choices of cases that still exist."""
+    """Expand the sweep into cases (altitude outermost, then Mach, alpha, beta), keeping the restart choices
+    of cases that still exist (same name, or same altitude/Mach/alpha/beta under a new name, or the same
+    Mach/alpha/beta in a single-altitude sweep when only one old case has them, e.g. after changing the
+    altitude)."""
     sweep, naming = project.sweep, project.sweep.naming
     previous = {case.name: case for case in project.cases}
+    # A case whose name changed (e.g. the altitude label or a naming option) keeps its restart setup.
+    by_values = {(case.altitude_km, case.mach, case.alpha, case.beta): case for case in project.cases}
+    if not sweep.enabled:
+        name = single_case_name(project)
+        old = previous.get(name)
+        return [Case(
+            name=name, mach=0.0, alpha=0.0, beta=0.0,
+            restart=old.restart if old else "none",
+            restart_ref=old.restart_ref if old else None,
+        )]
+    altitudes: list[Optional[float]] = (list(sweep.altitudes_km) or [None]) if sweeps_altitude(project) else [None]
+    by_flight: dict = {}  # with several altitudes, a new altitude's cases start fresh
+    if len(altitudes) == 1:
+        flight = Counter((case.mach, case.alpha, case.beta) for case in project.cases)
+        by_flight = {(c.mach, c.alpha, c.beta): c for c in project.cases if flight[(c.mach, c.alpha, c.beta)] == 1}
     cases = []
-    for mach in sweep.mach or [0.0]:
-        for alpha in sweep.alpha or [0.0]:
-            for beta in sweep.beta or [0.0]:
-                name = case_name(
-                    mach, alpha, beta,
-                    altitude=sweep.altitude,
-                    base_name=naming.base_name,
-                    include_mach=naming.include_mach,
-                    include_alpha=naming.include_alpha,
-                    include_beta=naming.include_beta,
-                    include_altitude=naming.include_altitude,
-                    include_base=naming.include_base,
-                )
-                old = previous.get(name)
-                cases.append(Case(
-                    name=name, mach=mach, alpha=alpha, beta=beta,
-                    restart=old.restart if old else "none",
-                    restart_ref=old.restart_ref if old else None,
-                ))
+    for altitude in altitudes:
+        for mach in sweep.mach or [0.0]:
+            for alpha in sweep.alpha or [0.0]:
+                for beta in sweep.beta or [0.0]:
+                    name = case_name(
+                        mach, alpha, beta,
+                        altitude=label_for(project, altitude),
+                        base_name=naming.base_name,
+                        include_mach=naming.include_mach,
+                        include_alpha=naming.include_alpha,
+                        include_beta=naming.include_beta,
+                        include_altitude=naming.include_altitude,
+                        include_base=naming.include_base,
+                    )
+                    old = (previous.get(name) or by_values.get((altitude, mach, alpha, beta))
+                           or by_flight.get((mach, alpha, beta)))
+                    cases.append(Case(
+                        name=name, mach=mach, alpha=alpha, beta=beta, altitude_km=altitude,
+                        restart=old.restart if old else "none",
+                        restart_ref=old.restart_ref if old else None,
+                    ))
     return cases
 
 
 def run_control_text(cases: Sequence[Case]) -> str:
-    """run_control.txt in the format aoa_sweep_v8.py reads."""
+    """run_control.txt in the format aoa_sweep_v8.py reads (a job writes its own; see jobs/plan.py)."""
     lines = []
     for case in cases:
         fields = [f"{case.name}.cfg", case.restart]
         if case.restart == "custom":
             fields.append(case.restart_ref or "")
-        elif case.restart == "from_case":
-            fields.append(f"{case.restart_ref}.cfg")
         lines.append(", ".join(fields))
     return "\n".join(lines) + "\n"
 
 
 def generate_configs(project_dir: Path, project: Project) -> list[Path]:
     """Write configs/<case>.cfg for every case, plus run_control.txt and cases.json."""
+    lock = active_lock(project_dir)
+    if lock:
+        # The running sweep reads each cfg only when its case starts.
+        raise GenerationError(
+            f"Job {lock['job_id']} is still running for this project; "
+            "wait for it or cancel it before regenerating configs"
+        )
     if not project.cases:
         raise GenerationError("The sweep has no cases; build the cases first")
     duplicates = find_collisions(case.name for case in project.cases)
@@ -154,7 +226,7 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
             "These case names occur more than once and would overwrite each other: "
             + ", ".join(duplicates)
         )
-    no_ref = [c.name for c in project.cases if c.restart in ("custom", "from_case") and not c.restart_ref]
+    no_ref = [c.name for c in project.cases if c.restart == "custom" and not c.restart_ref]
     if no_ref:
         raise GenerationError(
             "These cases need a restart reference for their restart option: "
@@ -162,7 +234,14 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
         )
     template = read_template(project_dir, project)
     out_dir = Path(project_dir) / CONFIGS_DIR
-    index = {c.name: {"mach": c.mach, "alpha": c.alpha, "beta": c.beta} for c in project.cases}
+    if project.sweep.enabled:
+        index = {c.name: {"mach": c.mach, "alpha": c.alpha, "beta": c.beta} for c in project.cases}
+        for case in project.cases:
+            if case.altitude_km is not None:
+                index[case.name]["altitude_km"] = case.altitude_km
+    else:
+        mach, alpha, beta = template_case_values(template)
+        index = {c.name: {"mach": mach, "alpha": alpha, "beta": beta} for c in project.cases}
     written = []
     try:
         out_dir.mkdir(parents=True, exist_ok=True)

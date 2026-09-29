@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 5
 
 
 class Mesh(BaseModel):
@@ -14,7 +14,14 @@ class Mesh(BaseModel):
     markers: list[str] = Field(default_factory=list)
 
 
+FreestreamMode = Literal["manual", "altitude"]
+
+
 class Freestream(BaseModel):
+    # "altitude": each case's temperature and Reynolds number come from the ISA at its altitude and its own
+    # Mach; temperature_K and reynolds are then kept (unused) for switching back.
+    mode: FreestreamMode = "manual"
+    altitude_km: Optional[float] = None  # the single case's altitude; a sweep uses SweepSpec.altitudes_km
     temperature_K: Optional[float] = None
     reynolds: Optional[float] = None
     reynolds_length: Optional[float] = None
@@ -57,14 +64,17 @@ class Naming(BaseModel):
 
 
 class SweepSpec(BaseModel):
+    enabled: bool = True  # False: the project is a single case
     mach: list[float] = Field(default_factory=list)
     alpha: list[float] = Field(default_factory=list)
     beta: list[float] = Field(default_factory=list)
-    altitude: str = "sl"
+    # Swept (outermost) in altitude mode; kept, unused, in manual mode.
+    altitudes_km: list[float] = Field(default_factory=list)
+    altitude: str = "sl"  # the typed name label (manual mode, or altitude mode without altitudes)
     naming: Naming = Field(default_factory=Naming)
 
 
-RestartOption = Literal["none", "previous", "initial", "custom", "from_case"]
+RestartOption = Literal["none", "previous", "custom"]
 
 
 class Case(BaseModel):
@@ -72,8 +82,9 @@ class Case(BaseModel):
     mach: float
     alpha: float
     beta: float
+    altitude_km: Optional[float] = None  # set in altitude mode with the sweep on
     restart: RestartOption = "none"
-    # custom: restart file path; from_case: name of an earlier case
+    # custom: absolute path of a restart file, or of a case folder holding one
     restart_ref: Optional[str] = None
 
 
@@ -81,7 +92,6 @@ class RunSettings(BaseModel):
     partitions: int = Field(default=1, ge=1)
     sweep_script: str = ""  # empty = bundled resources/aoa_sweep_v8.py
     sweep_python: str = "python3"  # must be able to import SU2
-    initial_restart: Optional[str] = None  # passed as -r for cases with restart = "initial"
 
 
 class Project(BaseModel):
@@ -92,6 +102,7 @@ class Project(BaseModel):
     mesh: Mesh = Field(default_factory=Mesh)
     template: str = "template.cfg"
     preset: Optional[str] = None
+    profile: Optional[str] = None  # aircraft profile id; None = general project
     settings: Settings = Field(default_factory=Settings)
     sweep: SweepSpec = Field(default_factory=SweepSpec)
     cases: list[Case] = Field(default_factory=list)

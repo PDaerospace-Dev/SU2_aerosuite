@@ -100,6 +100,18 @@ def test_summarize_uses_index_then_names_and_sorts(tmp_path, history_writer):
     assert any("M0p8_a5_b0" in w for w in warnings)
 
 
+def test_summarize_adds_an_altitude_column_for_an_altitude_sweep(tmp_path, history_writer):
+    runs = tmp_path / "runs"
+    for name in ("M0p8_11km_a0_b0", "M0p8_0km_a0_b0", "M0p6_11km_a0_b0"):
+        history_writer(runs / name, STEADY)
+    index = {"M0p8_11km_a0_b0": {"mach": 0.8, "alpha": 0.0, "beta": 0.0, "altitude_km": 11.0},
+             "M0p8_0km_a0_b0": {"mach": 0.8, "alpha": 0.0, "beta": 0.0, "altitude_km": 0.0},
+             "M0p6_11km_a0_b0": {"mach": 0.6, "alpha": 0.0, "beta": 0.0, "altitude_km": 11.0}}
+    df, _ = summarize(runs, ["CL"], case_index=index)
+    assert list(df.columns)[:6] == ["Case", "Altitude", "Mach", "Alpha", "Beta", "Converged"]
+    assert df["Case"].tolist() == ["M0p8_0km_a0_b0", "M0p6_11km_a0_b0", "M0p8_11km_a0_b0"]
+
+
 def test_summarize_skip_and_empty(tmp_path, history_writer):
     runs = tmp_path / "runs"
     history_writer(runs / "M0p8_a0_b0", STEADY)
@@ -126,3 +138,15 @@ def test_check_convergence_near_zero_mean(tmp_path):
     df = read_history(path)
     assert df["CL"].std() / abs(df["CL"].mean()) > 1e-3  # the relative rule alone would fail it
     assert check_convergence(df) == (True, "Converged")
+
+
+def test_history_buffer_accumulates_and_starts_over(tmp_path, history_writer):
+    from aerosuite.engine.results import HistoryBuffer
+
+    path = history_writer(tmp_path / "case", [0.5] * 20)
+    buffer = HistoryBuffer(path)
+    assert len(buffer.read()) == 20
+    history_writer(tmp_path / "case", [0.5] * 30)  # 10 rows appended
+    assert len(buffer.read()) == 30
+    history_writer(tmp_path / "case", [0.5] * 5)  # the case was re-run: the file shrank
+    assert len(buffer.read()) == 5
