@@ -205,3 +205,79 @@ async def test_a_package_the_history_cannot_serve_is_disabled(user: User, ready_
 async def test_monitor_opens_on_the_case_given(user: User, results_project):
     await user.open(project_url("monitor", results_project) + "&case=M0p8_a4_b0")
     assert _element(user, "monitor-case").value == "M0p8_a4_b0"
+
+
+# -- derived and characteristic values, packages (Task 7) ----------------------------
+
+
+async def _derived_dialog(user):
+    user.find(marker="derived-add").click()
+    await user.should_see(marker="derived-save")
+
+
+def _fill(user, marker, text):
+    user.find(marker=marker).clear().type(text)
+
+
+async def test_a_derived_value_is_previewed_added_and_tabulated(user: User, results_project):
+    await _open(user, results_project)
+    await _derived_dialog(user)
+    _fill(user, "derived-name", "CL share")
+    _fill(user, "derived-formula", "{CL(Wing)} / CL")
+    await user.should_see(marker="derived-preview-0")
+    assert _text(user, "derived-preview-0").endswith("0.9")
+    user.find(marker="derived-save").click()
+    results = open_project(results_project).results
+    assert [(d.name, d.formula) for d in results.derived] == [("CL share", "{CL(Wing)} / CL")]
+    assert "CL share" in results.parameters
+    assert _text(user, "cell-0-M0p8_a2_b0-CL share") == "0.9"
+
+
+async def test_derived_values_are_checked_before_saving(user: User, results_project):
+    await _open(user, results_project)
+    await _derived_dialog(user)
+    _fill(user, "derived-name", "CL")
+    _fill(user, "derived-formula", "CL / {Avg_Mass}")
+    await user.should_see("Avg_Mass is not a known name")
+    user.find(marker="derived-save").click()
+    await user.should_see("CL is already a parameter")
+    assert open_project(results_project).results.derived == []
+
+
+async def test_a_characteristic_value_is_added_per_curve(user: User, results_project):
+    await _open(user, results_project)
+    await _derived_dialog(user)
+    with user:
+        _element(user, "derived-kind").set_value("curve")
+    _fill(user, "derived-name", "CLmax")
+    _fill(user, "derived-formula", "max(CL)")
+    user.find(marker="derived-save").click()
+    assert [c.name for c in open_project(results_project).results.characteristics] == ["CLmax"]
+    assert _text(user, "char-0-0-CLmax") == "0.6"
+
+
+async def test_the_aero_characteristic_values_are_shown(user: User, results_project):
+    await _open(user, results_project)
+    await user.should_see(marker="section-characteristics")
+    assert _text(user, "char-0-0-CLα") == "0.1"
+    assert _text(user, "char-0-0-α₀") == "—"  # CL = 0 lies outside α 0 … 4 here: the reason is on hover
+    assert "outside" in _element(user, "char-0-0-α₀").props.get("title", "")
+
+
+async def test_the_studys_own_definitions_save_as_a_package(user: User, results_project):
+    here = open_project(results_project)
+    from aerosuite.engine.models import DerivedValue, PlotSpec
+    here.results.derived = [DerivedValue(name="CL share", formula="{CL(Wing)} / CL")]
+    here.results.plots = [PlotSpec(x="Alpha", y=["CL share"])]
+    here.results.parameters = ["CL", "CL share"]
+    save_project(results_project, here)
+    await _open(user, results_project)
+    user.find(marker="package-save").click()
+    await user.should_see(marker="package-save-confirm")
+    _fill(user, "package-id", "wing-share")
+    _fill(user, "package-name", "Wing share")
+    user.find(marker="package-save-confirm").click()
+    from aerosuite.engine.packages import load_package
+    package = load_package("wing-share")
+    assert [d.name for d in package.derived] == ["CL share"] and package.parameters == ["CL", "CL share"]
+    await user.should_see(marker="package-wing-share")

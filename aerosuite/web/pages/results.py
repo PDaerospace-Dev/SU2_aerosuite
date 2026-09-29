@@ -4,7 +4,9 @@ with derived and characteristic values, plots and packages (spec docs/superpower
 from __future__ import annotations
 
 import math
+import re
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 from urllib.parse import quote
@@ -13,11 +15,12 @@ import pandas as pd
 from nicegui import ui
 
 from ...engine.errors import AeroSuiteError
-from ...engine.models import PlotSpec, ResultsSettings
+from ...engine.formula import FormulaError, Missing, parse
+from ...engine.models import DerivedValue, PlotSpec, ResultsSettings
 from ...engine.naming import format_value
 from ...engine.packages import (Package, availability, disable_package, effective, enable_package, list_packages,
-                                load_package)
-from ...engine.study_results import SWEEP_NAMES
+                                load_package, save_package)
+from ...engine.study_results import CONSTANT_NAMES, SWEEP_NAMES
 from ...engine.project import PROJECT_FILE
 from ...engine.results import history_columns
 from ...engine.study_results import study_results
@@ -53,6 +56,10 @@ def number_text(value) -> str:
     return f"{value:.5g}" if isinstance(value, (int, float)) and math.isfinite(value) else "—"
 
 
+def _value_text(value) -> str:
+    return "—" if value is None or isinstance(value, Missing) else number_text(value)
+
+
 def _blank(value) -> bool:
     return value is None or (isinstance(value, float) and math.isnan(value))
 
@@ -81,6 +88,9 @@ class ResultsPage:
         self.designs: list = []  # StudyResults: this study first, then the compared ones
         self.problems: list[tuple[str, str]] = []  # compared studies that cannot be read: (folder, why)
         self.picker = ParamPicker(self)
+        with frame.actions:
+            secondary_button("Save as package…", icon="inventory_2", on_click=self.open_save_package).mark(
+                "package-save")
         self.body = ui.column().classes("w-full gap-4").mark("results-body")
         self._job = self._job_key()
         ui.timer(POLL_SECONDS, self._poll)
@@ -138,8 +148,166 @@ class ResultsPage:
             s.parameters = []
         self.change(edit)
 
+    def names_in_use(self) -> set:
+        definitions = self.definitions
+        return (set(self.columns) | set(SWEEP_NAMES) | set(CONSTANT_NAMES) | definitions.derived_names
+                | {c.name for c in definitions.characteristics})
+
+    def preview(self, kind: str, formula: str) -> tuple[list[tuple[str, str]], str]:
+        """The first values of a formula on this study, or the error: ([(label, value text)], error)."""
+        definitions = self.definitions
+        curve = kind == "curve"
+        known = set(self.columns) | set(SWEEP_NAMES) | definitions.derived_names | (
+            set() if curve else set(CONSTANT_NAMES))
+        try:
+            parse(formula, curve=curve, known=known)
+        except FormulaError as exc:
+            return [], str(exc)
+        trial = DerivedValue(name="\u2063preview", formula=formula)  # a name no user can type
+        extended = replace(definitions, characteristics=[*definitions.characteristics, trial]) if curve else \
+            replace(definitions, derived=[*definitions.derived, trial])
+        result = study_results(self.directory, extended, self.settings.average_last)
+        if curve:
+            return [(" · ".join(f"{SWEEP_LABELS[k]} {format_value(v)}" for k, v in row.curve.items()),
+                     _value_text(row.values.get(trial.name))) for row in result.characteristics[:3]], ""
+        rows = []
+        for _, row in result.table.head(3).iterrows():
+            reason = result.reason(row["Case"], trial.name)
+            rows.append((row["Case"], reason or number_text(row.get(trial.name))))
+        return rows, ""
+
     def open_derived_dialog(self) -> None:
-        """The Derived parameter dialog (Task 7)."""
+        """A derived value per case, or a characteristic value per curve, with a live preview."""
+        with ui.dialog() as dialog, ui.card().classes("w-[40rem] max-w-full"):
+            ui.label("Derived parameter").classes("as-dialog-title")
+            kind = ui.toggle({"case": "Per case", "curve": "Characteristic value (per curve)"}, value="case").props(
+                "no-caps unelevated dense toggle-color=primary").classes("as-toggle").mark("derived-kind")
+            explain = hint("")
+            with ui.element("div").classes("as-grid-2"):
+                name = field(ui.input("Name")).classes("w-full").mark("derived-name")
+                unit = field(ui.input("Unit (optional)")).classes("w-full").mark("derived-unit")
+            formula = field(ui.textarea("Formula"), mono=True).props("rows=2 autogrow").classes("w-full").mark(
+                "derived-formula")
+
+            def insert(text: str) -> None:
+                formula.value = (formula.value or "").rstrip() + (" " if formula.value else "") + text
+
+            def braced(n: str) -> str:
+                return n if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", n) else "{" + n + "}"
+
+            parameters = list(dict.fromkeys([*self.definitions.parameters, *self.columns]))
+            with ui.row().classes("items-center gap-2 w-full no-wrap"):
+                ui.label("Insert").classes("as-label w-20")
+                field(ui.select(parameters + sorted(self.definitions.derived_names), label="a parameter",
+                                with_input=True, on_change=lambda e: e.value and (insert(braced(e.value)),
+                                                                                  e.sender.set_value(None)))
+                      ).classes("grow").mark("derived-insert")
+            with ui.row().classes("items-center gap-1 w-full"):
+                ui.label("Sweep").classes("as-label w-20")
+                for n in SWEEP_NAMES:
+                    chip_button(n, on_click=lambda n=n: insert(n))
+            constants_row = ui.row().classes("items-center gap-1 w-full")
+            with constants_row:
+                ui.label("Study").classes("as-label w-20")
+                for n in CONSTANT_NAMES:
+                    chip_button(n, on_click=lambda n=n: insert(n))
+            functions = hint("")
+            with ui.column().classes("as-strip w-full gap-1"):
+                ui.label("Preview").classes("as-stat-label")
+                preview_box = ui.column().classes("gap-0 w-full")
+            error = ui.label("").classes("as-error-text").mark("derived-error")
+
+            def refresh(_=None) -> None:
+                curve = kind.value == "curve"
+                explain.text = ("One number per curve (per Mach, …), read off the curve along α."
+                                if curve else "A formula of each case's averaged values.")
+                functions.text = ("slope(Y, X, from, to) · at(Y, X, value) · max(Y) · min(Y) · argmax(Y, X) · "
+                                  "argmin(Y, X), with + − × ÷ ^" if curve else
+                                  "+ − × ÷ ^ ( ) · sqrt abs log exp sin cos tan (degrees) min max")
+                constants_row.set_visibility(not curve)
+                preview_box.clear()
+                error.text = ""
+                text = (formula.value or "").strip()
+                if not text:
+                    return
+                rows, problem = self.preview(kind.value, text)
+                error.text = problem
+                with preview_box:
+                    for index, (label, value) in enumerate(rows):
+                        ui.label(f"{label}   {value}").classes("as-mono").mark(f"derived-preview-{index}")
+
+            def save() -> None:
+                text = (formula.value or "").strip()
+                title = (name.value or "").strip()
+                if not title:
+                    error.text = "Give the parameter a name"
+                    return
+                if title in self.names_in_use():
+                    error.text = f"{title} is already a parameter; choose another name"
+                    return
+                rows, problem = self.preview(kind.value, text) if text else ([], "Give a formula")
+                if problem:
+                    error.text = problem
+                    return
+                value = DerivedValue(name=title, formula=text, unit=(unit.value or "").strip())
+                dialog.submit(True)
+                dialog.clear()
+
+                def edit(s: ResultsSettings) -> None:
+                    if kind.value == "curve":
+                        s.characteristics.append(value)
+                    else:
+                        s.derived.append(value)
+                        add_parameter(s, self.definitions, title)
+                self.change(edit)
+
+            kind.on_value_change(refresh)
+            formula.on_value_change(refresh)
+            refresh()
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Cancel", on_click=lambda: (dialog.submit(False), dialog.clear())).mark(
+                    "derived-cancel")
+                primary_button("Add parameter", on_click=save).mark("derived-save")
+        dialog.open()
+
+    def open_save_package(self) -> None:
+        """Save this study's own parameters, derived and characteristic values and plots as a package."""
+        with ui.dialog() as dialog, ui.card().classes("w-[30rem] max-w-full"):
+            ui.label("Save as package").classes("as-dialog-title")
+            hint("The chosen parameters, this study's own derived and characteristic values and its own plots. "
+                 "Any study can then switch the package on.")
+            package_id = field(ui.input("Id", placeholder="e.g. duct-performance")).classes("w-full").mark(
+                "package-id")
+            name = field(ui.input("Name")).classes("w-full").mark("package-name")
+            description = field(ui.input("Description (optional)")).classes("w-full").mark("package-description")
+            error = ui.label("").classes("as-error-text").mark("package-error")
+
+            def save() -> None:
+                key = (package_id.value or "").strip()
+                try:
+                    load_package(key)
+                    error.text = f"A package called {key} exists; choose another id"
+                    return
+                except AeroSuiteError:
+                    pass
+                settings = self.settings
+                package = Package(id=key, name=(name.value or "").strip(), description=(description.value or "").strip(),
+                                  parameters=list(self.definitions.parameters), derived=list(settings.derived),
+                                  characteristics=list(settings.characteristics), plots=list(settings.plots))
+                try:
+                    save_package(package)
+                except AeroSuiteError as exc:
+                    error.text = str(exc)
+                    return
+                dialog.submit(True)
+                dialog.clear()
+                ui.notify(f"Saved package {package.name}", type="positive")
+                self.render()
+
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Cancel", on_click=lambda: (dialog.submit(False), dialog.clear()))
+                primary_button("Save package", on_click=save).mark("package-save-confirm")
+        dialog.open()
 
     def toggle_package(self, package: Package) -> None:
         on = package.id in self.definitions.packages
@@ -214,6 +382,7 @@ class ResultsPage:
             else:
                 self._tiles(rows)
                 self._plots_section(rows, values)
+                self._characteristics_section()
                 self._results_section(rows, values)
         if self.picker.panel.visible:
             self.picker.render()
@@ -267,6 +436,7 @@ class ResultsPage:
             with card_head("Parameters", f"{len(definitions.parameters)} of {total} chosen · averaged, tabulated "
                                          "and ready to plot"):
                 ui.space()
+                secondary_button("+ Derived…", on_click=self.open_derived_dialog).mark("derived-add")
                 secondary_button("Choose parameters…", icon="checklist", on_click=self.picker.open).mark(
                     "results-choose")
             if definitions.parameters:
@@ -383,6 +553,40 @@ class ResultsPage:
                     "plot-dialog-cancel")
                 primary_button("Add plot", on_click=add).mark("plot-dialog-add")
         dialog.open()
+
+    def _characteristics_section(self) -> None:
+        characteristics = self.definitions.characteristics
+        if not characteristics:
+            return
+        several = len(self.designs) > 1
+        keys = list(dict.fromkeys(k for d in self.designs for row in d.characteristics for k in row.curve))
+        with section("Characteristic values", "read off each curve along α", opened="characteristics" not in
+                     self.settings.folded, on_fold=lambda o: self.fold("characteristics", o),
+                     mark="section-characteristics", flush=True):
+            columns = (["minmax(8rem, 1fr)"] if several else []) + ["minmax(5rem, .6fr)"] * len(keys)
+            columns += ["minmax(6rem, .8fr)"] * len(characteristics)
+            with ui.element("div").classes("as-table-scroll w-full"):
+                with table(" ".join(columns)).mark("characteristics-table"):
+                    if several:
+                        th("Design")
+                    for key in keys:
+                        th(SWEEP_LABELS[key])
+                    for c in characteristics:
+                        th(c.name + (f" ({c.unit})" if c.unit else "")).props(f'title="{c.name} = {c.formula}"')
+                    for i, design in enumerate(self.designs):
+                        for j, row in enumerate(design.characteristics):
+                            if several:
+                                with td_box():
+                                    ui.element("span").classes("as-swatch").style(
+                                        f"background: {SERIES_COLORS[i % 8]}")
+                                    ui.label(design.name)
+                            for key in keys:
+                                td(format_value(row.curve[key]) if key in row.curve else "—")
+                            for c in characteristics:
+                                value = row.values.get(c.name)
+                                cell = td(_value_text(value)).mark(f"char-{i}-{j}-{c.name}")
+                                if isinstance(value, Missing):
+                                    cell.props(f'title="{value.reason}"')
 
     def _results_section(self, rows: list, values: dict) -> None:
         sweep = varying(values)
