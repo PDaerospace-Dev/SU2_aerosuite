@@ -24,6 +24,7 @@ WATCH_SECONDS = 2.0
 PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep", "run": "run",
                 "monitor": "monitor", "results": "results"}
 PAGE_TITLES = dict(STEPS)
+IMPORTED_PAGES = ("results", "monitor")  # the pages of an imported (read-only) study
 STEP_ICONS = {"setup": "tune", "config": "description", "aircraft": "flight", "sweep": "grid_on",
               "run": "play_arrow", "monitor": "show_chart", "results": "bar_chart"}
 
@@ -137,6 +138,9 @@ class ProjectFrame:
         self.session = session
         self.active = active
         self._on_reload = on_reload
+        if session.project.imported is not None and active not in IMPORTED_PAGES:
+            # A read-only study of existing runs has nothing to set up or run: every link lands on Results.
+            ui.navigate.to(project_url("results", session.directory))
         apply_theme()
         self._top_bar()
         with ui.row().classes("as-body w-full"):

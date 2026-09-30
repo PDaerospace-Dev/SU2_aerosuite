@@ -358,3 +358,16 @@ async def test_rescan_picks_up_new_case_folders(user: User, imported_study, tmp_
 async def test_own_studies_have_no_rescan(user: User, results_project):
     await _open(user, results_project)
     await user.should_not_see(marker="results-rescan")
+
+
+async def test_an_imported_study_opens_on_results_whichever_page_is_asked(user: User, imported_study):
+    await user.open(project_url("setup", imported_study))
+    await user.should_see(marker="results-body")
+    await user.should_see(marker="step-results")
+    await user.should_not_see(marker="step-run")
+
+
+async def test_monitor_plots_an_imported_case(user: User, imported_study):
+    await user.open(project_url("monitor", imported_study) + "&case=M1p2_10km_vt_a0_b4")
+    assert _element(user, "monitor-case").value == "M1p2_10km_vt_a0_b4"
+    await user.should_see(marker="chart-history")

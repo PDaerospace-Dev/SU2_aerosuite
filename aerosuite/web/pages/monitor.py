@@ -254,6 +254,14 @@ class MonitorPage:
         self.columns_shape, self.chart_shape, self.chart, self.df = (), None, None, None
 
     def _case_content(self, view: JobView) -> _Content:
+        imported = self.frame.session.project.imported
+        if imported is not None:  # a read-only study: the case's own history file, no jobs
+            record = next((case for case in imported.cases if case.name == self.case), None)
+            if record is None:
+                return _Content(None, "not-run", "", "")
+            df = WATCHER.file_history(Path(record.history))
+            state = "no-history" if df is None or df.empty else "chart"
+            return _Content(df, state, f"{self.case} · imported", record.history)
         row = self._row(view)
         if row is None or row.status == NOT_RUN:
             return _Content(None, "not-run", "", "")
