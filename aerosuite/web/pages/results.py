@@ -504,7 +504,8 @@ class ResultsPage:
         with ui.row().classes("items-center w-full no-wrap"):
             hint("Click a value to show only it; click more to add them.")
             ui.space()
-            flat = secondary_button("Show all", on_click=lambda: self.change(clear_filters)).mark("filters-clear")
+            flat = secondary_button("Show all", on_click=lambda: self.change(clear_filters)).classes(
+                "shrink-0 whitespace-nowrap").props("no-wrap").mark("filters-clear")
             if not self.settings.filters:
                 flat.props("disable")
         for name in names:
