@@ -27,8 +27,10 @@ are scanned); user-defined name patterns; values that differ between cases other
 1. **Projects page → Import SU2 runs** (a card beside *New project*): the runs folder (Browse), the parent folder and
    name of the new study, **Scan**.
 2. **Scan preview** (nothing created yet): "N cases found" and a table of the first 10 (folder, Mach, α, β, altitude,
-   temperature, base name, history file), then warnings (name and cfg disagree) and skipped folders with the reason
-   ("no history file", "no .cfg and no Mach in the name", …).
+   temperature, Config) with "… and N more", then two folded amber rows (see the mockup
+   `assets/2026-09-30-import/preview.png`): **warnings** where name and cfg disagree, **identical ones grouped**
+   ("6 cases (M2p5_30km_a0_T200K, …): the cfg's FREESTREAM_TEMPERATURE is 216.65, the name says 200 — 216.65 used"),
+   and **skipped folders** with the reason ("no history file", "no .cfg and no Mach in the name", …).
 3. **Import** creates the study folder with only `project.json`, adds it to the recent projects and opens its
    Results page.
 4. An imported study shows only **Results** and **Monitor** in the sidebar; its switcher line reads
