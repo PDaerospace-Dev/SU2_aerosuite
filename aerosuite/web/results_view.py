@@ -10,8 +10,9 @@ from ..engine.naming import format_value
 from ..engine.packages import Definitions
 from ..engine.study_results import SWEEP_NAMES
 
-SWEEP_LABELS = {"Mach": "Mach", "Alpha": "α", "Beta": "β", "Altitude": "Altitude"}
-SWEEP_UNITS = {"Alpha": "deg", "Beta": "deg", "Altitude": "km"}
+SWEEP_LABELS = {"Mach": "Mach", "Alpha": "α", "Beta": "β", "Altitude": "Altitude", "Temperature": "T",
+                "Config": "Config"}
+SWEEP_UNITS = {"Alpha": "deg", "Beta": "deg", "Altitude": "km", "Temperature": "K"}
 
 
 def pin(settings: ResultsSettings, definitions: Definitions) -> None:

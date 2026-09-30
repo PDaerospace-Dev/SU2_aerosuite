@@ -15,26 +15,27 @@ import pandas as pd
 from .atmosphere import ISACalculator
 from .cfg import CONFIGS_DIR, CASE_INDEX_FILE, case_mach, read_template
 from .errors import AeroSuiteError
-from .formula import FormulaError, Missing, evaluate, evaluate_curve, parse
+from .formula import FormulaError, Missing, curve_axes, evaluate, evaluate_curve, parse
 from .freestream import altitude_error, case_altitude
 from .models import Case, Project
 from .project import PROJECT_FILE, open_project
 from .restarts import RUNS_DIR
-from .results import (HISTORY_FILE, RESULTS_DIR, convergence_columns, history_columns, load_case_index, summarize,
-                      write_summary)
+from .results import (RESULTS_DIR, case_histories, convergence_columns, history_columns, imported_case_index,
+                      load_case_index, summarize, write_summary)
 
 if TYPE_CHECKING:
     from .packages import Definitions
 
-SWEEP_NAMES = ("Mach", "Alpha", "Beta", "Altitude")  # the summary's sweep columns, as formulas name them
-CURVE_KEYS = ("Altitude", "Mach", "Beta")  # a curve is one value of each of these, along α
+SWEEP_NAMES = ("Mach", "Alpha", "Beta", "Altitude", "Temperature")  # the summary's numeric case columns
+CONFIG = "Config"  # the base name of an imported case (a label, not a number)
+CURVE_KEYS = (CONFIG, "Altitude", "Temperature", "Mach", "Beta")  # a curve is one value of each, along α
 ISA_NAMES = ("rho_inf", "p_inf", "T_inf", "V_inf", "q_inf")
 CONSTANT_NAMES = ("S_ref", "L_ref") + ISA_NAMES
 _ISA_KEYS = {"rho_inf": "density", "p_inf": "pressure", "T_inf": "temperature", "V_inf": "true_airspeed",
              "q_inf": "dynamic_pressure"}
 _CACHE_SIZE = 32
 CHARACTERISTICS_FILE = "characteristics.csv"
-_KEY_COLUMNS = ("Case", "Altitude", "Mach", "Alpha", "Beta", "Converged")
+_KEY_COLUMNS = ("Case", CONFIG, "Altitude", "Temperature", "Mach", "Alpha", "Beta", "Converged")
 
 
 def _template_number(template: str, key: str) -> Optional[float]:
@@ -91,8 +92,13 @@ _cache: "OrderedDict[tuple, StudyResults]" = OrderedDict()
 
 
 def _stamp(folder: Path) -> tuple:
-    """Changes whenever a history, the case index or project.json changes."""
-    paths = sorted((folder / RUNS_DIR).glob(f"*/{HISTORY_FILE}"))
+    """Changes whenever a history, the case index or project.json changes (an imported study's histories are
+    listed in its project.json, which is read for them)."""
+    try:
+        project = open_project(folder)
+    except AeroSuiteError:
+        project = None
+    paths = [path for _, path in case_histories(folder, project)]
     paths += [folder / CONFIGS_DIR / CASE_INDEX_FILE, folder / PROJECT_FILE]
     stamp = []
     for path in paths:
@@ -145,11 +151,12 @@ def _compute(folder: Path, definitions: "Definitions", last_n: int) -> StudyResu
         if not isinstance(formula, Missing):
             needed += sorted(formula.names)
     needed = [n for n in dict.fromkeys(needed) if n not in special]
-    available = set(history_columns(folder))
+    available = set(history_columns(folder, project))
     notes = [f"{project.name} has no {name}" for name in needed if name not in available]
 
+    index = imported_case_index(project) if project.imported else load_case_index(folder / CONFIGS_DIR)
     table, warnings = summarize(
-        folder / RUNS_DIR, needed, last_n=last_n, case_index=load_case_index(folder / CONFIGS_DIR),
+        folder / RUNS_DIR, needed, last_n=last_n, case_index=index, histories=case_histories(folder, project),
         convergence_columns=convergence_columns(definitions.parameters, derived_names))
     try:
         template = read_template(folder, project)
@@ -192,19 +199,34 @@ def _optional(value) -> Optional[float]:
     return None if math.isnan(number) else number
 
 
+def _along(formula) -> str:
+    """The sweep variable a characteristic value's curve runs along: its curve functions' X, else α."""
+    axes = curve_axes(formula) & set(SWEEP_NAMES) if not isinstance(formula, Missing) else set()
+    return next(iter(axes)) if len(axes) == 1 else "Alpha"
+
+
 def _curves(table: pd.DataFrame, characteristics: list) -> list[CurveValues]:
+    """Each characteristic value on each curve: the rows with one value of every other case variable, taken in
+    order along the curve's variable (α unless the formula reads along another, e.g. slope(CSF, Beta, 0, 4))."""
     if not characteristics or table.empty:
         return []
-    keys = [k for k in CURVE_KEYS if k in table.columns and table[k].notna().any()]
-    rows = []
-    for key, group in (table.groupby(keys, sort=True) if keys else [((), table)]):
-        key = key if isinstance(key, tuple) else (key,)
-        group = group.sort_values("Alpha")
-        series = {column: group[column].tolist() for column in group.columns if column not in ("Case", "Converged")}
-        values = {c.name: (formula if isinstance(formula, Missing) else evaluate_curve(formula, series))
-                  for c, formula in characteristics}
-        rows.append(CurveValues(dict(zip(keys, (float(k) for k in key))), values))
-    return rows
+    rows: dict[tuple, CurveValues] = {}
+    for characteristic, formula in characteristics:
+        along = _along(formula)
+        keys = [k for k in CURVE_KEYS if k in table.columns and k != along and table[k].notna().any()]
+        groups = [(tuple(), table)] if not keys else [
+            ((key if isinstance(key, tuple) else (key,)), group)
+            for key, group in table.groupby(keys if len(keys) > 1 else keys[0], sort=True)]
+        for key, group in groups:
+            if along in group.columns:
+                group = group.sort_values(along)
+            series = {column: group[column].tolist() for column in group.columns if column not in ("Case", "Converged")}
+            value = formula if isinstance(formula, Missing) else evaluate_curve(formula, series)
+            curve = {name: (k if name == CONFIG else float(k)) for name, k in zip(keys, key)}
+            row = rows.setdefault(tuple(sorted(curve.items(), key=lambda item: CURVE_KEYS.index(item[0]))),
+                                  CurveValues(curve, {}))
+            row.values[characteristic.name] = value
+    return list(rows.values())
 
 
 def summary_frame(result: StudyResults, parameters: list[str]) -> pd.DataFrame:

@@ -115,3 +115,52 @@ def test_missing_values_are_reported_not_raised(tmp_path):
     result = study_results(tmp_path / "base", _definitions())
     assert result.reason("M0p6_sl_a4_b0", "L/D") is None
     assert isinstance(Missing("x"), Missing)
+
+
+# -- imported studies: histories in their own folders, Temperature and Config (import Task 3) ------------------
+
+
+def _old_runs(root):
+    """ht and vt configurations at Mach 1.2, β 0 … 4; a history per case folder, its .cfg beside it."""
+    runs = root / "old-runs"
+    for part, offset in (("ht", 0.02), ("vt", 0.0)):
+        for beta in (0, 2, 4):
+            name = f"M1p2_10km_{part}_a0_b{beta}"
+            folder = runs / name
+            folder.mkdir(parents=True)
+            (folder / f"{name}.cfg").write_text(f"MACH_NUMBER= 1.2\nAOA= 0\nSIDESLIP_ANGLE= {beta}\n"
+                                                f"FREESTREAM_TEMPERATURE= 223.25\n")
+            cl, csf = offset, 0.01 * beta
+            rows = ["Inner_Iter,rms[Rho],CL,CD,CSF"] + [f"{i},-3,{cl},0.05,{csf}" for i in range(30)]
+            (folder / "history.csv").write_text("\n".join(rows) + "\n")
+    return runs
+
+
+def test_an_imported_study_reads_its_case_folders(tmp_path):
+    from aerosuite.engine.imported import create_imported_study
+    from aerosuite.engine.models import ResultsSettings
+    from aerosuite.engine.results import history_columns
+    from aerosuite.engine.project import open_project
+
+    runs = _old_runs(tmp_path)
+    create_imported_study(tmp_path / "study", runs)
+    project = open_project(tmp_path / "study")
+    assert history_columns(tmp_path / "study", project) == ["rms[Rho]", "CL", "CD", "CSF"]
+    settings = ResultsSettings(packages=[], parameters=["CSF", "T over 100"],
+                               derived=[DerivedValue(name="T over 100", formula="Temperature / 100")],
+                               characteristics=[DerivedValue(name="CSFβ", formula="slope(CSF, Beta, 0, 4)")])
+    definitions = effective(settings, history_columns(tmp_path / "study", project))
+    result = study_results(tmp_path / "study", definitions)
+    table = result.table.set_index("Case")
+    assert len(table) == 6
+    row = table.loc["M1p2_10km_vt_a0_b4"]
+    assert (row["Config"], row["Temperature"], row["Altitude"], row["Beta"]) == ("vt", 223.25, 10.0, 4.0)
+    assert row["CSF"] == pytest.approx(0.04) and row["T over 100"] == pytest.approx(2.2325)
+    curves = {row.curve["Config"]: row.values["CSFβ"] for row in result.characteristics}
+    assert curves == {"ht": pytest.approx(0.01), "vt": pytest.approx(0.01)}  # one curve per configuration
+
+
+def test_studies_without_temperature_or_config_have_no_such_columns(tmp_path):
+    _study(tmp_path / "base")
+    table = study_results(tmp_path / "base", _definitions()).table
+    assert "Temperature" not in table.columns and "Config" not in table.columns

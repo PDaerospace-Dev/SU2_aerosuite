@@ -1,4 +1,6 @@
 """What a study's history files offer, how it is grouped, and convergence judged on the chosen parameters."""
+from pathlib import Path
+
 import pytest
 
 from aerosuite.engine.results import (GROUP_CONVERGENCE, GROUP_FLOW, GROUP_RESIDUALS, GROUP_SOLVER, GROUP_TOTALS,
@@ -60,3 +62,28 @@ def test_a_duct_is_converged_on_its_own_parameters(tmp_path):
     unjudged, warnings = summarize(runs, columns, case_index=index, convergence_columns=[])
     assert unjudged["Converged"].tolist() == [None]
     assert not any("not converged" in w or "No CL" in w for w in warnings)
+
+
+def test_case_histories_for_own_and_imported_studies(tmp_path):
+    from aerosuite.engine.models import ImportedCase, ImportedRuns, Project
+    from aerosuite.engine.results import case_histories
+
+    runs = tmp_path / "runs"
+    _history(runs / "b", ["Inner_Iter", "CL"], [[0, 0.1]])
+    _history(runs / "a", ["Inner_Iter", "CL"], [[0, 0.1]])
+    own = Project(name="own")
+    assert case_histories(tmp_path, own) == [("a", runs / "a" / "history.csv"), ("b", runs / "b" / "history.csv")]
+    imported = Project(name="imp", imported=ImportedRuns(source="/old", cases=[
+        ImportedCase(name="M0p8_a0", folder="/old/M0p8_a0", history="/old/M0p8_a0/history.csv", mach=0.8,
+                     alpha=0.0)]))
+    assert case_histories(tmp_path, imported) == [("M0p8_a0", Path("/old/M0p8_a0/history.csv"))]
+
+
+def test_summarize_takes_given_histories_and_adds_temperature_and_config(tmp_path):
+    _history(tmp_path / "elsewhere" / "x", ["Inner_Iter", "CL"], [[i, 0.3] for i in range(20)])
+    index = {"x": {"mach": 1.2, "alpha": 0.0, "beta": 2.0, "altitude_km": 10.0, "temperature_K": 223.25,
+                   "config": "vt"}}
+    summary, _ = summarize(tmp_path / "runs", ["CL"], case_index=index,
+                           histories=[("x", tmp_path / "elsewhere" / "x" / "history.csv")])
+    assert summary.loc[0, ["Case", "Temperature", "Config"]].tolist() == ["x", 223.25, "vt"]
+    assert summary.loc[0, "CL"] == pytest.approx(0.3)

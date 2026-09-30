@@ -149,11 +149,25 @@ def history_header(path: Path) -> list[str]:
     return []
 
 
-def history_columns(project_dir: Path) -> list[str]:
+def case_histories(project_dir: Path, project=None) -> list[tuple[str, Path]]:
+    """(case, history file) for every case with one: an imported study's recorded files, else runs/<case>/."""
+    if project is not None and project.imported is not None:
+        return [(case.name, Path(case.history)) for case in project.imported.cases]
+    return [(path.parent.name, path) for path in sorted((Path(project_dir) / "runs").glob(f"*/{HISTORY_FILE}"))]
+
+
+def imported_case_index(project) -> dict[str, dict]:
+    """The case values of an imported study, as a case index (like configs/cases.json)."""
+    return {case.name: {"mach": case.mach, "alpha": case.alpha, "beta": case.beta, "altitude_km": case.altitude_km,
+                        "temperature_K": case.temperature_K, "config": case.base or None}
+            for case in project.imported.cases}
+
+
+def history_columns(project_dir: Path, project=None) -> list[str]:
     """Every parameter the study's history files hold (the union over cases, first seen first), without the
     iteration counters."""
     seen: dict[str, None] = {}
-    for history in sorted((Path(project_dir) / "runs").glob(f"*/{HISTORY_FILE}")):
+    for _, history in case_histories(project_dir, project):
         for column in history_header(history):
             if column not in ITERATION_COLUMNS:
                 seen.setdefault(column)
@@ -206,23 +220,28 @@ def summarize(
     case_index: Optional[Mapping[str, Mapping[str, float]]] = None,
     skip: Iterable[str] = (),
     convergence_columns: Optional[Sequence[str]] = None,
+    histories: Optional[Sequence[tuple[str, Path]]] = None,
 ) -> tuple[pd.DataFrame, list[str]]:
     """Average the last `last_n` rows of every case's history into one table.
 
-    Converged is judged on `convergence_columns` (default: CL, CD, CMy); an empty list means not judged (None).
+    The histories are `histories` ((case, file) pairs), else every history file under `runs_dir`. Converged is
+    judged on `convergence_columns` (default: CL, CD, CMy); an empty list means not judged (None). Temperature
+    and Config columns appear when the case index gives them.
     """
     case_index = case_index or {}
     skip = set(skip)
     rows, warnings = [], []
-    for history in sorted(Path(runs_dir).rglob(HISTORY_FILE)):
-        name = history.parent.name
+    if histories is None:
+        histories = [(path.parent.name, path) for path in sorted(Path(runs_dir).rglob(HISTORY_FILE))]
+    for name, history in histories:
         if name in skip:
             continue
-        altitude = None
+        altitude = temperature = config = None
         if name in case_index:
             values = case_index[name]
             mach, alpha, beta = values.get("mach"), values.get("alpha"), values.get("beta")
             altitude = values.get("altitude_km")
+            temperature, config = values.get("temperature_K"), values.get("config")
         else:
             mach, alpha, beta = parse_case_name(name)
         if alpha is None:
@@ -241,7 +260,8 @@ def summarize(
         if converged is False:
             warnings.append(f"{name}: {message}")
         averages = df.tail(max(1, min(last_n, len(df)))).mean(numeric_only=True)
-        row = {"Case": name, "Altitude": altitude, "Mach": mach, "Alpha": alpha, "Beta": beta, "Converged": converged}
+        row = {"Case": name, "Config": config, "Altitude": altitude, "Temperature": temperature, "Mach": mach,
+               "Alpha": alpha, "Beta": beta, "Converged": converged}
         for col in columns:
             row[col] = averages.get(col, float("nan"))
         rows.append(row)
@@ -249,10 +269,11 @@ def summarize(
         return pd.DataFrame(columns=SUMMARY_KEY_COLUMNS + list(columns)), warnings
     summary = pd.DataFrame(rows)
     order = ["Mach", "Beta", "Alpha"]
-    if summary["Altitude"].isna().all():  # no altitude sweep: the table is as before
-        summary = summary.drop(columns="Altitude")
-    else:
-        order.insert(0, "Altitude")
+    for column in ("Temperature", "Altitude", "Config"):  # only when some case has one: else as before
+        if summary[column].isna().all():
+            summary = summary.drop(columns=column)
+        else:
+            order.insert(0, column)
     summary = summary.sort_values(order, na_position="last").reset_index(drop=True)
     return summary, warnings
 

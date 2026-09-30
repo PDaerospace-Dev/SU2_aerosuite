@@ -285,3 +285,14 @@ def _curve_function(name: str, points: list, numbers: list, x_name: str, y_name:
     xs = [p[0] for p in points]
     return Missing(f"{format_value(target)} is outside the {x_name} data ({format_value(min(xs))} … "
                    f"{format_value(max(xs))})")
+
+
+def curve_axes(formula: Formula) -> set:
+    """The X series a curve formula reads along: the second argument of slope/at/argmax/argmin."""
+    placeholders = dict(formula._placeholders)
+    axes = set()
+    for node in ast.walk(formula.tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in CURVE_FUNCTIONS \
+                and CURVE_FUNCTIONS[node.func.id][1] > 1 and isinstance(node.args[1], ast.Name):
+            axes.add(_name(node.args[1], placeholders))
+    return axes
