@@ -305,3 +305,56 @@ async def test_export_csv_writes_the_files_and_downloads_the_summary(user: User,
     assert summary.is_file() and (results_project / "results" / "characteristics.csv").is_file()
     response = await user.download.next()
     assert response.content == summary.read_bytes()
+
+
+# -- imported studies (import Task 4) -----------------------------------------------------------
+
+
+def _old_runs(root, betas=(0, 2, 4)):
+    runs = root / "old-runs"
+    for part, offset in (("ht", 0.02), ("vt", 0.0)):
+        for beta in betas:
+            name = f"M1p2_10km_{part}_a0_b{beta}"
+            folder = runs / name
+            if folder.exists():
+                continue
+            folder.mkdir(parents=True)
+            (folder / f"{name}.cfg").write_text(f"MACH_NUMBER= 1.2\nAOA= 0\nSIDESLIP_ANGLE= {beta}\n"
+                                                "FREESTREAM_TEMPERATURE= 223.25\n")
+            rows = ["Inner_Iter,rms[Rho],CL,CD,CSF"] + [f"{i},-3,{offset},0.05,{0.01 * beta}" for i in range(30)]
+            (folder / "history.csv").write_text("\n".join(rows) + "\n")
+    return runs
+
+
+@pytest.fixture
+def imported_study(tmp_path):
+    from aerosuite.engine.imported import create_imported_study
+
+    create_imported_study(tmp_path / "old-study", _old_runs(tmp_path))
+    return tmp_path / "old-study"
+
+
+async def test_an_imported_study_shows_its_cases_with_config_and_temperature(user: User, imported_study):
+    await _open(user, imported_study)
+    await user.should_see(marker="filter-Config-vt")
+    assert _text(user, "cell-0-M1p2_10km_vt_a0_b4-CL") == "0"
+    header = [label.text for label in user.find(marker="results-table").elements.pop().default_slot.children
+              if getattr(label, "text", None) in ("Config", "β (deg)")]
+    assert header == ["Config", "β (deg)"]
+    user.find(marker="filter-Config-ht").click()
+    assert open_project(imported_study).results.filters == {"Config": ["vt"]}
+    await user.should_not_see(marker="row-0-M1p2_10km_ht_a0_b0")
+
+
+async def test_rescan_picks_up_new_case_folders(user: User, imported_study, tmp_path):
+    await _open(user, imported_study)
+    _old_runs(tmp_path, betas=(0, 2, 4, 6))
+    user.find(marker="results-rescan").click()
+    await user.should_see("2 cases added")
+    assert len(open_project(imported_study).cases) == 8
+    await user.should_see(marker="row-0-M1p2_10km_vt_a0_b6")
+
+
+async def test_own_studies_have_no_rescan(user: User, results_project):
+    await _open(user, results_project)
+    await user.should_not_see(marker="results-rescan")

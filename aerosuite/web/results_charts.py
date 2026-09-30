@@ -14,7 +14,7 @@ import pandas as pd
 from ..engine.models import PlotSpec
 from ..engine.naming import format_value
 from ..engine.study_results import SWEEP_NAMES
-from .results_view import SWEEP_LABELS, SWEEP_UNITS
+from .results_view import SWEEP_LABELS, SWEEP_UNITS, VARIABLES, variable_text
 from .theme import HAIRLINE, MUTED
 
 LINE_STYLES = ["solid", "dashed", "dotted", [8, 3, 2, 3]]  # the last: dash-dot
@@ -37,7 +37,7 @@ def along(x: str) -> str:
 def split_keys(x: str, table: pd.DataFrame, split: Optional[str]) -> list[str]:
     """The sweep variables that make one line each: the chosen one, else every one that varies (not the axis)."""
     runs_along = along(x)
-    varying = [name for name in SWEEP_NAMES
+    varying = [name for name in VARIABLES
                if name in table.columns and name != runs_along and table[name].nunique(dropna=True) > 1]
     if split and split != runs_along and split in varying:
         return [split]
@@ -101,7 +101,7 @@ def chart_options(plot: PlotSpec, designs: list[ChartDesign], units: Mapping[str
                     data.append({"value": [_number(row.get(plot.x)), _number(row.get(y))], "name": row["Case"],
                                  "symbol": ("empty" + marker) if hollow else marker,
                                  "symbolSize": 10 if hollow else 7})
-                label = " · ".join(f"{_label(n)} {format_value(v)}" for n, v in zip(keys, key))
+                label = " · ".join(f"{_label(n)} {variable_text(v)}" for n, v in zip(keys, key))
                 series.append({
                     "type": "line", "name": " · ".join(p for p in (design.name, y, label) if p), "data": data,
                     "symbol": marker, "connectNulls": False,

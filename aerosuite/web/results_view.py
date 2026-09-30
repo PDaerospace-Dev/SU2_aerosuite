@@ -8,7 +8,9 @@ import pandas as pd
 from ..engine.models import ResultsSettings
 from ..engine.naming import format_value
 from ..engine.packages import Definitions
-from ..engine.study_results import SWEEP_NAMES
+from ..engine.study_results import CONFIG, SWEEP_NAMES
+
+VARIABLES = (CONFIG, *SWEEP_NAMES)  # the case variables: the Config label first, then the numbers
 
 SWEEP_LABELS = {"Mach": "Mach", "Alpha": "α", "Beta": "β", "Altitude": "Altitude", "Temperature": "T",
                 "Config": "Config"}
@@ -34,14 +36,23 @@ def remove_parameter(settings: ResultsSettings, definitions: Definitions, name: 
     settings.parameters = [p for p in settings.parameters if p != name]
 
 
-def sweep_values(tables: Iterable[pd.DataFrame]) -> dict[str, list[float]]:
-    """Every value of each sweep variable in the results (all designs together), sorted."""
+def sweep_values(tables: Iterable[pd.DataFrame]) -> dict[str, list]:
+    """Every value of each case variable in the results (all designs together), sorted: numbers, and the
+    Config labels."""
     values: dict[str, set] = {}
     for table in tables:
-        for name in SWEEP_NAMES:
+        for name in VARIABLES:
             if name in table.columns:
-                values.setdefault(name, set()).update(float(v) for v in table[name].dropna())
+                convert = str if name == CONFIG else float
+                values.setdefault(name, set()).update(convert(v) for v in table[name].dropna() if v != "")
     return {name: sorted(found) for name, found in values.items() if found}
+
+
+def variable_text(value) -> str:
+    """A case variable's value as shown: a number shortest-exact, a label as it is, blank as —."""
+    if value is None or (isinstance(value, float) and value != value) or value == "":
+        return "—"
+    return value if isinstance(value, str) else format_value(value)
 
 
 def shown_values(settings: ResultsSettings, values: Mapping[str, Sequence[float]], comparing: bool
@@ -91,7 +102,7 @@ def status_counts(tables: Iterable[pd.DataFrame]) -> dict[str, int]:
 
 def varying(values: Mapping[str, Sequence[float]]) -> list[str]:
     """The sweep variables with more than one value (they get a table column and can split lines)."""
-    return [name for name in SWEEP_NAMES if len(values.get(name, [])) > 1]
+    return [name for name in VARIABLES if len(values.get(name, [])) > 1]
 
 
 def status_text(converged) -> str:
@@ -118,7 +129,7 @@ def table_text(designs: Sequence[tuple[str, pd.DataFrame]], sweep: Sequence[str]
     for name, table in designs:
         for _, row in table.iterrows():
             cells = ([name] if several else []) + [str(row["Case"])]
-            cells += [format_value(row[n]) if n in row and row[n] == row[n] else "" for n in sweep]
+            cells += [variable_text(row[n]).replace("—", "") if n in row else "" for n in sweep]
             cells += [_cell(row.get(p)) for p in parameters] + [status_text(row.get("Converged"))]
             lines.append("\t".join(cells))
     return "\n".join(lines) + "\n"

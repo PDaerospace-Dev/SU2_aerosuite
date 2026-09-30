@@ -31,13 +31,14 @@ from ..param_picker import ParamPicker
 from ..picker import pick_path
 from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
 from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, filter_rows, pin, remove_parameter,
-                            shown_values, status_counts, sweep_values, table_text, toggle_filter, varying)
+                            shown_values, status_counts, sweep_values, table_text, toggle_filter, variable_text,
+                            varying)
 from ..theme import SERIES_COLORS
 from ..ui_kit import (banner, card, card_head, chip_button, field, hint, pill, primary_button, secondary_button,
                       summary_tile, table, td, td_box, th)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
-FILTERED = ("Altitude", "Mach", "Beta")  # sweep variables with filter chips (α is the usual X axis)
+FILTERED = ("Config", "Altitude", "Temperature", "Mach", "Beta")  # filter chips (α is the usual X axis)
 
 
 def register() -> None:
@@ -90,6 +91,9 @@ class ResultsPage:
         self.picker = ParamPicker(self)
         self._shown: tuple = ([], [])  # (rows per design, varying sweep variables) as last drawn
         with frame.actions:
+            if frame.session.project.imported is not None:
+                secondary_button("Rescan", icon="refresh", on_click=self.rescan).mark("results-rescan").props(
+                    'title="Read the runs folder again: new case folders, gone ones, changed values"')
             secondary_button("Copy table", icon="content_copy", on_click=self.copy_table).mark("results-copy")
             secondary_button("Export CSV", icon="download", on_click=self.export_csv).mark("results-export")
             secondary_button("Save as package…", icon="inventory_2", on_click=self.open_save_package).mark(
@@ -110,7 +114,7 @@ class ResultsPage:
         return self.frame.session.project.results
 
     def load(self) -> None:
-        self.columns = history_columns(self.directory)
+        self.columns = history_columns(self.directory, self.frame.session.project)
         self.definitions = effective(self.settings, self.columns)
         self.designs, self.problems = [], []
         for folder in [self.directory, *(Path(p) for p in self.settings.compare)]:
@@ -272,6 +276,19 @@ class ResultsPage:
                     "derived-cancel")
                 primary_button("Add parameter", on_click=save).mark("derived-save")
         dialog.open()
+
+    def rescan(self) -> None:
+        from ...engine.imported import rescan
+
+        found: list = []
+        message = self.frame.save(lambda p: found.append(rescan(p)), then=self.render)
+        if message:
+            ui.notify(message, type="negative")
+            return
+        changes = found[0]
+        parts = [f"{len(names)} case{'' if len(names) == 1 else 's'} {what}" for names, what in
+                 ((changes.added, "added"), (changes.removed, "removed"), (changes.updated, "updated")) if names]
+        ui.notify(", ".join(parts) if parts else "No changes in the runs folder", type="positive")
 
     def copy_table(self) -> None:
         rows, sweep = self._shown
@@ -437,10 +454,10 @@ class ResultsPage:
                         continue
                     ui.label(SWEEP_LABELS[name]).classes("as-label")
                     for value in values[name]:
-                        chip = chip_button(format_value(value),
+                        chip = chip_button(variable_text(value),
                                            on_click=lambda n=name, v=value: self.change(
                                                lambda s: toggle_filter(s, n, v, shown[n])))
-                        chip.mark(f"filter-{name}-{format_value(value)}")
+                        chip.mark(f"filter-{name}-{variable_text(value)}")
                         if value in shown[name]:
                             chip.classes("as-chip-on")
                     ui.element("span").classes("w-4")
@@ -646,7 +663,7 @@ class ResultsPage:
         if several:
             td(design.name)
         for name in sweep:
-            td(format_value(row[name]) if name in row and not _blank(row[name]) else "—")
+            td(variable_text(row[name]) if name in row else "—")
         for name in params:
             value = row.get(name)
             cell = td(number_text(value)).mark(f"cell-{i}-{case}-{name}")

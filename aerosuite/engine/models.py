@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -119,7 +119,8 @@ class ResultsSettings(BaseModel):
     plots: list[PlotSpec] = Field(default_factory=list)  # the user's own; packages bring their own
     packages: Optional[list[str]] = None  # None: not chosen yet (the page enables what the history supports)
     compare: list[str] = Field(default_factory=list)  # other study folders drawn over this one
-    filters: dict[str, list[float]] = Field(default_factory=dict)  # sweep variable -> values shown; absent = all
+    # case variable -> values shown (numbers, or labels for Config); absent = all
+    filters: dict[str, list[Union[float, str]]] = Field(default_factory=dict)
     average_last: int = Field(default=100, ge=1)
     folded: list[ResultsSection] = Field(default_factory=list)
 

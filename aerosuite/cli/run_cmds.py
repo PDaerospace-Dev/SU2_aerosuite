@@ -165,7 +165,7 @@ def _summarize_as_the_page(project_dir: Path, project, last: Optional[int]) -> N
     from ..engine.packages import effective
     from ..engine.study_results import study_results, summary_frame, write_results
 
-    definitions = effective(project.results, engine_results.history_columns(project_dir))
+    definitions = effective(project.results, engine_results.history_columns(project_dir, project))
     result = study_results(project_dir, definitions, last or project.results.average_last)
     for warning in result.warnings:
         typer.echo(f"Warning: {warning}")

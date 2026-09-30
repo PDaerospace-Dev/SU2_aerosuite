@@ -87,3 +87,23 @@ def test_the_table_as_tab_separated_text():
                                  "M0.8_a2.0\t2\t0.2\tUnconverged"]
     two = table_text([("base", table), ("v2", table)], sweep=[], parameters=["CL"])
     assert two.splitlines()[0] == "Design\tCase\tCL\tStatus" and two.splitlines()[3].startswith("v2\t")
+
+
+def _configs():
+    return pd.DataFrame([{"Case": f"{c}_b{b}", "Config": c, "Mach": 1.2, "Alpha": 0.0, "Beta": float(b),
+                          "Temperature": 223.25, "Converged": True, "CSF": 0.01 * b} for c in ("vt", "ht")
+                         for b in (0, 2)])
+
+
+def test_config_is_a_label_variable():
+    values = sweep_values([_configs()])
+    assert values["Config"] == ["ht", "vt"] and values["Temperature"] == [223.25]
+    settings = ResultsSettings()
+    shown = shown_values(settings, values, comparing=False)
+    toggle_filter(settings, "Config", "ht", shown["Config"])
+    assert settings.filters == {"Config": ["vt"]}
+    assert filter_rows(_configs(), shown_values(settings, values, comparing=False))["Case"].tolist() == [
+        "vt_b0", "vt_b2"]
+    from aerosuite.web.results_view import table_text, varying
+    assert varying(values) == ["Config", "Beta"]
+    assert table_text([("s", _configs())], ["Config", "Beta"], ["CSF"]).splitlines()[1] == "vt_b0\tvt\t0\t0\tConverged"

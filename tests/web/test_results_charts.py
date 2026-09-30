@@ -77,3 +77,13 @@ def test_axis_names_carry_units():
     assert axis_options("Alpha", {})["name"] == "α (deg)"
     assert axis_options("Pt loss", {"Pt loss": "%"})["name"] == "Pt loss (%)"
     assert axis_options("CL", {})["name"] == "CL"
+
+
+def test_config_splits_lines_and_is_never_an_axis():
+    table = pd.DataFrame([{"Case": f"{c}_b{b}", "Config": c, "Mach": 1.2, "Alpha": 0.0, "Beta": float(b),
+                           "Converged": True, "CSF": 0.01 * b} for c in ("vt", "ht") for b in (0, 2, 4)])
+    assert split_keys("Beta", table, None) == ["Config"]
+    assert describe_lines("Beta", ["Config"]) == "One line per Config, points joined along β"
+    options, _ = chart_options(PlotSpec(x="Beta", y=["CSF"]), [ChartDesign("s", "#111", table, "/a")])
+    assert [s["name"] for s in options["series"]] == ["s · CSF · Config ht", "s · CSF · Config vt"]
+    assert [p["value"][0] for p in options["series"][0]["data"]] == [0.0, 2.0, 4.0]
