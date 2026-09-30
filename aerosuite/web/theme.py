@@ -205,6 +205,23 @@ a.as-step:hover { background: #f6f8fa; }
 .as-design-chip-error { border-color: #ffd7d5; color: #a40e26; }
 .as-table-scroll { overflow-x: auto; }
 .as-sticky { position: sticky; left: 0; background: #fff; z-index: 1; }
+.as-work { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 12px; align-items: start;
+  position: relative; }
+.as-work-main { min-width: 0; width: 100%; }
+.as-icon-strip { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 6px;
+  position: sticky; top: 12px; }
+.as-strip-item { position: relative; width: 100%; padding: 8px 2px 6px; border-radius: 7px; cursor: pointer;
+  color: var(--as-muted); }
+.as-strip-item:hover { background: var(--as-hairline); }
+.as-strip-on, .as-strip-on:hover { background: var(--as-accent-tint); color: var(--as-accent-text); }
+.as-strip-icon { font-size: 20px; }
+.as-strip-label { font-size: 10.5px; }
+.as-strip-count { position: absolute; top: 3px; right: 5px; min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--as-accent); color: #fff; font-size: 10px; line-height: 16px;
+  text-align: center; }
+.as-panel { position: absolute; left: 80px; top: 0; width: 320px; max-width: calc(100% - 80px); z-index: 5;
+  background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 14px 16px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .16); }
 .as-design-chip { border: 1px solid var(--as-border); border-radius: 999px; padding: 3px 10px; background: #fff; }
 .as-chip:hover { background: var(--as-accent-tint); color: var(--as-accent-text); }
 

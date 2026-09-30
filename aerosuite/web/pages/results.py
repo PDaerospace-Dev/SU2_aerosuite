@@ -90,6 +90,7 @@ class ResultsPage:
         self.problems: list[tuple[str, str]] = []  # compared studies that cannot be read: (folder, why)
         self.picker = ParamPicker(self)
         self._shown: tuple = ([], [])  # (rows per design, varying sweep variables) as last drawn
+        self.panel: Optional[str] = None  # the open control panel (PANELS), None: all closed
         with frame.actions:
             if frame.session.project.imported is not None:
                 secondary_button("Rescan", icon="refresh", on_click=self.rescan).mark("results-rescan").props(
@@ -415,82 +416,138 @@ class ResultsPage:
         with self.body:
             if any(len(r) for r in rows):
                 self._conditions(rows)
-            self._designs_card(values, shown)
-            self._parameters_card()
-            if not any(len(r) for r in rows):
-                banner("info", "No results yet: run the sweep on the Run page; results appear here as cases "
-                               "finish.").mark("results-empty")
-            else:
-                self._plots_section(rows, values)
-                self._characteristics_section()
-                self._results_section(rows, values)
-        if self.picker.panel.visible:
-            self.picker.render()
-
-    def _designs_card(self, values: dict, shown: dict) -> None:
-        with card():
-            with ui.row().classes("items-center gap-2 w-full"):
-                ui.label("Designs").classes("as-label w-24")
-                for i, design in enumerate(self.designs):
-                    with ui.row().classes("as-design-chip items-center gap-2 no-wrap").mark(f"design-{i}"):
-                        ui.element("span").classes("as-swatch").style(f"background: {SERIES_COLORS[i % 8]}")
-                        ui.label(design.name)
-                        if i == 0:
-                            ui.label("this study").classes("as-muted")
-                        else:
-                            ui.button(icon="close", color=None,
-                                      on_click=lambda f=str(design.folder): self.remove_design(f)).props(
-                                "flat round dense size=xs").mark(f"design-remove-{i}")
-                for folder, why in self.problems:
-                    with ui.row().classes("as-design-chip as-design-chip-error items-center gap-2 no-wrap").props(
-                            f'title="{why}"').mark("design-problem"):
-                        ui.icon("error_outline")
-                        ui.label(Path(folder).name)
-                        ui.button(icon="close", color=None, on_click=lambda f=folder: self.remove_design(f)).props(
-                            "flat round dense size=xs")
-                chip_button("+ Add design…", on_click=self.add_design).mark("design-add")
-            with ui.row().classes("items-center gap-2 w-full"):
-                for name in FILTERED:
-                    if len(values.get(name, [])) < 2:
-                        continue
-                    ui.label(SWEEP_LABELS[name]).classes("as-label")
-                    for value in values[name]:
-                        chip = chip_button(variable_text(value),
-                                           on_click=lambda n=name, v=value: self.change(
-                                               lambda s: toggle_filter(s, n, v, shown[n])))
-                        chip.mark(f"filter-{name}-{variable_text(value)}")
-                        if value in shown[name]:
-                            chip.classes("as-chip-on")
-                    ui.element("span").classes("w-4")
-                ui.space()
-                ui.label("Average last").classes("as-label")
-                with ui.element("div").classes("w-24"):
-                    text_field("", self.settings.average_last, self.set_average, mark="results-average")
-                ui.label("iterations").classes("as-label")
-
-    def _parameters_card(self) -> None:
-        definitions = self.definitions
-        derived = definitions.derived_names
-        total = len(self.columns) + len(derived)
-        with card():
-            with card_head("Parameters", f"{len(definitions.parameters)} of {total} chosen · averaged, tabulated "
-                                         "and ready to plot"):
-                ui.space()
-                secondary_button("+ Derived…", on_click=self.open_derived_dialog).mark("derived-add")
-                secondary_button("Choose parameters…", icon="checklist", on_click=self.picker.open).mark(
-                    "results-choose")
-            if definitions.parameters:
-                with ui.row().classes("items-center gap-2 w-full"):
-                    for name in definitions.parameters:
-                        with ui.row().classes("as-design-chip items-center gap-1 no-wrap"):
-                            ui.label(("ƒ " if name in derived else "") + name).mark(f"param-{name}")
-                            ui.button(icon="close", color=None, on_click=lambda n=name: self.choose(n, False)).props(
-                                "flat round dense size=xs").mark(f"param-remove-{name}")
-            else:
-                hint("Nothing chosen: pick the parameters to average, tabulate and plot.").mark("results-none")
             for design in self.designs:
                 for note in design.notes:
                     hint(note).classes("as-hint-warning").mark("results-note")
+            with ui.element("div").classes("as-work w-full"):
+                self._icon_strip()
+                with ui.column().classes("as-panel gap-3").mark("results-panel") as self.drawer:
+                    self._panel(values, shown)
+                with ui.column().classes("as-work-main gap-4"):
+                    if not any(len(r) for r in rows):
+                        banner("info", "No results yet: run the sweep on the Run page; results appear here as "
+                                       "cases finish.").mark("results-empty")
+                    else:
+                        self._plots_section(rows, values)
+                        self._characteristics_section()
+                        self._results_section(rows, values)
+        if self.picker.panel.visible:
+            self.picker.render()
+
+    PANELS = (("designs", "Designs", "layers"), ("filters", "Filters", "filter_alt"),
+              ("parameters", "Params", "tune"), ("average", "Average", "functions"),
+              ("packages", "Packages", "inventory_2"))
+
+    def _icon_strip(self) -> None:
+        """The controls, one icon each; a click opens that panel over the plots (a second click closes it)."""
+        counts = {"designs": len(self.designs), "parameters": len(self.definitions.parameters),
+                  "packages": len(self.definitions.packages)}
+        with ui.column().classes("as-icon-strip gap-1").mark("results-strip"):
+            for key, label, icon in self.PANELS:
+                with ui.column().classes("as-strip-item items-center gap-0" + (
+                        " as-strip-on" if self.panel == key else "")).mark(f"panel-{key}") as item:
+                    ui.icon(icon).classes("as-strip-icon")
+                    ui.label(label).classes("as-strip-label")
+                    if counts.get(key):
+                        ui.label(str(counts[key])).classes("as-strip-count")
+                item.on("click", lambda _, k=key: self.open_panel(k))
+
+    def open_panel(self, key: Optional[str]) -> None:
+        self.panel = None if key == self.panel else key
+        self.render()
+
+    def _panel(self, values: dict, shown: dict) -> None:
+        self.drawer.set_visibility(self.panel is not None)
+        if self.panel is None:
+            return
+        title = next(label for key, label, _ in self.PANELS if key == self.panel)
+        with ui.row().classes("items-center w-full no-wrap"):
+            ui.label({"Params": "Parameters"}.get(title, title)).classes("as-card-title")
+            ui.space()
+            ui.button(icon="close", color=None, on_click=lambda: self.open_panel(None)).props(
+                "flat round dense size=sm").mark("panel-close")
+        {"designs": self._designs_panel, "filters": lambda: self._filters_panel(values, shown),
+         "parameters": self._parameters_panel, "average": self._average_panel,
+         "packages": self._packages_panel}[self.panel]()
+
+    def _designs_panel(self) -> None:
+        hint("Other studies drawn over this one, each in its own colour.")
+        with ui.column().classes("gap-2 w-full"):
+            for i, design in enumerate(self.designs):
+                with ui.row().classes("as-design-chip items-center gap-2 no-wrap").mark(f"design-{i}"):
+                    ui.element("span").classes("as-swatch").style(f"background: {SERIES_COLORS[i % 8]}")
+                    ui.label(design.name)
+                    if i == 0:
+                        ui.label("this study").classes("as-muted")
+                    else:
+                        ui.button(icon="close", color=None,
+                                  on_click=lambda f=str(design.folder): self.remove_design(f)).props(
+                            "flat round dense size=xs").mark(f"design-remove-{i}")
+            for folder, why in self.problems:
+                with ui.row().classes("as-design-chip as-design-chip-error items-center gap-2 no-wrap").props(
+                        f'title="{why}"').mark("design-problem"):
+                    ui.icon("error_outline")
+                    ui.label(Path(folder).name)
+                    ui.button(icon="close", color=None, on_click=lambda f=folder: self.remove_design(f)).props(
+                        "flat round dense size=xs")
+            chip_button("+ Add design…", on_click=self.add_design).mark("design-add")
+
+    def _filters_panel(self, values: dict, shown: dict) -> None:
+        names = [name for name in FILTERED if len(values.get(name, [])) >= 2]
+        if not names:
+            hint("Every case variable has one value: nothing to filter.").mark("filters-none")
+        for name in names:
+            ui.label(SWEEP_LABELS[name] + (f" ({SWEEP_UNITS[name]})" if name in SWEEP_UNITS else "")).classes(
+                "as-label")
+            with ui.row().classes("items-center gap-1 w-full"):
+                for value in values[name]:
+                    chip = chip_button(variable_text(value),
+                                       on_click=lambda n=name, v=value: self.change(
+                                           lambda s: toggle_filter(s, n, v, shown[n])))
+                    chip.mark(f"filter-{name}-{variable_text(value)}")
+                    if value in shown[name]:
+                        chip.classes("as-chip-on")
+
+    def _parameters_panel(self) -> None:
+        definitions = self.definitions
+        derived = definitions.derived_names
+        total = len(self.columns) + len(derived)
+        hint(f"{len(definitions.parameters)} of {total} chosen · averaged, tabulated and ready to plot")
+        if definitions.parameters:
+            with ui.row().classes("items-center gap-2 w-full"):
+                for name in definitions.parameters:
+                    with ui.row().classes("as-design-chip items-center gap-1 no-wrap"):
+                        ui.label(("ƒ " if name in derived else "") + name).mark(f"param-{name}")
+                        ui.button(icon="close", color=None, on_click=lambda n=name: self.choose(n, False)).props(
+                            "flat round dense size=xs").mark(f"param-remove-{name}")
+        else:
+            hint("Nothing chosen: pick the parameters to average, tabulate and plot.").mark("results-none")
+        with ui.row().classes("gap-2 w-full"):
+            secondary_button("Choose parameters…", icon="checklist", on_click=self.picker.open).mark(
+                "results-choose")
+            secondary_button("+ Derived…", on_click=self.open_derived_dialog).mark("derived-add")
+
+    def _average_panel(self) -> None:
+        hint("Each case's values are averaged over its last iterations.")
+        with ui.row().classes("items-center gap-2 no-wrap"):
+            ui.label("Average last").classes("as-label")
+            with ui.element("div").classes("w-24"):
+                text_field("", self.settings.average_last, self.set_average, mark="results-average")
+            ui.label("iterations").classes("as-label")
+
+    def _packages_panel(self) -> None:
+        hint("Ready-made parameters, derived values and plots; switch one on or off.")
+        definitions = self.definitions
+        with ui.column().classes("gap-2 w-full"):
+            for package in list_packages():
+                on = package.id in definitions.packages
+                missing = availability(package, self.columns)
+                chip = chip_button(("✓ " if on else "") + package.name,
+                                   on_click=lambda p=package: self.toggle_package(p)).mark(f"package-{package.id}")
+                if on:
+                    chip.classes("as-chip-on")
+                elif missing:
+                    chip.props(f'disable title="Needs {", ".join(missing)} in the history files"')
 
     def _conditions(self, rows: list) -> None:
         """The shown cases' conditions (one value, a list or a range per variable) and their counts."""
@@ -517,16 +574,6 @@ class ResultsPage:
         with section("Plots", f"{count} plot{'' if count == 1 else 's'}", opened="plots" not in self.settings.folded,
                      on_fold=lambda o: self.fold("plots", o), mark="section-plots") as box:
             with box.head:
-                for package in list_packages():
-                    on = package.id in definitions.packages
-                    missing = availability(package, self.columns)
-                    chip = chip_button(("✓ " if on else "") + package.name,
-                                       on_click=lambda p=package: self.toggle_package(p)).mark(f"package-{package.id}")
-                    chip.on("click.stop", lambda: None)
-                    if on:
-                        chip.classes("as-chip-on")
-                    elif missing:
-                        chip.props(f'disable title="Needs {", ".join(missing)} in the history files"')
                 primary_button("+ Add plot", on_click=lambda: self.open_add_plot(values)).on(
                     "click.stop", lambda: None).mark("plot-add")
             designs = [ChartDesign(d.name, SERIES_COLORS[i % 8], part, str(d.folder))

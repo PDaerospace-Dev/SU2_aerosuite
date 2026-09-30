@@ -34,6 +34,12 @@ async def _open(user, project_dir):
     await user.open(project_url("results", project_dir))
 
 
+async def _panel(user, key):
+    """Open one of the control panels from the icon strip."""
+    user.find(marker=f"panel-{key}").click()
+    await user.should_see(marker="results-panel")
+
+
 def _element(user, marker):
     return next(iter(user.find(marker=marker).elements))
 
@@ -50,6 +56,7 @@ async def test_a_study_without_results_says_so(user: User, ready_project):
 
 async def test_the_aero_package_is_on_when_the_history_has_it(user: User, results_project):
     await _open(user, results_project)
+    await _panel(user, "parameters")
     for name in ("CL", "CD", "CMy", "L/D"):
         await user.should_see(marker=f"param-{name}")
     assert _text(user, "param-L/D") == "ƒ L/D"
@@ -61,8 +68,25 @@ async def test_the_aero_package_is_on_when_the_history_has_it(user: User, result
     assert _text(user, "condition-Mach") == "0.8"
 
 
+async def test_the_icon_strip_opens_one_panel_at_a_time(user: User, results_project):
+    await _open(user, results_project)
+    await user.should_see(marker="results-strip")
+    await user.should_not_see(marker="results-panel")
+    await _panel(user, "designs")
+    await user.should_see(marker="design-add")
+    await _panel(user, "average")
+    await user.should_see(marker="results-average")
+    await user.should_not_see(marker="design-add")
+    user.find(marker="panel-average").click()  # a second click closes it
+    await user.should_not_see(marker="results-panel")
+    await _panel(user, "filters")
+    user.find(marker="panel-close").click()
+    await user.should_not_see(marker="results-panel")
+
+
 async def test_the_picker_searches_and_chooses(user: User, results_project):
     await _open(user, results_project)
+    await _panel(user, "parameters")
     user.find(marker="results-choose").click()
     await user.should_see(marker="picker-panel")
     user.find(marker="picker-search").type("wing")
@@ -76,6 +100,7 @@ async def test_the_picker_searches_and_chooses(user: User, results_project):
 
 async def test_removing_and_clearing_parameters(user: User, results_project):
     await _open(user, results_project)
+    await _panel(user, "parameters")
     user.find(marker="param-remove-CD").click()
     assert open_project(results_project).results.parameters == ["CL", "CMy", "L/D"]
     await user.should_not_see(marker="param-CD")
@@ -87,6 +112,7 @@ async def test_removing_and_clearing_parameters(user: User, results_project):
 
 async def test_a_whole_group_is_chosen_with_its_tick(user: User, results_project):
     await _open(user, results_project)
+    await _panel(user, "parameters")
     user.find(marker="results-choose").click()
     user.find(marker="picker-tick-Residuals").click()
     assert "rms[Rho]" in open_project(results_project).results.parameters
@@ -103,6 +129,7 @@ async def test_folding_is_remembered(user: User, results_project):
 
 async def test_the_average_window_is_saved(user: User, results_project):
     await _open(user, results_project)
+    await _panel(user, "average")
     user.find(marker="results-average").clear().type("20").trigger("blur")
     assert open_project(results_project).results.average_last == 20
     user.find(marker="results-average").clear().type("0").trigger("blur")
@@ -122,6 +149,7 @@ async def test_another_design_is_drawn_with_this_studys_definitions(user: User, 
     here.results.packages = ["aero"]
     save_project(results_project, here)
     await _open(user, results_project)
+    await _panel(user, "designs")
     await user.should_see(marker="design-1")
     assert _text(user, "cell-1-M0p8_a2_b0-CL") == "0.44"
     assert _text(user, "cell-1-M0p8_a2_b0-CL(Wing)") == "—"
@@ -136,6 +164,7 @@ async def test_a_compared_study_that_is_gone_is_shown_as_a_problem(user: User, r
     here.results.compare = [str(tmp_path / "moved-away")]
     save_project(results_project, here)
     await _open(user, results_project)
+    await _panel(user, "designs")
     await user.should_see(marker="design-problem")
 
 
@@ -154,6 +183,7 @@ async def test_the_aero_package_draws_its_four_plots(user: User, results_project
 
 async def test_switching_the_package_off_and_on(user: User, results_project):
     await _open(user, results_project)
+    await _panel(user, "packages")
     user.find(marker="package-aero").click()
     results = open_project(results_project).results
     assert results.packages == [] and results.parameters == []
@@ -201,8 +231,10 @@ async def test_a_package_the_history_cannot_serve_is_disabled(user: User, ready_
         rows = ["Inner_Iter,rms[Rho],Avg_Massflow(outlet)"] + [f"{i},-3,5.0" for i in range(30)]
         (run / "history.csv").write_text("\n".join(rows) + "\n")
     await _open(user, project_dir)
+    await _panel(user, "packages")
     chip = _element(user, "package-aero")
     assert chip.props.get("disable") is True and "Needs CD, CL, CMy" in chip.props.get("title", "")
+    await _panel(user, "parameters")
     await user.should_see(marker="param-Avg_Massflow(outlet)")  # no package: the first flow parameters
 
 
@@ -215,6 +247,7 @@ async def test_monitor_opens_on_the_case_given(user: User, results_project):
 
 
 async def _derived_dialog(user):
+    await _panel(user, "parameters")
     user.find(marker="derived-add").click()
     await user.should_see(marker="derived-save")
 
@@ -284,6 +317,7 @@ async def test_the_studys_own_definitions_save_as_a_package(user: User, results_
     from aerosuite.engine.packages import load_package
     package = load_package("wing-share")
     assert [d.name for d in package.derived] == ["CL share"] and package.parameters == ["CL", "CL share"]
+    await _panel(user, "packages")
     await user.should_see(marker="package-wing-share")
 
 
@@ -340,6 +374,7 @@ def imported_study(tmp_path):
 
 async def test_an_imported_study_shows_its_cases_with_config_and_temperature(user: User, imported_study):
     await _open(user, imported_study)
+    await _panel(user, "filters")
     await user.should_see(marker="filter-Config-vt")
     assert _text(user, "cell-0-M1p2_10km_vt_a0_b4-CL") == "0"
     header = [label.text for label in user.find(marker="results-table").elements.pop().default_slot.children
