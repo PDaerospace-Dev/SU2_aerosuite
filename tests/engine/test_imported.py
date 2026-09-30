@@ -101,3 +101,83 @@ def test_scan_reads_the_case_folders_and_groups_warnings(tmp_path):
 def test_scan_needs_a_folder(tmp_path):
     with pytest.raises(ProjectError, match="not a folder"):
         scan(tmp_path / "missing")
+
+
+# -- the imported study (Task 2) -------------------------------------------------------
+
+
+def _runs(tmp_path):
+    runs = tmp_path / "old-runs"
+    for a in (0, 10):
+        _case(runs, f"M2p5_30km_a{a}_T200K", CFG.format(m=2.5, a=a, b=0, t=216.65))
+    _case(runs, "M1p2_10km_vt_a0_b6", CFG.format(m=1.2, a=0, b=6, t=223.25))
+    return runs
+
+
+def _snapshot(folder):
+    return sorted((str(p.relative_to(folder)), p.stat().st_mtime_ns) for p in folder.rglob("*"))
+
+
+def test_an_imported_study_holds_only_project_json_and_changes_nothing(tmp_path):
+    from aerosuite.engine.imported import create_imported_study
+    from aerosuite.engine.models import SCHEMA_VERSION
+    from aerosuite.engine.project import open_project
+
+    runs = _runs(tmp_path)
+    before = _snapshot(runs)
+    project, result = create_imported_study(tmp_path / "study", runs, name="Old runs")
+    assert [p.name for p in (tmp_path / "study").iterdir()] == ["project.json"]
+    assert _snapshot(runs) == before
+    reopened = open_project(tmp_path / "study")
+    assert SCHEMA_VERSION == 7 and reopened.schema_version == 7 and reopened.name == "Old runs"
+    assert reopened.sweep.enabled is False
+    assert reopened.imported.source == str(runs.resolve())
+    first = reopened.imported.cases[0]
+    assert (first.name, first.mach, first.beta, first.altitude_km, first.base) == (
+        "M1p2_10km_vt_a0_b6", 1.2, 6.0, 10.0, "vt")
+    assert first.history == str(runs.resolve() / "M1p2_10km_vt_a0_b6" / "history.csv")
+    assert [c.name for c in reopened.cases] == [c.name for c in reopened.imported.cases]
+    assert reopened.cases[0].altitude_km == 10.0
+
+
+def test_importing_nothing_is_refused(tmp_path):
+    from aerosuite.engine.imported import create_imported_study
+
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ProjectError, match="No case folders"):
+        create_imported_study(tmp_path / "study", tmp_path / "empty")
+    assert not (tmp_path / "study").exists()
+
+
+def test_rescan_adds_drops_and_updates_and_keeps_the_results_settings(tmp_path):
+    import shutil
+
+    from aerosuite.engine.imported import create_imported_study, rescan
+    from aerosuite.engine.project import open_project, save_project
+
+    runs = _runs(tmp_path)
+    project, _ = create_imported_study(tmp_path / "study", runs)
+    project.results.parameters = ["CL"]
+    save_project(tmp_path / "study", project)
+    _case(runs, "M2p5_30km_a20_T200K", CFG.format(m=2.5, a=20, b=0, t=216.65))
+    shutil.rmtree(runs / "M2p5_30km_a0_T200K")
+    (runs / "M1p2_10km_vt_a0_b6" / "M1p2_10km_vt_a0_b6.cfg").write_text(CFG.format(m=1.25, a=0, b=6, t=223.25))
+    project = open_project(tmp_path / "study")
+    changes = rescan(project)
+    assert (changes.added, changes.removed, changes.updated) == (
+        ["M2p5_30km_a20_T200K"], ["M2p5_30km_a0_T200K"], ["M1p2_10km_vt_a0_b6"])
+    assert [c.name for c in project.cases] == ["M1p2_10km_vt_a0_b6", "M2p5_30km_a10_T200K", "M2p5_30km_a20_T200K"]
+    assert project.imported.cases[0].mach == 1.25 and project.results.parameters == ["CL"]
+    assert "MACH_NUMBER is 1.25" in project.imported.warnings[0]
+
+
+def test_older_studies_open_at_schema_7(tmp_path):
+    import json
+
+    from aerosuite.engine.project import PROJECT_FILE, create_project, open_project
+
+    create_project(tmp_path)
+    data = json.loads((tmp_path / PROJECT_FILE).read_text())
+    data["schema_version"] = 6
+    (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
+    assert open_project(tmp_path).imported is None

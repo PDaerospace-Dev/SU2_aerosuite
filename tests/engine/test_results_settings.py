@@ -24,7 +24,7 @@ def test_schema_5_projects_open_with_default_results(tmp_path):
     del data["results"]
     (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
     project = open_project(tmp_path)
-    assert SCHEMA_VERSION == 6 and project.schema_version == 6
+    assert project.schema_version == SCHEMA_VERSION
     assert project.results == ResultsSettings()
 
 

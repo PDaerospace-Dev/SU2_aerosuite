@@ -6,7 +6,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 class Mesh(BaseModel):
@@ -124,6 +124,27 @@ class ResultsSettings(BaseModel):
     folded: list[ResultsSection] = Field(default_factory=list)
 
 
+class ImportedCase(BaseModel):
+    """A case folder of an imported study (paths absolute); its values from its .cfg, else its folder name."""
+    name: str
+    folder: str
+    cfg: Optional[str] = None
+    history: str
+    mach: float
+    alpha: float
+    beta: float = 0.0
+    altitude_km: Optional[float] = None
+    temperature_K: Optional[float] = None
+    base: str = ""  # the unrecognised parts of the folder name, e.g. "vt"
+
+
+class ImportedRuns(BaseModel):
+    """Existing SU2 runs this read-only study reads (engine/imported.py); the source is never written."""
+    source: str
+    cases: list[ImportedCase] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)  # from the last scan
+
+
 class Project(BaseModel):
     schema_version: int = SCHEMA_VERSION
     name: str
@@ -138,3 +159,4 @@ class Project(BaseModel):
     cases: list[Case] = Field(default_factory=list)
     run: RunSettings = Field(default_factory=RunSettings)
     results: ResultsSettings = Field(default_factory=ResultsSettings)
+    imported: Optional[ImportedRuns] = None  # set: a read-only study of existing runs

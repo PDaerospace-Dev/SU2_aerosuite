@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Optional, Union
 
 from .errors import ProjectError
-from .naming import parse_angle, format_value
+from .models import Case, ImportedCase, ImportedRuns, Project
+from .naming import format_value, parse_angle
 
 HISTORY_SUFFIXES = (".csv", ".dat")
 _NUMBER = r"(\d+)(?:[p.](\d+))?"
@@ -200,3 +201,52 @@ def scan(source: Path) -> Scan:
         result.warnings.append(f"{who}: the cfg's {option} is {used}, the name says {format_value(name_value)} — "
                                f"{used} used")
     return result
+
+
+def _record(found: FoundCase) -> ImportedCase:
+    return ImportedCase(name=found.name, folder=str(found.folder), cfg=str(found.cfg) if found.cfg else None,
+                        history=str(found.history), mach=found.mach, alpha=found.alpha, beta=found.beta,
+                        altitude_km=found.altitude_km, temperature_K=found.temperature_K, base=found.base)
+
+
+def _apply(project: Project, source: Path, result: Scan) -> None:
+    records = [_record(found) for found in result.cases]
+    project.imported = ImportedRuns(source=str(Path(source).resolve()), cases=records, warnings=list(result.warnings))
+    project.cases = [Case(name=r.name, mach=r.mach, alpha=r.alpha, beta=r.beta, altitude_km=r.altitude_km)
+                     for r in records]
+
+
+def create_imported_study(target: Path, source: Path, name: Optional[str] = None) -> tuple[Project, Scan]:
+    """A read-only study at `target` (only project.json) reading the case folders in `source`."""
+    from .project import create_project, save_project  # project imports models only; keep the engine acyclic
+
+    result = scan(source)
+    if not result.cases:
+        raise ProjectError(f"No case folders with a history file and a Mach and α (from a .cfg or the name) in "
+                           f"{source}")
+    project = create_project(Path(target), name)
+    project.sweep.enabled = False
+    _apply(project, Path(source), result)
+    save_project(Path(target), project)
+    return project, result
+
+
+@dataclass
+class Changes:
+    added: list = field(default_factory=list)
+    removed: list = field(default_factory=list)
+    updated: list = field(default_factory=list)
+    scan: Optional[Scan] = None
+
+
+def rescan(project: Project) -> Changes:
+    """Read the source again: new case folders are added, gone ones dropped, changed values updated (in place;
+    the caller saves). The Results settings are untouched."""
+    if project.imported is None:
+        raise ProjectError("This study was not imported")
+    before = {case.name: case for case in project.imported.cases}
+    result = scan(Path(project.imported.source))
+    _apply(project, Path(project.imported.source), result)
+    after = {case.name: case for case in project.imported.cases}
+    return Changes(added=[n for n in after if n not in before], removed=[n for n in before if n not in after],
+                   updated=[n for n in after if n in before and after[n] != before[n]], scan=result)

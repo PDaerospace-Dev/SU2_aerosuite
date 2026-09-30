@@ -87,9 +87,14 @@ def _v5_to_v6(data: dict, directory: Optional[Path]) -> dict:
     return data
 
 
+def _v6_to_v7(data: dict, directory: Optional[Path]) -> dict:
+    """Schema 7 can hold imported runs; older projects have none."""
+    return data
+
+
 # {from_version: function(data, project folder or None) -> data at from_version + 1}
 MIGRATIONS: dict[int, Callable[[dict, Optional[Path]], dict]] = {
-    1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4, 4: _v4_to_v5, 5: _v5_to_v6}
+    1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4, 4: _v4_to_v5, 5: _v5_to_v6, 6: _v6_to_v7}
 
 
 def create_project(directory: Path, name: Optional[str] = None) -> Project:
