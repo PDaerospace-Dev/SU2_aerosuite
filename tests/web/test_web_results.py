@@ -174,7 +174,9 @@ async def test_adding_and_removing_a_plot_with_two_y(user: User, results_project
     assert "CL(Wing)" in results.parameters
     await user.should_see(marker="chart-own-0")
     names = [s["name"] for s in _element(user, "chart-own-0").options["series"]]
-    assert names == ["study · CL(Wing)", "study · CL"]
+    assert names == ["CL(Wing)", "CL"]
+    colors = [s["lineStyle"]["color"] for s in _element(user, "chart-own-0").options["series"]]
+    assert colors[0] != colors[1]
     user.find(marker="plot-remove-0").click()
     assert open_project(results_project).results.plots == []
 

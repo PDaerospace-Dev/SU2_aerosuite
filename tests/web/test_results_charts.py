@@ -65,6 +65,19 @@ def test_series_colour_style_and_marker():
     assert unconverged["symbol"].startswith("empty")
 
 
+def test_one_study_gives_each_line_its_own_colour():
+    from aerosuite.web.theme import SERIES_COLORS
+
+    table = _table(machs=tuple(0.1 * m for m in range(1, 11)))  # ten lines: more than the colours
+    options, _ = chart_options(PlotSpec(x="Alpha", y=["CL"]), [ChartDesign("st_tail", "#111111", table, "/a")])
+    series = options["series"]
+    assert [s["lineStyle"]["color"] for s in series[:8]] == SERIES_COLORS
+    assert all(s["itemStyle"]["color"] == s["lineStyle"]["color"] for s in series)
+    assert [s["lineStyle"]["type"] for s in series[:8]] == ["solid"] * 8
+    assert series[8]["lineStyle"]["color"] == SERIES_COLORS[0] and series[8]["lineStyle"]["type"] == "dashed"
+    assert series[0]["name"] == "CL · Mach 0.1"  # no study name with one study
+
+
 def test_missing_values_break_the_line():
     table = _table(machs=(0.8,))
     table.loc[1, "CL"] = math.nan
@@ -85,7 +98,7 @@ def test_config_splits_lines_and_is_never_an_axis():
     assert split_keys("Beta", table, None) == ["Config"]
     assert describe_lines("Beta", ["Config"]) == "One line per Config, points joined along β"
     options, _ = chart_options(PlotSpec(x="Beta", y=["CSF"]), [ChartDesign("s", "#111", table, "/a")])
-    assert [s["name"] for s in options["series"]] == ["s · CSF · Config ht", "s · CSF · Config vt"]
+    assert [s["name"] for s in options["series"]] == ["CSF · Config ht", "CSF · Config vt"]
     assert [p["value"][0] for p in options["series"][0]["data"]] == [0.0, 2.0, 4.0]
 
 

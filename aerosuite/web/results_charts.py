@@ -1,6 +1,7 @@
 """The Results page's plots without NiceGUI: which points make one line, and ECharts options.
 
-Colour = design; line style = the splitting value (e.g. the Mach); marker shape = the Y parameter; an unconverged
+With one design each line (and Y parameter) has its own colour (then line styles once the colours run out); comparing designs,
+colour = design and line style = the splitting value (e.g. the Mach). Marker shape = the Y parameter; an unconverged
 point is hollow. A line runs along the X axis when X is a sweep variable, else along α (the polar CL vs CD).
 """
 from __future__ import annotations
@@ -15,7 +16,7 @@ from ..engine.models import PlotSpec
 from ..engine.naming import format_value
 from ..engine.study_results import SWEEP_NAMES
 from .results_view import SWEEP_LABELS, SWEEP_UNITS, VARIABLES, variable_text
-from .theme import HAIRLINE, MUTED
+from .theme import HAIRLINE, MUTED, SERIES_COLORS
 
 LINE_STYLES = ["solid", "dashed", "dotted", [8, 3, 2, 3]]  # the last: dash-dot
 MARKERS = ["circle", "rect", "triangle", "diamond", "pin", "arrow"]
@@ -103,6 +104,7 @@ def chart_options(plot: PlotSpec, designs: list[ChartDesign], units: Mapping[str
     else:
         key_values = [()]
     series, owners = [], []
+    single = len(designs) == 1
     for design in designs:
         for k, y in enumerate(plot.y):
             for j, key in enumerate(key_values):
@@ -122,11 +124,16 @@ def chart_options(plot: PlotSpec, designs: list[ChartDesign], units: Mapping[str
                                  "symbol": ("empty" + marker) if hollow else marker,
                                  "symbolSize": 10 if hollow else 7})
                 label = " · ".join(f"{_label(n)} {variable_text(v)}" for n, v in zip(keys, key))
+                if single:  # every series its own colour, e.g. CL and CL(Wing) of one line too
+                    n = k * len(key_values) + j
+                    color = SERIES_COLORS[n % len(SERIES_COLORS)]
+                    style = LINE_STYLES[(n // len(SERIES_COLORS)) % len(LINE_STYLES)]
+                else:
+                    color, style = design.color, LINE_STYLES[j % len(LINE_STYLES)]
                 series.append({
-                    "type": "line", "name": " · ".join(p for p in (design.name, y, label) if p), "data": data,
-                    "symbol": marker, "connectNulls": False,
-                    "lineStyle": {"color": design.color, "width": 2, "type": LINE_STYLES[j % len(LINE_STYLES)]},
-                    "itemStyle": {"color": design.color},
+                    "type": "line", "name": " · ".join(p for p in ("" if single else design.name, y, label) if p),
+                    "data": data, "symbol": marker, "connectNulls": False,
+                    "lineStyle": {"color": color, "width": 2, "type": style}, "itemStyle": {"color": color},
                 })
                 owners.append(design.folder)
     options = {
