@@ -87,3 +87,27 @@ def test_config_splits_lines_and_is_never_an_axis():
     options, _ = chart_options(PlotSpec(x="Beta", y=["CSF"]), [ChartDesign("s", "#111", table, "/a")])
     assert [s["name"] for s in options["series"]] == ["s · CSF · Config ht", "s · CSF · Config vt"]
     assert [p["value"][0] for p in options["series"][0]["data"]] == [0.0, 2.0, 4.0]
+
+
+def _mixed():
+    """A β sweep of two configurations at Mach 1.2 (10 km, 223.25 K) and an α sweep without a config at 2.5."""
+    rows = [{"Case": f"{c}_b{b}", "Config": c, "Mach": 1.2, "Alpha": 0.0, "Beta": float(b), "Altitude": 10.0,
+             "Temperature": 223.25, "Converged": True, "CL": 0.01, "CSF": 0.01 * b} for c in ("vt", "ht")
+            for b in (0, 2)]
+    rows += [{"Case": f"M2p5_a{a}", "Config": None, "Mach": 2.5, "Alpha": float(a), "Beta": 0.0, "Altitude": 30.0,
+              "Temperature": 216.65, "Converged": True, "CL": 0.035 * a, "CSF": 0.0} for a in (0, 10, 20)]
+    return pd.DataFrame(rows)
+
+
+def test_cases_without_a_config_keep_their_own_lines():
+    options, _ = chart_options(PlotSpec(x="Alpha", y=["CL"]), [ChartDesign("s", "#111", _mixed(), "/a")])
+    no_config = next(s for s in options["series"] if "Config —" in s["name"])
+    assert [p["value"] for p in no_config["data"]] == [[0.0, 0.0], [10.0, pytest.approx(0.35)],
+                                                        [20.0, pytest.approx(0.7)]]
+
+
+def test_variables_fixed_by_the_others_do_not_split_lines():
+    # Mach, altitude and T follow from the Config here (ht and vt at 1.2, none at 2.5); β varies within a config
+    assert split_keys("Alpha", _mixed(), None) == ["Config", "Beta"]
+    options, _ = chart_options(PlotSpec(x="Alpha", y=["CL"]), [ChartDesign("s", "#111", _mixed(), "/a")])
+    assert "Altitude" not in options["series"][0]["name"] and "T " not in options["series"][0]["name"]

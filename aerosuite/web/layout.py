@@ -140,7 +140,9 @@ class ProjectFrame:
         self._on_reload = on_reload
         if session.project.imported is not None and active not in IMPORTED_PAGES:
             # A read-only study of existing runs has nothing to set up or run: every link lands on Results.
-            ui.navigate.to(project_url("results", session.directory))
+            # Once the browser is connected (a navigation issued while the page is built never reaches it).
+            target = project_url("results", session.directory)
+            ui.timer(0, lambda: ui.navigate.to(target), once=True)
         apply_theme()
         self._top_bar()
         with ui.row().classes("as-body w-full"):

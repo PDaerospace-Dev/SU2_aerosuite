@@ -34,14 +34,33 @@ def along(x: str) -> str:
     return x if x in SWEEP_NAMES else "Alpha"
 
 
+BLANK = "—"  # a case without this variable (e.g. no Config): its own group
+
+
+def _grouping(table: pd.DataFrame, names: list[str]) -> pd.DataFrame:
+    return table[names].astype(object).where(table[names].notna(), BLANK).replace("", BLANK)
+
+
 def split_keys(x: str, table: pd.DataFrame, split: Optional[str]) -> list[str]:
-    """The sweep variables that make one line each: the chosen one, else every one that varies (not the axis)."""
+    """The case variables that make one line each: the chosen one, else every one that varies (not the axis),
+    leaving out a variable fixed by those before it (e.g. an altitude that follows from the Mach)."""
     runs_along = along(x)
-    varying = [name for name in VARIABLES
-               if name in table.columns and name != runs_along and table[name].nunique(dropna=True) > 1]
+    varying = [name for name in VARIABLES if name in table.columns and name != runs_along
+               and _grouping(table, [name])[name].nunique() > 1]
     if split and split != runs_along and split in varying:
         return [split]
-    return varying
+    kept: list[str] = []
+    for name in varying:
+        if kept:
+            frame = _grouping(table, kept + [name])
+            if frame.groupby(kept)[name].nunique().max() <= 1:
+                continue  # one value for each combination of the others: it adds no line
+        kept.append(name)
+    return kept
+
+
+def _order(value) -> tuple:
+    return (1, value) if isinstance(value, str) else (0, value)
 
 
 def _label(name: str) -> str:
@@ -78,8 +97,9 @@ def chart_options(plot: PlotSpec, designs: list[ChartDesign], units: Mapping[str
     runs_along = along(plot.x)
     if combined.empty:
         key_values = []
-    elif keys:  # each combination of the splitting values, e.g. (0.6,), (0.8,)
-        key_values = sorted({tuple(row) for row in combined[keys].dropna().itertuples(index=False)})
+    elif keys:  # each combination of the splitting values, e.g. (0.6,), (0.8,); a missing value is its own
+        key_values = sorted({tuple(row) for row in _grouping(combined, keys).itertuples(index=False)},
+                            key=lambda row: tuple(_order(v) for v in row))
     else:
         key_values = [()]
     series, owners = [], []
@@ -88,7 +108,7 @@ def chart_options(plot: PlotSpec, designs: list[ChartDesign], units: Mapping[str
             for j, key in enumerate(key_values):
                 part = design.rows
                 for name, value in zip(keys, key):
-                    part = part[part[name] == value]
+                    part = part[_grouping(part, [name])[name] == value]
                 if part.empty:
                     continue
                 if runs_along in part.columns:
