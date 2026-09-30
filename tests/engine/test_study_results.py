@@ -110,6 +110,27 @@ def test_results_are_cached_until_a_history_changes(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 
+def test_saving_the_page_settings_keeps_the_cache(tmp_path, monkeypatch):
+    import aerosuite.engine.study_results as module
+    from aerosuite.engine.project import open_project, save_project
+
+    _study(tmp_path / "base")
+    calls = []
+    real = module.summarize
+    monkeypatch.setattr(module, "summarize", lambda *a, **k: calls.append(1) or real(*a, **k))
+    study_results(tmp_path / "base", _definitions())
+    project = open_project(tmp_path / "base")
+    project.results.filters = {"Mach": [0.6]}  # a filter, a fold, a panel: not the data
+    project.results.folded = ["plots"]
+    save_project(tmp_path / "base", project)
+    study_results(tmp_path / "base", _definitions())
+    assert len(calls) == 1
+    project.name = "renamed"  # the study itself changed: read again
+    save_project(tmp_path / "base", project)
+    assert study_results(tmp_path / "base", _definitions()).name == "renamed"
+    assert len(calls) == 2
+
+
 def test_missing_values_are_reported_not_raised(tmp_path):
     _study(tmp_path / "base")
     result = study_results(tmp_path / "base", _definitions())

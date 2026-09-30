@@ -92,15 +92,18 @@ _cache: "OrderedDict[tuple, StudyResults]" = OrderedDict()
 
 
 def _stamp(folder: Path) -> tuple:
-    """Changes whenever a history, the case index or project.json changes (an imported study's histories are
-    listed in its project.json, which is read for them)."""
+    """Changes whenever a history, the case index or the study changes (an imported study's histories are listed in
+    its project.json, which is read for them). The Results settings (filters, folds, …) are left out: saving them
+    must not read every history again; the definitions they give are in the cache key on their own."""
     try:
         project = open_project(folder)
     except AeroSuiteError:
         project = None
     paths = [path for _, path in case_histories(folder, project)]
-    paths += [folder / CONFIGS_DIR / CASE_INDEX_FILE, folder / PROJECT_FILE]
-    stamp = []
+    paths += [folder / CONFIGS_DIR / CASE_INDEX_FILE]
+    if project is None:
+        paths.append(folder / PROJECT_FILE)
+    stamp = [project.model_dump_json(exclude={"results", "modified"}) if project is not None else None]
     for path in paths:
         try:
             info = path.stat()
