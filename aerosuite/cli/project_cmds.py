@@ -27,6 +27,8 @@ def _values(values: list[float]) -> str:
 
 def describe(project_dir: Path, project: Project) -> list[str]:
     """Human-readable summary lines for `show`."""
+    if project.imported is not None:
+        return _describe_imported(project)
     template_ok = (Path(project_dir) / project.template).is_file()
     lines = [
         f"Project:   {project.name}",
@@ -78,6 +80,43 @@ def describe(project_dir: Path, project: Project) -> list[str]:
             detail = case.restart + (f" {case.restart_ref}" if case.restart_ref else "")
             lines.append(f"  {case.name}  [restart: {detail}]{reynolds.get(case.name, '')}")
     return lines
+
+
+def _describe_imported(project: Project) -> list[str]:
+    imported = project.imported
+    lines = [f"Project:   {project.name}", f"Imported:  {imported.source}  (read-only)",
+             f"Cases ({len(imported.cases)}):"]
+    lines += [f"  {line}" for line in _case_lines(imported.cases)]
+    lines += [f"Warning: {warning}" for warning in imported.warnings]
+    return lines
+
+
+def _case_lines(cases) -> list[str]:
+    def number(value) -> str:
+        return "—" if value is None else format_value(value)
+    return [f"{c.name}  Mach {number(c.mach)}  α {number(c.alpha)}  β {number(c.beta)}  alt {number(c.altitude_km)} km"
+            f"  T {number(c.temperature_K)} K" + (f"  config {c.base}" if c.base else "") for c in cases]
+
+
+@app.command("import")
+@engine_errors
+def import_(
+    source: Annotated[Path, typer.Argument(help="The folder that holds the case folders (each: .cfg + history)")],
+    directory: Annotated[Path, typer.Argument(help="The new study's folder")],
+    name: Annotated[Optional[str], typer.Option(help="Study name (default: the folder name)")] = None,
+) -> None:
+    """Read existing SU2 runs (one folder per case) into a read-only study; nothing in SOURCE is changed."""
+    from ..engine.imported import create_imported_study
+
+    project, result = create_imported_study(directory, source, name=name)
+    typer.echo(f"Found {len(result.cases)} cases in {source}")
+    for line in _case_lines(project.imported.cases):
+        typer.echo(f"  {line}")
+    for warning in result.warnings:
+        typer.echo(f"Warning: {warning}")
+    for skipped in result.skipped:
+        typer.echo(f"Skipped {skipped.name}: {skipped.reason}")
+    typer.echo(f"Created imported study '{project.name}' in {directory}")
 
 
 @app.command()

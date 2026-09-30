@@ -56,7 +56,7 @@ decided. Specs and implementation plans for each phase are in `docs/superpowers/
   from the bottom of every project page. Look lives in `theme.py`; building blocks in `ui_kit.py`.
 - The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python
   run_aerosuite.py`); it is retired in a later phase.
-- Tests: `uv run pytest` (882 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
+- Tests: `uv run pytest` (918 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
   user; `tests/fixtures/fake_sweep.py` stands in for SU2; `tests/engine/test_sweep_script.py` runs the
   real sweep script against a stand-in `SU2` package.
 
@@ -122,6 +122,11 @@ Done 2026-09-29 and checked on the workstation with real SU2 (QuickStart NACA 00
 Results page (2026-09-29, commits `e31a474`..`8fb1319`, **not yet checked on the workstation**): ask the user
 to open Results on a finished real study, choose parameters, add a derived value and a plot, compare a second
 study, and export.
+
+Import SU2 runs (2026-09-30, spec `docs/superpowers/specs/2026-09-30-import-runs-design.md`, **not yet checked on
+the workstation**): the Projects page's *Import SU2 runs* card and `aerosuite import` read existing case folders
+(.cfg + history; values from the cfg, else the folder name) into a read-only study (schema 7, `project.imported`).
+Ask the user to import a real folder of old runs and look at it on Results.
 
 Known smaller items (from reviews; none blocking):
 

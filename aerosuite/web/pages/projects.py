@@ -5,11 +5,14 @@ from nicegui import ui
 
 from ...engine import project as engine_project
 from ...engine.errors import AeroSuiteError
+from ...engine.imported import create_imported_study, scan
+from ...engine.naming import format_value
 from ...engine.profiles import list_profiles
 from ...engine.study import create_study
 from ..layout import header, project_url
 from ..recent import add_recent, recent_projects
-from ..ui_kit import banner, card, card_head, field, path_field, pill, primary_button, secondary_button
+from ..ui_kit import (banner, card, card_head, field, hint, ok_line, path_field, pill, primary_button, secondary_button,
+                      table, td, th, warning_group)
 
 
 def register() -> None:
@@ -27,7 +30,11 @@ def register() -> None:
                     _recent_list()
                 with ui.column().classes("gap-4 w-full"):
                     _open_form()
+                    _import_form()
                     _new_form()
+
+
+PREVIEW_ROWS = 10
 
 
 def _go_to(directory: Path) -> None:
@@ -160,3 +167,81 @@ def _new_form() -> None:
             error.text = str(exc)
             return
         _go_to(target)
+
+
+def _import_form() -> None:
+    """Existing SU2 runs, one folder per case (its .cfg and history), read into a read-only study."""
+    with card("Import SU2 runs", "Read existing runs: one folder per case with its .cfg and history"):
+        source = path_field("Runs folder", mark="import-source", browse_mark="import-browse",
+                            title="Choose the folder that holds the case folders", mode="folder")
+        with ui.element("div").classes("as-grid-2"):
+            parent = path_field("Parent folder of the new study", mark="import-parent", browse_mark="import-pbrowse",
+                                title="Choose the parent folder", mode="folder")
+            name = field(ui.input("Study name")).classes("w-full").mark("import-name")
+        error = ui.label("").classes("as-error-text").mark("import-error")
+        with ui.row().classes("w-full justify-end"):
+            secondary_button("Scan", icon="search", on_click=lambda: preview()).mark("import-scan")
+        box = ui.column().classes("w-full gap-2").mark("import-preview")
+
+    def preview() -> None:
+        box.clear()
+        error.text = ""
+        text = (source.value or "").strip()
+        if not text:
+            error.text = "Choose the runs folder"
+            return
+        try:
+            result = scan(Path(text))
+        except AeroSuiteError as exc:
+            error.text = str(exc)
+            return
+        if not name.value:
+            name.value = Path(text).name
+        if not parent.value:
+            parent.value = str(Path(text).resolve().parent)
+        with box:
+            if not result.cases:
+                banner("warning", "No case folders with a history file and a Mach and α (from a .cfg or the name)")
+            else:
+                ok_line(f"{len(result.cases)} case{'s' if len(result.cases) != 1 else ''} found in {Path(text).name}")
+                with ui.element("div").classes("as-table-scroll w-full"):
+                    with table("minmax(11rem, 1.8fr) repeat(5, minmax(3.2rem, .5fr)) minmax(4rem, .6fr)"):
+                        for heading in ("Case folder", "Mach", "α", "β", "Alt (km)", "T (K)", "Config"):
+                            th(heading)
+                        for case in result.cases[:PREVIEW_ROWS]:
+                            td(case.name, mono=True).mark(f"import-row-{case.name}")
+                            for value in (case.mach, case.alpha, case.beta, case.altitude_km, case.temperature_K):
+                                td("—" if value is None else format_value(value))
+                            td(case.base or "—")
+                if len(result.cases) > PREVIEW_ROWS:
+                    hint(f"… and {len(result.cases) - PREVIEW_ROWS} more")
+            if result.warnings:
+                warning_group(result.warnings, mark="import-warnings")
+            if result.skipped:
+                count = len(result.skipped)
+                warning_group([f"{s.name}: {s.reason}" for s in result.skipped], mark="import-skipped",
+                              label=f"{count} folder{'s' if count != 1 else ''} skipped")
+            if result.cases:
+                with ui.row().classes("w-full justify-end"):
+                    primary_button(f"Import {len(result.cases)} case{'s' if len(result.cases) != 1 else ''}",
+                                   icon="download_done", on_click=lambda: create(Path(text))).mark("import-create")
+
+    def create(runs: Path) -> None:
+        parent_text, name_text = (parent.value or "").strip(), (name.value or "").strip()
+        if not parent_text or not name_text:
+            error.text = "Choose a parent folder and a name"
+            return
+        if not _is_plain_name(name_text):
+            error.text = "Choose a plain folder name (no '.', '..', drive or separators)"
+            return
+        if not Path(parent_text).is_dir():
+            error.text = f"Parent folder not found: {parent_text}"
+            return
+        target = Path(parent_text) / name_text
+        try:
+            create_imported_study(target, runs, name=name_text)
+        except AeroSuiteError as exc:
+            error.text = str(exc)
+            return
+        add_recent(target)
+        ui.navigate.to(project_url("results", target.resolve()))

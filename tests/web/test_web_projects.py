@@ -114,3 +114,38 @@ async def test_recent_rows_show_the_kind_and_the_latest_run(user: User, ready_pr
 async def test_create_is_the_primary_action(user: User):
     await user.open("/")
     assert "as-btn-primary" in next(iter(user.find(marker="new-create").elements)).classes
+
+
+async def test_import_existing_runs(user: User, tmp_path):
+    from aerosuite.engine.project import open_project
+
+    runs = tmp_path / "old-runs"
+    for name in ("M1p2_10km_vt_a0_b0", "M1p2_10km_vt_a0_b6"):
+        folder = runs / name
+        folder.mkdir(parents=True)
+        mach = "1.25" if name.endswith("b6") else "1.2"
+        (folder / f"{name}.cfg").write_text(f"MACH_NUMBER= {mach}\nAOA= 0\nSIDESLIP_ANGLE= {name[-1]}\n")
+        (folder / "history.csv").write_text("Inner_Iter,CL\n" + "".join(f"{i},0.1\n" for i in range(20)))
+    (runs / "notes").mkdir()
+    await user.open("/")
+    user.find(marker="import-source").type(str(runs))
+    user.find(marker="import-parent").type(str(tmp_path))
+    user.find(marker="import-name").type("old")
+    user.find(marker="import-scan").click()
+    await user.should_see("2 cases found in old-runs")
+    await user.should_see(marker="import-row-M1p2_10km_vt_a0_b6")
+    assert next(iter(user.find(marker="import-warnings").elements))._props["label"] == "1 warning"
+    assert next(iter(user.find(marker="import-skipped").elements))._props["label"] == "1 folder skipped"
+    user.find(marker="import-create").click()
+    project = open_project(tmp_path / "old")
+    assert [c.name for c in project.cases] == ["M1p2_10km_vt_a0_b0", "M1p2_10km_vt_a0_b6"]
+    await user.should_see(marker="results-body")
+
+
+async def test_import_checks_its_inputs(user: User, tmp_path):
+    await user.open("/")
+    user.find(marker="import-scan").click()
+    await user.should_see("Choose the runs folder")
+    user.find(marker="import-source").type(str(tmp_path / "missing"))
+    user.find(marker="import-scan").click()
+    await user.should_see("is not a folder")
