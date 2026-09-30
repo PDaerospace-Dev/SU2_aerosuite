@@ -30,12 +30,12 @@ from ..layout import ProjectFrame, open_session, project_url
 from ..param_picker import ParamPicker
 from ..picker import pick_path
 from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
-from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, filter_rows, pin, remove_parameter,
-                            shown_values, status_counts, sweep_values, table_text, toggle_filter, variable_text,
-                            varying)
+from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, conditions, converged_text, filter_rows, pin,
+                            remove_parameter, shown_values, status_counts, sweep_values, table_text, toggle_filter,
+                            variable_text, varying)
 from ..theme import SERIES_COLORS
 from ..ui_kit import (banner, card, card_head, chip_button, field, hint, pill, primary_button, secondary_button,
-                      summary_tile, table, td, td_box, th)
+                      table, td, td_box, th)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
 FILTERED = ("Config", "Altitude", "Temperature", "Mach", "Beta")  # filter chips (α is the usual X axis)
@@ -413,13 +413,14 @@ class ResultsPage:
         self._shown = (rows, varying(values))
         self.body.clear()
         with self.body:
+            if any(len(r) for r in rows):
+                self._conditions(rows)
             self._designs_card(values, shown)
             self._parameters_card()
             if not any(len(r) for r in rows):
                 banner("info", "No results yet: run the sweep on the Run page; results appear here as cases "
                                "finish.").mark("results-empty")
             else:
-                self._tiles(rows)
                 self._plots_section(rows, values)
                 self._characteristics_section()
                 self._results_section(rows, values)
@@ -491,14 +492,22 @@ class ResultsPage:
                 for note in design.notes:
                     hint(note).classes("as-hint-warning").mark("results-note")
 
-    def _tiles(self, rows: list) -> None:
+    def _conditions(self, rows: list) -> None:
+        """The shown cases' conditions (one value, a list or a range per variable) and their counts."""
         counts = status_counts(rows)
-        with ui.element("div").classes("as-tiles"):
-            summary_tile("Cases shown", counts["shown"]).mark("tile-shown")
-            summary_tile("Converged", counts["converged"]).mark("tile-converged")
-            summary_tile("Unconverged", counts["unconverged"],
-                         "danger" if counts["unconverged"] else None).mark("tile-unconverged")
-            summary_tile("Designs", len(self.designs)).mark("tile-designs")
+        with ui.row().classes("as-conditions w-full items-center").mark("results-conditions"):
+            for label, text in conditions(rows):
+                with ui.column().classes("as-condition gap-0"):
+                    ui.label(label).classes("as-condition-label")
+                    ui.label(text).classes("as-condition-value").mark(f"condition-{label}")
+            ui.space()
+            count = counts["shown"]
+            ui.label(f"{count} case{'' if count == 1 else 's'}").classes("as-pill as-pill-pending").mark(
+                "results-count")
+            text, tone = converged_text(counts)
+            ui.label(text).classes(f"as-pill as-pill-{tone}").mark("results-converged")
+            if len(self.designs) > 1:
+                ui.label(f"{len(self.designs)} designs").classes("as-pill as-pill-pending").mark("results-designs")
 
     def _plots_section(self, rows: list, values: dict) -> None:
         definitions = self.definitions

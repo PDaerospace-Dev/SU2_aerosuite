@@ -100,6 +100,38 @@ def status_counts(tables: Iterable[pd.DataFrame]) -> dict[str, int]:
     return counts
 
 
+CONDITION_ORDER = ("Mach", "Altitude", "Temperature", "Alpha", "Beta", CONFIG)
+LISTED = 4  # up to this many values are listed; more read as a range
+
+
+def conditions(tables: Iterable[pd.DataFrame]) -> list[tuple[str, str]]:
+    """The case variables of the shown rows as (label with unit, text): one value, a short list, or a range with
+    the count ("-10 … 45 · 5"); variables without a value left out."""
+    values = sweep_values(tables)
+    items = []
+    for name in CONDITION_ORDER:
+        found = values.get(name)
+        if not found:
+            continue
+        label = SWEEP_LABELS[name] + (f" ({SWEEP_UNITS[name]})" if name in SWEEP_UNITS else "")
+        if len(found) <= LISTED:
+            text = ", ".join(variable_text(v) for v in found)
+        elif name == CONFIG:
+            text = f"{len(found)} configs"
+        else:
+            text = f"{variable_text(found[0])} … {variable_text(found[-1])} · {len(found)}"
+        items.append((label, text))
+    return items
+
+
+def converged_text(counts: Mapping[str, int]) -> tuple[str, str]:
+    """The strip's convergence pill: its text and its tone (a pill tone of ui_kit)."""
+    judged = counts["shown"] - counts["not_judged"]
+    if not judged:
+        return "convergence not judged", "pending"
+    return f"{counts['converged']} / {judged} converged", "unconverged" if counts["unconverged"] else "done"
+
+
 def varying(values: Mapping[str, Sequence[float]]) -> list[str]:
     """The sweep variables with more than one value (they get a table column and can split lines)."""
     return [name for name in VARIABLES if len(values.get(name, [])) > 1]

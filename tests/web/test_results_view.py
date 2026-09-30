@@ -107,3 +107,30 @@ def test_config_is_a_label_variable():
     from aerosuite.web.results_view import table_text, varying
     assert varying(values) == ["Config", "Beta"]
     assert table_text([("s", _configs())], ["Config", "Beta"], ["CSF"]).splitlines()[1] == "vt_b0\tvt\t0\t0\tConverged"
+
+
+def test_the_conditions_of_the_shown_cases():
+    from aerosuite.web.results_view import conditions
+
+    table = pd.DataFrame([{"Case": f"c{a}_{b}", "Mach": 0.9, "Altitude": 10.0, "Temperature": 223.15,
+                           "Alpha": float(a), "Beta": float(b), "Config": None}
+                          for a in (-10, 0, 10, 25, 45) for b in (2, 6, 10)])
+    assert conditions([table]) == [("Mach", "0.9"), ("Altitude (km)", "10"), ("T (K)", "223.15"),
+                                   ("α (deg)", "-10 … 45 · 5"), ("β (deg)", "2, 6, 10")]
+    labels = pd.DataFrame([{"Case": f"x{i}", "Mach": 1.2, "Alpha": 0.0, "Config": c}
+                           for i, c in enumerate(("ht", "vt"))])
+    assert conditions([labels, table.head(1)]) == [("Mach", "0.9, 1.2"), ("Altitude (km)", "10"),
+                                                   ("T (K)", "223.15"), ("α (deg)", "-10, 0"), ("β (deg)", "2"),
+                                                   ("Config", "ht, vt")]
+    assert conditions([]) == []
+
+
+def test_the_converged_text():
+    from aerosuite.web.results_view import converged_text
+
+    assert converged_text({"shown": 15, "converged": 0, "unconverged": 15, "not_judged": 0}) == (
+        "0 / 15 converged", "unconverged")
+    assert converged_text({"shown": 4, "converged": 4, "unconverged": 0, "not_judged": 0}) == (
+        "4 / 4 converged", "done")
+    assert converged_text({"shown": 3, "converged": 0, "unconverged": 0, "not_judged": 3}) == (
+        "convergence not judged", "pending")

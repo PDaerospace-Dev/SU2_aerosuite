@@ -120,6 +120,12 @@ a.as-step:hover { background: #f6f8fa; }
 .as-card-flush > .as-card-head { padding: 12px 14px; }
 .as-card-title { font-size: 14px; font-weight: 600; }
 .as-card-subtitle { font-size: 12px; color: var(--as-muted); }
+.as-conditions { background: #fff; border: 1px solid var(--as-border); border-left: 4px solid var(--as-accent);
+  border-radius: 10px; padding: 8px 16px; gap: 0; row-gap: 6px; }
+.as-condition { padding-right: 18px; margin-right: 18px; border-right: 1px solid var(--as-hairline); }
+.as-condition-label { font-size: 11px; color: var(--as-muted); }
+.as-condition-value { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.as-conditions .as-pill { margin-left: 6px; }
 .as-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; width: 100%; }
 .as-tile { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 10px 16px; gap: 0; }
 .as-tile-label { font-size: 12px; color: var(--as-muted); }

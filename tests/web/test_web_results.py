@@ -56,7 +56,9 @@ async def test_the_aero_package_is_on_when_the_history_has_it(user: User, result
     assert _text(user, "cell-0-M0p8_a2_b0-CL") == "0.4"
     assert _text(user, "cell-0-M0p8_a2_b0-L/D") == f"{0.4 / (0.02 + 0.05 * 0.16):.5g}"
     assert _text(user, "status-0-M0p8_a2_b0") == "CONVERGED"
-    assert "3" in _element(user, "tile-shown").text
+    assert _text(user, "results-count") == "3 cases"
+    assert _text(user, "results-converged") == "3 / 3 converged"
+    assert _text(user, "condition-Mach") == "0.8"
 
 
 async def test_the_picker_searches_and_chooses(user: User, results_project):
