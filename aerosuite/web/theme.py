@@ -311,6 +311,11 @@ a.as-step:hover { background: #f6f8fa; }
 .as-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .as-columns-projects { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
 .as-columns-profiles { grid-template-columns: minmax(0, 20rem) minmax(0, 1fr); }
+.as-tabs { border-bottom: 1px solid var(--as-border); margin-top: -4px; }
+.as-tab { padding: 8px 14px; color: var(--as-muted); border-bottom: 2px solid transparent; cursor: pointer;
+  margin-bottom: -1px; font-weight: 500; }
+.as-tab:hover { color: var(--as-text); }
+.as-tab-on, .as-tab-on:hover { color: var(--as-accent-text); border-bottom-color: var(--as-accent); font-weight: 600; }
 .as-recent-row-on { background: var(--as-accent-tint); box-shadow: inset 3px 0 0 var(--as-accent); }
 .as-monitor { grid-template-columns: 250px minmax(0, 1fr); gap: 16px; }
 @media (max-width: 900px) {

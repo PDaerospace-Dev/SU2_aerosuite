@@ -106,11 +106,17 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   time (`packages.effective`), so switching one off removes what it brought; the bundled *aero* package
   (`resources/packages/aero.json`) switches on by itself when the history has CL, CD and CMy. Compared studies are
   read with the current study's definitions.
-- **Imported runs:** one folder per case (`.cfg` + history), only the folders directly inside the chosen one;
+- **Imported runs:** one folder per case (`.cfg` + history), found up to 4 levels down (group folders; study and
+  hidden folders left out; only case-like folders reported as skipped); clashing folder names → `group/folder`,
+  Config = group;
   values from the cfg (`MACH_NUMBER`, `AOA`, `SIDESLIP_ANGLE`, `FREESTREAM_TEMPERATURE`), else the folder name read
   part by part (`M2p5`, `30km`/`11000m`/`sl`, `a50`/`an4`/`a5m`, `b6`, `T200K`, the rest = Config). **The cfg wins**;
   identical disagreements are grouped. The study holds only `project.json` and never writes the source; it shows
   only Results and Monitor. Reading only: re-running imported cases was deferred by the user.
+- **Layouts (2026-09-30, user's choices):** Results = conditions strip + icon strip whose panels open over
+  full-width plots ("F"; no hover box, no per-case list); with one study each plot line has its own colour.
+  Projects = recent list with a filter + one card with New / Open / Import tabs ("B"). Mockups in
+  `docs/superpowers/specs/assets/2026-09-30-layout/`.
 - On the Results page **Config** (a label: filters, columns, splits lines, never an X axis) and **Temperature** (a
   number) are case variables for every study. A variable fixed by the other splitting ones does not split lines.
 

@@ -48,7 +48,7 @@ async def test_the_switcher_menu_goes_to_all_projects(user: User, ready_project)
     await user.open(project_url("setup", project_dir))
     _element(user, "project-menu").open()
     user.find(marker="menu-all-projects").click()
-    await user.should_see(marker="open-path")
+    await user.should_see(marker="tab-open")
 
 
 @pytest.mark.parametrize("page, title", [("setup", "Setup"), ("config", "CFG setup"), ("sweep", "Sweep"),

@@ -16,6 +16,7 @@ async def test_no_recent_projects(user: User):
 async def test_open_by_pasting_a_path(user: User, ready_project):
     project_dir, _ = ready_project
     await user.open("/")
+    user.find(marker="tab-open").click()
     user.find(marker="open-path").type(str(project_dir))
     user.find(marker="open-button").click()
     await user.should_see(marker="project-name")
@@ -24,6 +25,7 @@ async def test_open_by_pasting_a_path(user: User, ready_project):
 
 async def test_open_reports_a_bad_folder(user: User, tmp_path):
     await user.open("/")
+    user.find(marker="tab-open").click()
     user.find(marker="open-path").type(str(tmp_path / "nowhere"))
     user.find(marker="open-button").click()
     await user.should_see("No project found")
@@ -32,6 +34,7 @@ async def test_open_reports_a_bad_folder(user: User, tmp_path):
 async def test_open_with_the_picker(user: User, ready_project, eventually):
     project_dir, _ = ready_project
     await user.open("/")
+    user.find(marker="tab-open").click()
     user.find(marker="open-browse").click()
     await user.should_see(marker="picker-location")
     user.find(marker="picker-entry-study").click()
@@ -46,11 +49,38 @@ async def test_open_with_the_picker(user: User, ready_project, eventually):
 async def test_recent_list_links_to_projects(user: User, ready_project):
     project_dir, _ = ready_project
     await user.open("/")
+    user.find(marker="tab-open").click()
     user.find(marker="open-path").type(str(project_dir))
     user.find(marker="open-button").click()
     await user.should_see(marker="project-name")
     await user.open("/")
     await user.should_see(marker="recent-study")
+
+
+async def test_new_open_and_import_are_tabs(user: User):
+    await user.open("/")
+    await user.should_see(marker="new-create")  # New is the first tab
+    await user.should_not_see(marker="open-path")
+    user.find(marker="tab-import").click()
+    await user.should_see(marker="import-scan")
+    await user.should_not_see(marker="new-create")
+    user.find(marker="tab-open").click()
+    await user.should_see(marker="open-path")
+    await user.should_not_see(marker="import-scan")
+
+
+async def test_the_recent_list_filters_by_name_or_folder(user: User, tmp_path):
+    from aerosuite.engine.study import create_study
+    from aerosuite.web.recent import add_recent
+
+    for name in ("wing", "duct"):
+        create_study(tmp_path / name, use_reference_template=True)
+        add_recent(tmp_path / name)
+    await user.open("/")
+    await user.should_see(marker="recent-wing")
+    user.find(marker="recent-filter").type("duc")
+    await user.should_not_see(marker="recent-wing")
+    await user.should_see(marker="recent-duct")
 
 
 async def test_create_a_new_project(user: User, tmp_path):
@@ -130,6 +160,7 @@ async def test_import_existing_runs(user: User, tmp_path):
     (runs / "group" / "M0p8_a2").mkdir(parents=True)
     (runs / "group" / "M0p8_a2" / "M0p8_a2.cfg").write_text("MACH_NUMBER= 0.8\nAOA= 2\n")  # no history: skipped
     await user.open("/")
+    user.find(marker="tab-import").click()
     user.find(marker="import-source").type(str(runs))
     user.find(marker="import-parent").type(str(tmp_path))
     user.find(marker="import-name").type("old")
@@ -150,6 +181,7 @@ async def test_import_preview_shows_the_group_folder(user: User, tmp_path):
     (folder / "M0p9_10km_a0_b2.cfg").write_text("MACH_NUMBER= 0.9\nAOA= 0\nSIDESLIP_ANGLE= 2\n")
     (folder / "history.csv").write_text("Inner_Iter,CL\n0,0.1\n")
     await user.open("/")
+    user.find(marker="tab-import").click()
     user.find(marker="import-source").type(str(tmp_path / "st_tail"))
     user.find(marker="import-scan").click()
     await user.should_see("1 case found in st_tail")
@@ -158,6 +190,7 @@ async def test_import_preview_shows_the_group_folder(user: User, tmp_path):
 
 async def test_import_checks_its_inputs(user: User, tmp_path):
     await user.open("/")
+    user.find(marker="tab-import").click()
     user.find(marker="import-scan").click()
     await user.should_see("Choose the runs folder")
     user.find(marker="import-source").type(str(tmp_path / "missing"))

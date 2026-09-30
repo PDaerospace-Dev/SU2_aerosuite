@@ -28,10 +28,30 @@ def register() -> None:
             with ui.element("div").classes("as-columns as-columns-projects"):
                 with ui.column().classes("gap-4 w-full"):
                     _recent_list()
-                with ui.column().classes("gap-4 w-full"):
-                    _open_form()
-                    _import_form()
-                    _new_form()
+                with card():
+                    _start_tabs()
+
+
+TABS = (("new", "New"), ("open", "Open"), ("import", "Import SU2 runs"))
+
+
+def _start_tabs() -> None:
+    """New, Open and Import in one card: a row of tabs, one form shown (New first)."""
+    heads, forms = {}, {}
+
+    def show(key: str) -> None:
+        for name in heads:
+            heads[name].classes(**({"add": "as-tab-on"} if name == key else {"remove": "as-tab-on"}))
+            forms[name].set_visibility(name == key)
+
+    with ui.row().classes("as-tabs w-full gap-1"):
+        for key, label in TABS:
+            heads[key] = ui.label(label).classes("as-tab").mark(f"tab-{key}")
+            heads[key].on("click", lambda _, k=key: show(k))
+    for key, build in (("new", _new_form), ("open", _open_form), ("import", _import_form)):
+        with ui.column().classes("gap-3 w-full") as forms[key]:
+            build()
+    show("new")
 
 
 PREVIEW_ROWS = 10
@@ -43,15 +63,27 @@ def _go_to(directory: Path) -> None:
 
 
 def _recent_list() -> None:
+    recent = recent_projects()
+    rows: list = []
+
+    def keep(event) -> None:
+        text = (event.value or "").strip().lower()
+        for item, row in rows:
+            row.set_visibility(not text or text in item.name.lower() or text in str(item.directory).lower())
+
     with card(flush=True):
-        card_head("Recent projects")
-        recent = recent_projects()
+        with card_head("Recent projects"):
+            if recent:
+                ui.space()
+                field(ui.input(placeholder="Filter by name or folder", on_change=keep)).props(
+                    "dense clearable").classes("w-60").mark("recent-filter")
         if not recent:
             ui.label("No recent projects yet.").classes("as-muted px-4 pb-4").mark("recent-empty")
             return
         for item in recent:
             with ui.link(target=project_url("setup", item.directory)).classes("as-recent-row").mark(
-                    f"recent-{item.directory.name}"):
+                    f"recent-{item.directory.name}") as row:
+                rows.append((item, row))
                 with ui.column().classes("gap-0 grow min-w-0"):
                     ui.label(item.name).classes("as-strong as-truncate")
                     ui.label(str(item.directory)).classes("as-mono as-muted as-truncate")
@@ -62,12 +94,12 @@ def _recent_list() -> None:
 
 
 def _open_form() -> None:
-    with card("Open a project"):
-        path = path_field("Project folder", mark="open-path", browse_mark="open-browse",
-                          title="Open a project folder", mode="folder")
-        error = ui.label("").classes("as-error-text").mark("open-error")
-        with ui.row().classes("w-full justify-end"):
-            secondary_button("Open", on_click=lambda: open_it()).mark("open-button")
+    hint("A folder that holds a project.json.")
+    path = path_field("Project folder", mark="open-path", browse_mark="open-browse",
+                      title="Open a project folder", mode="folder")
+    error = ui.label("").classes("as-error-text").mark("open-error")
+    with ui.row().classes("w-full justify-end"):
+        secondary_button("Open", on_click=lambda: open_it()).mark("open-button")
 
     def open_it() -> None:
         text = (path.value or "").strip()
@@ -112,28 +144,27 @@ def _new_form() -> None:
         profile.set_visibility(kind == "aircraft")
         use_reference.set_visibility(kind == "general")
 
-    with card("New project"):
-        for problem in problems:
-            banner("warning", f"Profile skipped: {problem}").mark("profile-problem")
-        with ui.element("div").classes("as-grid-2"):
-            general = _kind_card("General case", "One config from a template, edited as text with SU2's "
-                                 "reference beside it. One case.", "new-kind-general", lambda: choose("general"))
-            aircraft = _kind_card("Aircraft study", "Aircraft Aero form with profile defaults, "
-                                  "placeholders and a Mach/alpha/beta sweep.", "new-kind-aircraft",
-                                  lambda: choose("aircraft"))
-        profile = field(ui.select({p.id: p.name for p in profiles}, label="Aircraft profile",
-                                  value=profiles[0].id if profiles else None)).classes("w-full").mark("new-profile")
-        parent = path_field("Parent folder", mark="new-parent", browse_mark="new-browse",
-                            title="Choose the parent folder", mode="folder")
-        name = field(ui.input("Project name")).classes("w-full").mark("new-name")
-        template = path_field("Template (.cfg)", mark="new-template", browse_mark="new-template-browse",
-                              title="Choose the template", mode="file", suffixes=(".cfg",))
-        use_reference = ui.checkbox("Start from SU2's config_template.cfg").mark("new-use-reference")
-        mesh = path_field("Mesh (.su2, optional)", mark="new-mesh", browse_mark="new-mesh-browse",
-                          title="Choose the mesh", mode="file", suffixes=(".su2", ".cgns"))
-        error = ui.label("").classes("as-error-text").mark("new-error")
-        with ui.row().classes("w-full justify-end"):
-            primary_button("Create project", on_click=lambda: create()).mark("new-create")
+    for problem in problems:
+        banner("warning", f"Profile skipped: {problem}").mark("profile-problem")
+    with ui.element("div").classes("as-grid-2"):
+        general = _kind_card("General case", "One config from a template, edited as text with SU2's "
+                             "reference beside it. One case.", "new-kind-general", lambda: choose("general"))
+        aircraft = _kind_card("Aircraft study", "Aircraft Aero form with profile defaults, "
+                              "placeholders and a Mach/alpha/beta sweep.", "new-kind-aircraft",
+                              lambda: choose("aircraft"))
+    profile = field(ui.select({p.id: p.name for p in profiles}, label="Aircraft profile",
+                              value=profiles[0].id if profiles else None)).classes("w-full").mark("new-profile")
+    parent = path_field("Parent folder", mark="new-parent", browse_mark="new-browse",
+                        title="Choose the parent folder", mode="folder")
+    name = field(ui.input("Project name")).classes("w-full").mark("new-name")
+    template = path_field("Template (.cfg)", mark="new-template", browse_mark="new-template-browse",
+                          title="Choose the template", mode="file", suffixes=(".cfg",))
+    use_reference = ui.checkbox("Start from SU2's config_template.cfg").mark("new-use-reference")
+    mesh = path_field("Mesh (.su2, optional)", mark="new-mesh", browse_mark="new-mesh-browse",
+                      title="Choose the mesh", mode="file", suffixes=(".su2", ".cgns"))
+    error = ui.label("").classes("as-error-text").mark("new-error")
+    with ui.row().classes("w-full justify-end"):
+        primary_button("Create project", on_click=lambda: create()).mark("new-create")
     choose("general")
 
     def create() -> None:
@@ -171,17 +202,17 @@ def _new_form() -> None:
 
 def _import_form() -> None:
     """Existing SU2 runs, one folder per case (its .cfg and history), read into a read-only study."""
-    with card("Import SU2 runs", "Read existing runs: one folder per case with its .cfg and history"):
-        source = path_field("Runs folder", mark="import-source", browse_mark="import-browse",
-                            title="Choose the folder that holds the case folders", mode="folder")
-        with ui.element("div").classes("as-grid-2"):
-            parent = path_field("Parent folder of the new study", mark="import-parent", browse_mark="import-pbrowse",
-                                title="Choose the parent folder", mode="folder")
-            name = field(ui.input("Study name")).classes("w-full").mark("import-name")
-        error = ui.label("").classes("as-error-text").mark("import-error")
-        with ui.row().classes("w-full justify-end"):
-            secondary_button("Scan", icon="search", on_click=lambda: preview()).mark("import-scan")
-        box = ui.column().classes("w-full gap-2").mark("import-preview")
+    hint("Read existing runs: one folder per case with its .cfg and history, also inside group folders.")
+    source = path_field("Runs folder", mark="import-source", browse_mark="import-browse",
+                        title="Choose the folder that holds the case folders", mode="folder")
+    with ui.element("div").classes("as-grid-2"):
+        parent = path_field("Parent folder of the new study", mark="import-parent", browse_mark="import-pbrowse",
+                            title="Choose the parent folder", mode="folder")
+        name = field(ui.input("Study name")).classes("w-full").mark("import-name")
+    error = ui.label("").classes("as-error-text").mark("import-error")
+    with ui.row().classes("w-full justify-end"):
+        secondary_button("Scan", icon="search", on_click=lambda: preview()).mark("import-scan")
+    box = ui.column().classes("w-full gap-2").mark("import-preview")
 
     def preview() -> None:
         box.clear()
