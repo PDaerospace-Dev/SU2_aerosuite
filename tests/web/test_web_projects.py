@@ -126,7 +126,9 @@ async def test_import_existing_runs(user: User, tmp_path):
         mach = "1.25" if name.endswith("b6") else "1.2"
         (folder / f"{name}.cfg").write_text(f"MACH_NUMBER= {mach}\nAOA= 0\nSIDESLIP_ANGLE= {name[-1]}\n")
         (folder / "history.csv").write_text("Inner_Iter,CL\n" + "".join(f"{i},0.1\n" for i in range(20)))
-    (runs / "notes").mkdir()
+    (runs / "notes").mkdir()  # not case-like: left out silently
+    (runs / "group" / "M0p8_a2").mkdir(parents=True)
+    (runs / "group" / "M0p8_a2" / "M0p8_a2.cfg").write_text("MACH_NUMBER= 0.8\nAOA= 2\n")  # no history: skipped
     await user.open("/")
     user.find(marker="import-source").type(str(runs))
     user.find(marker="import-parent").type(str(tmp_path))
@@ -140,6 +142,18 @@ async def test_import_existing_runs(user: User, tmp_path):
     project = open_project(tmp_path / "old")
     assert [c.name for c in project.cases] == ["M1p2_10km_vt_a0_b0", "M1p2_10km_vt_a0_b6"]
     await user.should_see(marker="results-body")
+
+
+async def test_import_preview_shows_the_group_folder(user: User, tmp_path):
+    folder = tmp_path / "st_tail" / "M0p9_10km" / "M0p9_10km_a0_b2"
+    folder.mkdir(parents=True)
+    (folder / "M0p9_10km_a0_b2.cfg").write_text("MACH_NUMBER= 0.9\nAOA= 0\nSIDESLIP_ANGLE= 2\n")
+    (folder / "history.csv").write_text("Inner_Iter,CL\n0,0.1\n")
+    await user.open("/")
+    user.find(marker="import-source").type(str(tmp_path / "st_tail"))
+    user.find(marker="import-scan").click()
+    await user.should_see("1 case found in st_tail")
+    await user.should_see("M0p9_10km / M0p9_10km_a0_b2")
 
 
 async def test_import_checks_its_inputs(user: User, tmp_path):

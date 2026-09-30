@@ -17,7 +17,9 @@ def _runs(root):
         (folder / f"{name}.cfg").write_text(cfg)
         rows = ["Inner_Iter,rms[Rho],CL,CD"] + [f"{i},-3,0.1,0.05" for i in range(30)]
         (folder / "history.csv").write_text("\n".join(rows) + "\n")
-    (runs / "notes").mkdir()
+    (runs / "notes").mkdir()  # not case-like: left out silently
+    (runs / "notes" / "M2p5_a20").mkdir()
+    (runs / "notes" / "M2p5_a20" / "M2p5_a20.cfg").write_text("MACH_NUMBER= 2.5\nAOA= 20\n")  # no history
     return runs
 
 
@@ -29,7 +31,7 @@ def test_import_shows_what_it_read_and_creates_the_study(tmp_path):
     assert "M2p5_30km_a10_T200K" in result.output
     assert ("2 cases (M2p5_30km_a0_T200K, …): the cfg's FREESTREAM_TEMPERATURE is 216.65, the name says 200 — "
             "216.65 used") in result.output
-    assert "Skipped notes: no history file" in result.output
+    assert "Skipped notes/M2p5_a20: no history file" in result.output
     project = open_project(tmp_path / "study")
     assert project.name == "Old runs" and len(project.imported.cases) == 2
     shown = runner.invoke(app, ["show", str(tmp_path / "study")]).output

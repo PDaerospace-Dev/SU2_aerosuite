@@ -209,7 +209,8 @@ def _import_form() -> None:
                         for heading in ("Case folder", "Mach", "α", "β", "Alt (km)", "T (K)", "Config"):
                             th(heading)
                         for case in result.cases[:PREVIEW_ROWS]:
-                            td(case.name, mono=True).mark(f"import-row-{case.name}")
+                            where = f"{case.group} / {case.folder.name}" if case.group else case.folder.name
+                            td(where, mono=True).mark(f"import-row-{case.name}")
                             for value in (case.mach, case.alpha, case.beta, case.altitude_km, case.temperature_K):
                                 td("—" if value is None else format_value(value))
                             td(case.base or "—")

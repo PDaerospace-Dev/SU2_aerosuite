@@ -1,5 +1,9 @@
 """Existing SU2 runs, one folder per case (its .cfg and history), read into a read-only study.
 
+Case folders may sit in group folders (`st_tail/M0p9_10km/M0p9_10km_a0_b2/`): the scan looks up to MAX_DEPTH levels
+down and stops at a case. Two cases with the same folder name in different groups are named `group/folder` and
+take the group as their base name (Config).
+
 A case's values come from its .cfg (what SU2 ran) and from its folder name; where both give one, the cfg wins and
 the difference is reported. Names are read part by part (split at "_"), in any order:
     M2p5 Mach · 30km / 11000m / sl altitude · a50, an4, a2p5, a5m α · b6 β · T200K temperature · the rest: base name
@@ -9,7 +13,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional, Union
 
@@ -25,6 +29,8 @@ _TEMPERATURE_RE = re.compile(rf"^t{_NUMBER}k$", re.IGNORECASE)
 # cfg option -> the value it gives
 CFG_VALUES = {"MACH_NUMBER": "mach", "AOA": "alpha", "SIDESLIP_ANGLE": "beta", "FREESTREAM_TEMPERATURE": "temperature_K"}
 _RELATIVE = 1e-6  # name and cfg agree within this
+MAX_DEPTH = 4  # levels of folders below the chosen one
+STUDY_FILE = "project.json"  # an AeroSuite study folder (engine.project.PROJECT_FILE; not imported: engine stays acyclic)
 
 
 def _number(match: re.Match) -> float:
@@ -84,11 +90,12 @@ class FoundCase:
     temperature_K: Optional[float]
     base: str
     disagreements: tuple = ()
+    group: str = ""  # the parent folder's path under the scanned one ("" directly inside), with "/"
 
 
 @dataclass(frozen=True)
 class Skipped:
-    name: str
+    name: str  # the folder's path under the scanned one
     reason: str
 
 
@@ -175,24 +182,57 @@ def read_case(folder: Path) -> Union[FoundCase, Skipped]:
 
 @dataclass
 class Scan:
-    cases: list = field(default_factory=list)  # FoundCase, by folder name
+    cases: list = field(default_factory=list)  # FoundCase, in folder order
     warnings: list = field(default_factory=list)  # grouped messages
     skipped: list = field(default_factory=list)  # Skipped
 
 
+def _folders(folder: Path) -> list[Path]:
+    return sorted(p for p in folder.iterdir() if p.is_dir() and not p.name.startswith("."))
+
+
+def _case_like(folder: Path) -> bool:
+    """Holds a .cfg or a history file: worth reporting when it cannot be read."""
+    return any(folder.glob("*.cfg")) or any(p.is_file() for suffix in HISTORY_SUFFIXES
+                                            for p in folder.glob(f"history*{suffix}"))
+
+
+def _walk(folder: Path, source: Path, depth: int, result: Scan) -> None:
+    for sub in _folders(folder):
+        if (sub / STUDY_FILE).is_file():
+            continue
+        group = folder.relative_to(source).as_posix() if folder != source else ""
+        found = read_case(sub)
+        if isinstance(found, FoundCase):
+            result.cases.append(replace(found, group=group))
+            continue
+        before = len(result.cases)
+        if depth < MAX_DEPTH:
+            _walk(sub, source, depth + 1, result)
+        if len(result.cases) == before and _case_like(sub):
+            result.skipped.append(Skipped(sub.relative_to(source).as_posix(), found.reason))
+
+
+def _name_clashes(cases: list, source: Path) -> list:
+    """Cases sharing a folder name: `group/folder`, with the group (or the scanned folder's name) as the base."""
+    counts: dict[str, int] = {}
+    for case in cases:
+        counts[case.name] = counts.get(case.name, 0) + 1
+    return [replace(case, name=f"{case.group}/{case.name}" if case.group else case.name,
+                    base=case.group or source.name) if counts[case.name] > 1 else case for case in cases]
+
+
 def scan(source: Path) -> Scan:
-    """Every case folder directly inside `source` (hidden ones left out); identical warnings grouped."""
+    """Every case folder under `source`, up to MAX_DEPTH down (hidden and study folders left out); a folder is
+    reported as skipped only when it looks like a case; identical warnings grouped."""
     source = Path(source)
     if not source.is_dir():
         raise ProjectError(f"{source} is not a folder")
     result = Scan()
+    _walk(source, source, 1, result)
+    result.cases = _name_clashes(result.cases, source)
     grouped: dict[tuple, list[str]] = {}
-    for folder in sorted(p for p in source.iterdir() if p.is_dir() and not p.name.startswith(".")):
-        found = read_case(folder)
-        if isinstance(found, Skipped):
-            result.skipped.append(found)
-            continue
-        result.cases.append(found)
+    for found in result.cases:
         for d in found.disagreements:
             grouped.setdefault((d.option, d.cfg_value, d.name_value), []).append(found.name)
     for (option, cfg_value, name_value), names in grouped.items():

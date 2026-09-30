@@ -95,7 +95,48 @@ def test_scan_reads_the_case_folders_and_groups_warnings(tmp_path):
         "M1p2_10km_vt_a0_b6: the cfg's MACH_NUMBER is 1.25, the name says 1.2 — 1.25 used",
         "3 cases (M2p5_30km_a0_T200K, …): the cfg's FREESTREAM_TEMPERATURE is 216.65, the name says 200 — "
         "216.65 used"]
-    assert result.skipped == [Skipped("M1p2_10km_vt_a0_b8", "no history file"), Skipped("notes", "no history file")]
+    assert result.skipped == [Skipped("M1p2_10km_vt_a0_b8", "no history file")]  # the empty "notes" is left out
+
+
+def test_scan_looks_into_group_folders(tmp_path):
+    runs = tmp_path / "st_tail"
+    for group in ("M0p9_10km", "M2_30km"):
+        mach = group[1:].split("_")[0].replace("p", ".")
+        for a in (0, 10):
+            _case(runs / group, f"{group}_a{a}_b2", CFG.format(m=mach, a=a, b=2, t=223.15))
+        (runs / group / "config_CFD.cfg").write_text("MACH_NUMBER= 0.5\nAOA= 0\n")  # the group's template
+        (runs / group / f"{group}_a45_b2.cfg").write_text(CFG.format(m=mach, a=45, b=2, t=223.15))  # never ran
+    _case(runs / "M2_30km" / "M2_30km_a0_b2", "inner", CFG.format(m=9, a=0, b=0, t=1))  # inside a case: not read
+    _case(runs / "old" / "M4_30km", "M4_30km_a0_b2", CFG.format(m=4, a=0, b=2, t=223.15), history=None)
+    (runs / "M1p5_10km").mkdir()
+    (runs / "results").mkdir()
+    (runs / "results" / "summary.csv").write_text("x")
+    (runs / ".git" / "M0p3_a0").mkdir(parents=True)
+    result = scan(runs)
+    assert [(c.group, c.name, c.mach, c.alpha, c.base) for c in result.cases] == [
+        ("M0p9_10km", "M0p9_10km_a0_b2", 0.9, 0.0, ""), ("M0p9_10km", "M0p9_10km_a10_b2", 0.9, 10.0, ""),
+        ("M2_30km", "M2_30km_a0_b2", 2.0, 0.0, ""), ("M2_30km", "M2_30km_a10_b2", 2.0, 10.0, "")]
+    assert result.skipped == [Skipped("old/M4_30km/M4_30km_a0_b2", "no history file")]  # only case-like folders
+
+
+def test_scan_goes_four_levels_down_and_leaves_out_studies(tmp_path):
+    runs = tmp_path / "runs"
+    _case(runs / "a" / "b" / "c", "M0p8_a1", CFG.format(m=0.8, a=1, b=0, t=288))
+    _case(runs / "a" / "b" / "c" / "d", "M0p8_a2", CFG.format(m=0.8, a=2, b=0, t=288))  # five down
+    _case(runs / "study", "M0p8_a3", CFG.format(m=0.8, a=3, b=0, t=288))
+    (runs / "study" / "project.json").write_text("{}")  # an AeroSuite study: not read
+    assert [c.name for c in scan(runs).cases] == ["M0p8_a1"]
+
+
+def test_clashing_names_take_their_group_as_config(tmp_path):
+    runs = tmp_path / "st_tail"
+    for group in ("M3_30km", "M3_30km_new"):
+        _case(runs / group, "M3p0_30km_st_a0_b10", CFG.format(m=3, a=0, b=10, t=226.5))
+    _case(runs / "M3_30km_new", "M3p0_30km_st_a10_b10", CFG.format(m=3, a=10, b=10, t=226.5))
+    result = scan(runs)
+    assert [(c.name, c.base) for c in result.cases] == [
+        ("M3_30km/M3p0_30km_st_a0_b10", "M3_30km"), ("M3_30km_new/M3p0_30km_st_a0_b10", "M3_30km_new"),
+        ("M3p0_30km_st_a10_b10", "st")]
 
 
 def test_scan_needs_a_folder(tmp_path):
