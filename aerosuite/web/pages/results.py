@@ -29,7 +29,7 @@ from ..layout import ProjectFrame, open_session, project_url
 from ..param_picker import ParamPicker
 from ..picker import pick_path
 from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
-from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, conditions, converged_text, filter_rows, pin,
+from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, clear_filters, conditions, converged_text, filter_rows, pin,
                             remove_parameter, shown_values, status_counts, sweep_values, table_text, toggle_filter,
                             variable_text, varying)
 from ..theme import SERIES_COLORS
@@ -37,7 +37,7 @@ from ..ui_kit import (banner, card, card_head, chip_button, field, hint, pill, p
                       table, td, td_box, th)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
-FILTERED = ("Config", "Altitude", "Temperature", "Mach", "Beta")  # filter chips (α is the usual X axis)
+FILTERED = ("Config", "Mach", "Altitude", "Temperature", "Alpha", "Beta")  # the Filters panel's variables
 
 
 def register() -> None:
@@ -423,7 +423,12 @@ class ResultsPage:
                 with ui.column().classes("as-panel gap-3").mark("results-panel") as self.drawer:
                     self._panel(values, shown)
                 with ui.column().classes("as-work-main gap-4"):
-                    if not any(len(r) for r in rows):
+                    if not any(len(r) for r in rows) and any(len(d.table) for d in self.designs):
+                        banner("info", "No case matches the filters: open Filters and choose other values, or "
+                                       "Show all.").mark("results-filtered-out")
+                        secondary_button("Show all", on_click=lambda: self.change(clear_filters)).mark(
+                            "filters-clear-empty")
+                    elif not any(len(r) for r in rows):
                         banner("info", "No results yet: run the sweep on the Run page; results appear here as "
                                        "cases finish.").mark("results-empty")
                     else:
@@ -495,16 +500,28 @@ class ResultsPage:
         names = [name for name in FILTERED if len(values.get(name, [])) >= 2]
         if not names:
             hint("Every case variable has one value: nothing to filter.").mark("filters-none")
+            return
+        with ui.row().classes("items-center w-full no-wrap"):
+            hint("Click a value to show only it; click more to add them.")
+            ui.space()
+            flat = secondary_button("Show all", on_click=lambda: self.change(clear_filters)).mark("filters-clear")
+            if not self.settings.filters:
+                flat.props("disable")
         for name in names:
-            ui.label(SWEEP_LABELS[name] + (f" ({SWEEP_UNITS[name]})" if name in SWEEP_UNITS else "")).classes(
-                "as-label")
+            with ui.row().classes("items-center w-full no-wrap"):
+                ui.label(SWEEP_LABELS[name] + (f" ({SWEEP_UNITS[name]})" if name in SWEEP_UNITS else "")).classes(
+                    "as-label")
+                ui.space()
+                if len(shown[name]) < len(values[name]):
+                    ui.label("all").classes("as-link-text").mark(f"filter-all-{name}").on(
+                        "click", lambda _, n=name: self.change(lambda s: clear_filters(s, n)))
             with ui.row().classes("items-center gap-1 w-full"):
                 for value in values[name]:
                     chip = chip_button(variable_text(value),
                                        on_click=lambda n=name, v=value: self.change(
-                                           lambda s: toggle_filter(s, n, v, shown[n])))
+                                           lambda s: toggle_filter(s, n, v, shown[n], values[n])))
                     chip.mark(f"filter-{name}-{variable_text(value)}")
-                    if value in shown[name]:
+                    if value in shown[name] and len(shown[name]) < len(values[name]):
                         chip.classes("as-chip-on")
 
     def _parameters_panel(self) -> None:

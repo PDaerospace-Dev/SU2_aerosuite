@@ -205,6 +205,8 @@ a.as-step:hover { background: #f6f8fa; }
 .as-design-chip-error { border-color: #ffd7d5; color: #a40e26; }
 .as-table-scroll { overflow-x: auto; }
 .as-sticky { position: sticky; left: 0; background: #fff; z-index: 1; }
+.as-link-text { color: var(--as-accent); font-size: 12px; cursor: pointer; }
+.as-link-text:hover { text-decoration: underline; }
 .as-work { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 12px; align-items: start;
   position: relative; }
 .as-work-main { min-width: 0; width: 100%; }

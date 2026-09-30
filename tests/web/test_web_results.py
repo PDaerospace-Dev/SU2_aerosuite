@@ -380,7 +380,7 @@ async def test_an_imported_study_shows_its_cases_with_config_and_temperature(use
     header = [label.text for label in user.find(marker="results-table").elements.pop().default_slot.children
               if getattr(label, "text", None) in ("Config", "β (deg)")]
     assert header == ["Config", "β (deg)"]
-    user.find(marker="filter-Config-ht").click()
+    user.find(marker="filter-Config-vt").click()  # all shown: the click picks vt alone
     assert open_project(imported_study).results.filters == {"Config": ["vt"]}
     await user.should_not_see(marker="row-0-M1p2_10km_ht_a0_b0")
 
@@ -443,3 +443,36 @@ async def test_characteristic_values_split_by_config_show_the_label(user: User, 
 async def _derived_dialog_open(user):
     user.find(marker="derived-add").click()
     await user.should_see(marker="derived-save")
+
+
+async def test_filters_pick_values_and_show_all_again(user: User, imported_study):
+    await _open(user, imported_study)
+    await _panel(user, "filters")
+    user.find(marker="filter-Beta-2").click()  # all shown: only β 2
+    assert open_project(imported_study).results.filters == {"Beta": [2.0]}
+    await user.should_not_see(marker="row-0-M1p2_10km_vt_a0_b0")
+    user.find(marker="filter-Config-ht").click()
+    assert open_project(imported_study).results.filters == {"Beta": [2.0], "Config": ["ht"]}
+    user.find(marker="filter-all-Beta").click()
+    assert open_project(imported_study).results.filters == {"Config": ["ht"]}
+    user.find(marker="filters-clear").click()
+    assert open_project(imported_study).results.filters == {}
+    await user.should_see(marker="row-0-M1p2_10km_vt_a0_b0")
+
+
+async def test_filters_that_match_no_case_say_so(user: User, tmp_path):
+    from aerosuite.engine.imported import create_imported_study
+
+    runs = tmp_path / "runs"
+    for name in ("M0p3_10km_a0", "M2_30km_a0"):
+        (runs / name).mkdir(parents=True)
+        (runs / name / "history.csv").write_text("Inner_Iter,CL\n" + "".join(f"{i},0.1\n" for i in range(20)))
+    project, _ = create_imported_study(tmp_path / "study", runs)
+    project.results.filters = {"Mach": [0.3], "Altitude": [30.0]}  # each exists, never together
+    save_project(tmp_path / "study", project)
+    await _open(user, tmp_path / "study")
+    await user.should_see(marker="results-filtered-out")
+    await user.should_not_see(marker="results-empty")
+    user.find(marker="filters-clear-empty").click()
+    assert open_project(tmp_path / "study").results.filters == {}
+    await user.should_see(marker="row-0-M0p3_10km_a0")

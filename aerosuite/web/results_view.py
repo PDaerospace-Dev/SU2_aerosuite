@@ -1,7 +1,7 @@
 """The Results page's rules without NiceGUI: pinning automatic choices, filters, rows and counts."""
 from __future__ import annotations
 
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 import pandas as pd
 
@@ -71,11 +71,24 @@ def shown_values(settings: ResultsSettings, values: Mapping[str, Sequence[float]
     return shown
 
 
-def toggle_filter(settings: ResultsSettings, name: str, value: float, current: Sequence[float]) -> None:
-    """Show or hide one value; the last value shown stays."""
-    chosen = [v for v in current if v != value] if value in current else sorted([*current, value])
-    if chosen:
-        settings.filters = {**settings.filters, name: chosen}
+def toggle_filter(settings: ResultsSettings, name: str, value, current: Sequence, available: Sequence) -> None:
+    """A click on a value: with every value shown it picks that value alone; after that it adds or removes the
+    value, and removing the last one shows all again."""
+    if list(current) == list(available):
+        chosen = [value]
+    elif value in current:
+        chosen = [v for v in current if v != value]
+    else:
+        chosen = sorted([*current, value], key=lambda v: (isinstance(v, str), v))
+    filters = {k: v for k, v in settings.filters.items() if k != name}
+    if chosen and list(chosen) != list(available):
+        filters[name] = chosen
+    settings.filters = filters
+
+
+def clear_filters(settings: ResultsSettings, name: Optional[str] = None) -> None:
+    """Show every value of one variable, or of all of them."""
+    settings.filters = {} if name is None else {k: v for k, v in settings.filters.items() if k != name}
 
 
 def filter_rows(table: pd.DataFrame, shown: Mapping[str, Sequence[float]]) -> pd.DataFrame:

@@ -50,15 +50,32 @@ def test_sweep_values_and_what_is_shown():
     assert shown_values(settings, values, comparing=False)["Mach"] == [0.6, 0.8, 0.9]
 
 
-def test_toggling_a_filter_never_leaves_nothing_shown():
+def test_a_click_picks_a_value_then_adds_or_removes_values():
     settings = ResultsSettings()
-    values = {"Mach": [0.6, 0.8]}
-    toggle_filter(settings, "Mach", 0.6, shown_values(settings, values, comparing=False)["Mach"])
-    assert settings.filters == {"Mach": [0.8]}
-    toggle_filter(settings, "Mach", 0.8, shown_values(settings, values, comparing=False)["Mach"])
-    assert settings.filters == {"Mach": [0.8]}  # the last one stays
-    toggle_filter(settings, "Mach", 0.6, shown_values(settings, values, comparing=False)["Mach"])
-    assert settings.filters == {"Mach": [0.6, 0.8]}
+    values = {"Mach": [0.3, 0.9, 1.2]}
+
+    def click(value):
+        shown = shown_values(settings, values, comparing=False)["Mach"]
+        toggle_filter(settings, "Mach", value, shown, values["Mach"])
+
+    click(0.3)
+    assert settings.filters == {"Mach": [0.3]}  # everything shown: the click picks that value alone
+    click(1.2)
+    assert settings.filters == {"Mach": [0.3, 1.2]}  # then clicks add
+    click(0.3)
+    assert settings.filters == {"Mach": [1.2]}  # and remove
+    click(1.2)
+    assert settings.filters == {}  # removing the last one shows all again
+
+
+def test_filters_are_cleared_one_variable_or_all():
+    from aerosuite.web.results_view import clear_filters
+
+    settings = ResultsSettings(filters={"Mach": [0.3], "Beta": [2.0]})
+    clear_filters(settings, "Mach")
+    assert settings.filters == {"Beta": [2.0]}
+    clear_filters(settings)
+    assert settings.filters == {}
 
 
 def test_rows_are_filtered_and_counted():
@@ -100,7 +117,7 @@ def test_config_is_a_label_variable():
     assert values["Config"] == ["ht", "vt"] and values["Temperature"] == [223.25]
     settings = ResultsSettings()
     shown = shown_values(settings, values, comparing=False)
-    toggle_filter(settings, "Config", "ht", shown["Config"])
+    toggle_filter(settings, "Config", "vt", shown["Config"], values["Config"])
     assert settings.filters == {"Config": ["vt"]}
     assert filter_rows(_configs(), shown_values(settings, values, comparing=False))["Case"].tolist() == [
         "vt_b0", "vt_b2"]
