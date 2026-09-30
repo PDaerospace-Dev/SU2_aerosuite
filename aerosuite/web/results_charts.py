@@ -45,6 +45,20 @@ def _grouping(table: pd.DataFrame, names: list[str]) -> pd.DataFrame:
     return table[names].astype(object).where(table[names].notna(), BLANK).replace("", BLANK)
 
 
+def _lines(rows: pd.DataFrame, keys: list[str], runs_along: str) -> dict[tuple, pd.DataFrame]:
+    """The rows of each line (one value of every splitting variable), in order along the line: grouped once."""
+    if rows.empty:
+        return {}
+    if runs_along in rows.columns:
+        rows = rows.sort_values(runs_along, kind="stable")
+    if not keys:
+        return {(): rows}
+    members: dict[tuple, list] = {}
+    for index, key in zip(rows.index, _grouping(rows, keys).itertuples(index=False, name=None)):
+        members.setdefault(key, []).append(index)
+    return {key: rows.loc[index] for key, index in members.items()}
+
+
 def split_keys(x: str, table: pd.DataFrame, split: Optional[str]) -> list[str]:
     """The case variables that make one line each: the chosen one, else every one that varies (not the axis),
     leaving out a variable fixed by those before it (e.g. an altitude that follows from the Mach)."""
@@ -109,15 +123,12 @@ def chart_options(plot: PlotSpec, designs: list[ChartDesign], units: Mapping[str
     series, owners = [], []
     single = len(designs) == 1
     for design in designs:
+        lines = _lines(design.rows, keys, runs_along)
         for k, y in enumerate(plot.y):
             for j, key in enumerate(key_values):
-                part = design.rows
-                for name, value in zip(keys, key):
-                    part = part[_grouping(part, [name])[name] == value]
-                if part.empty:
+                part = lines.get(key)
+                if part is None:
                     continue
-                if runs_along in part.columns:
-                    part = part.sort_values(runs_along)
                 marker = MARKERS[k % len(MARKERS)]
                 data = []
                 for _, row in part.iterrows():
