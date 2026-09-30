@@ -83,7 +83,7 @@ _ANGLE_RE = re.compile(
 )
 
 
-def _parse_angle(body: str) -> Optional[float]:
+def parse_angle(body: str) -> Optional[float]:
     match = _ANGLE_RE.match(body)
     if not match:
         return None
@@ -103,9 +103,9 @@ def parse_case_name(name: str) -> ParsedName:
             continue
         head, body = token[:1].lower(), token[1:]
         if alpha is None and head == "a":
-            alpha = _parse_angle(body)
+            alpha = parse_angle(body)
         elif beta is None and head == "b":
-            beta = _parse_angle(body)
+            beta = parse_angle(body)
     return ParsedName(mach, alpha, beta)
 
 
