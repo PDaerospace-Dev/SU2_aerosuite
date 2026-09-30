@@ -66,15 +66,16 @@ def test_series_colour_style_and_marker():
 
 
 def test_one_study_gives_each_line_its_own_colour():
-    from aerosuite.web.theme import SERIES_COLORS
+    from aerosuite.web.results_charts import LINE_COLORS
 
     table = _table(machs=tuple(0.1 * m for m in range(1, 11)))  # ten lines: more than the colours
     options, _ = chart_options(PlotSpec(x="Alpha", y=["CL"]), [ChartDesign("st_tail", "#111111", table, "/a")])
     series = options["series"]
-    assert [s["lineStyle"]["color"] for s in series[:8]] == SERIES_COLORS
+    assert [s["lineStyle"]["color"] for s in series[:8]] == LINE_COLORS and len(set(LINE_COLORS)) == 8
     assert all(s["itemStyle"]["color"] == s["lineStyle"]["color"] for s in series)
     assert [s["lineStyle"]["type"] for s in series[:8]] == ["solid"] * 8
-    assert series[8]["lineStyle"]["color"] == SERIES_COLORS[0] and series[8]["lineStyle"]["type"] == "dashed"
+    assert series[8]["lineStyle"]["color"] == LINE_COLORS[0] and series[8]["lineStyle"]["type"] == "dashed"
+    assert LINE_COLORS[:2] == ["#2f6fe4", "#e16f24"]  # blue then orange: the first two lines stand apart
     assert series[0]["name"] == "CL · Mach 0.1"  # no study name with one study
 
 

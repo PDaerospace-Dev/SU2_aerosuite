@@ -18,6 +18,9 @@ from ..engine.study_results import SWEEP_NAMES
 from .results_view import SWEEP_LABELS, SWEEP_UNITS, VARIABLES, variable_text
 from .theme import HAIRLINE, MUTED, SERIES_COLORS
 
+# one study's lines: the series colours, the most distinct neighbours first (blue, orange, green, red, …)
+LINE_COLORS = [SERIES_COLORS[i] for i in (0, 6, 2, 4, 1, 5, 3, 7)]
+
 LINE_STYLES = ["solid", "dashed", "dotted", [8, 3, 2, 3]]  # the last: dash-dot
 MARKERS = ["circle", "rect", "triangle", "diamond", "pin", "arrow"]
 
@@ -126,8 +129,8 @@ def chart_options(plot: PlotSpec, designs: list[ChartDesign], units: Mapping[str
                 label = " · ".join(f"{_label(n)} {variable_text(v)}" for n, v in zip(keys, key))
                 if single:  # every series its own colour, e.g. CL and CL(Wing) of one line too
                     n = k * len(key_values) + j
-                    color = SERIES_COLORS[n % len(SERIES_COLORS)]
-                    style = LINE_STYLES[(n // len(SERIES_COLORS)) % len(LINE_STYLES)]
+                    color = LINE_COLORS[n % len(LINE_COLORS)]
+                    style = LINE_STYLES[(n // len(LINE_COLORS)) % len(LINE_STYLES)]
                 else:
                     color, style = design.color, LINE_STYLES[j % len(LINE_STYLES)]
                 series.append({
