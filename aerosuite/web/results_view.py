@@ -5,7 +5,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 import pandas as pd
 
-from ..engine.models import ResultsSettings
+from ..engine.models import PlotSpec, ResultsSettings
 from ..engine.naming import format_value
 from ..engine.packages import Definitions
 from ..engine.study_results import CONFIG, SWEEP_NAMES
@@ -143,6 +143,15 @@ def converged_text(counts: Mapping[str, int]) -> tuple[str, str]:
     if not judged:
         return "convergence not judged", "pending"
     return f"{counts['converged']} / {judged} converged", "unconverged" if counts["unconverged"] else "done"
+
+
+def shown_plot(plot: PlotSpec, chosen: Sequence[str]) -> Optional[PlotSpec]:
+    """The plot with only its chosen Y parameters, or None when none is chosen (or its X is a parameter that is
+    not): removing a parameter takes it off the plots; choosing it again brings them back."""
+    if plot.x not in SWEEP_NAMES and plot.x not in chosen:
+        return None
+    y = [name for name in plot.y if name in chosen]
+    return plot.model_copy(update={"y": y}) if y else None
 
 
 def varying(values: Mapping[str, Sequence[float]]) -> list[str]:

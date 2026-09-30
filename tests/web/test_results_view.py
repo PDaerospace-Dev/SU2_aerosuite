@@ -151,3 +151,15 @@ def test_the_converged_text():
         "4 / 4 converged", "done")
     assert converged_text({"shown": 3, "converged": 0, "unconverged": 0, "not_judged": 3}) == (
         "convergence not judged", "pending")
+
+
+def test_a_plot_shows_only_its_chosen_parameters():
+    from aerosuite.engine.models import PlotSpec
+    from aerosuite.web.results_view import shown_plot
+
+    chosen = ["CD", "CMy"]
+    assert shown_plot(PlotSpec(x="Alpha", y=["CL"]), chosen) is None  # its only Y was removed
+    assert shown_plot(PlotSpec(x="Alpha", y=["CL", "CD"]), chosen) == PlotSpec(x="Alpha", y=["CD"])
+    assert shown_plot(PlotSpec(x="CD", y=["CL"]), ["CL"]) is None  # the polar needs its X too
+    assert shown_plot(PlotSpec(x="CD", y=["CL"], split="Mach"), ["CL", "CD"]) == PlotSpec(
+        x="CD", y=["CL"], split="Mach")

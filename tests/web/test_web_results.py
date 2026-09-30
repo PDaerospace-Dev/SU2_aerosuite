@@ -476,3 +476,17 @@ async def test_filters_that_match_no_case_say_so(user: User, tmp_path):
     user.find(marker="filters-clear-empty").click()
     assert open_project(tmp_path / "study").results.filters == {}
     await user.should_see(marker="row-0-M0p3_10km_a0")
+
+
+async def test_removing_a_parameter_takes_it_off_the_plots(user: User, results_project):
+    await _open(user, results_project)
+    await user.should_see(marker="chart-aero-0")  # CL vs α
+    await _panel(user, "parameters")
+    user.find(marker="param-remove-CL").click()
+    await user.should_not_see(marker="chart-aero-0")
+    await user.should_not_see(marker="chart-aero-3")  # CL vs CD
+    await user.should_see(marker="chart-aero-1")  # CD vs α stays
+    await user.should_see(marker="plots-hidden")
+    user.find(marker="results-choose").click()
+    user.find(marker="pick-CL").click()
+    await user.should_see(marker="chart-aero-0")

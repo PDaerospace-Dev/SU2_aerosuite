@@ -30,7 +30,7 @@ from ..param_picker import ParamPicker
 from ..picker import pick_path
 from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
 from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, clear_filters, conditions, converged_text, filter_rows, pin,
-                            remove_parameter, shown_values, status_counts, sweep_values, table_text, toggle_filter,
+                            remove_parameter, shown_plot, shown_values, status_counts, sweep_values, table_text, toggle_filter,
                             variable_text, varying)
 from ..theme import SERIES_COLORS
 from ..ui_kit import (banner, card, card_head, chip_button, field, hint, pill, primary_button, secondary_button,
@@ -586,7 +586,14 @@ class ResultsPage:
         definitions = self.definitions
         own = self.settings.plots
         packages = [p for p in list_packages() if p.id in definitions.packages and p.plots]
-        count = sum(len(p.plots) for p in packages) + len(own)
+        chosen = definitions.parameters
+        drawn = [(package, [(i, shown_plot(plot, chosen)) for i, plot in enumerate(package.plots)])
+                 for package in packages]
+        drawn = [(package, [(i, plot) for i, plot in plots if plot]) for package, plots in drawn]
+        mine = [(i, shown_plot(plot, chosen)) for i, plot in enumerate(own)]
+        mine = [(i, plot) for i, plot in mine if plot]
+        count = sum(len(plots) for _, plots in drawn) + len(mine)
+        hidden = sum(len(p.plots) for p in packages) + len(own) - count
         with section("Plots", f"{count} plot{'' if count == 1 else 's'}", opened="plots" not in self.settings.folded,
                      on_fold=lambda o: self.fold("plots", o), mark="section-plots") as box:
             with box.head:
@@ -595,15 +602,17 @@ class ResultsPage:
             designs = [ChartDesign(d.name, SERIES_COLORS[i % 8], part, str(d.folder))
                        for i, (d, part) in enumerate(zip(self.designs, rows))]
             units = {d.name: d.unit for d in definitions.derived}
-            for package in packages:
+            for package, plots in drawn:
+                if not plots:
+                    continue
                 ui.label(package.name).classes("as-strong")
                 with ui.element("div").classes("as-grid-2"):
-                    for index, plot in enumerate(package.plots):
+                    for index, plot in plots:
                         self._chart(plot, designs, units, mark=f"chart-{package.id}-{index}")
-            if own:
+            if mine:
                 ui.label("My plots").classes("as-strong")
                 with ui.element("div").classes("as-grid-2"):
-                    for index, plot in enumerate(own):
+                    for index, plot in mine:
                         with ui.column().classes("w-full gap-0"):
                             with ui.row().classes("w-full justify-end"):
                                 ui.button(icon="close", color=None,
@@ -611,8 +620,11 @@ class ResultsPage:
                                     "flat round dense size=sm").props('title="Remove this plot"').mark(
                                     f"plot-remove-{index}")
                             self._chart(plot, designs, units, mark=f"chart-own-{index}")
-            if not count:
-                hint("No plots yet: switch on a package above, or add a plot of any parameters.").mark("plots-none")
+            if hidden:
+                hint(f"{hidden} plot{' is' if hidden == 1 else 's are'} hidden: {'its' if hidden == 1 else 'their'} "
+                     "parameters are not chosen (Params).").mark("plots-hidden")
+            elif not count:
+                hint("No plots yet: switch on a package (Packages), or add a plot of any parameters.").mark("plots-none")
 
     def _chart(self, plot: PlotSpec, designs: list, units: dict, mark: str) -> None:
         title = f"{', '.join(plot.y)} vs {SWEEP_LABELS.get(plot.x, plot.x)}"
