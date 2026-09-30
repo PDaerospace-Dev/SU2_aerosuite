@@ -17,7 +17,6 @@ from nicegui import ui
 from ...engine.errors import AeroSuiteError
 from ...engine.formula import FormulaError, Missing, parse
 from ...engine.models import DerivedValue, PlotSpec, ResultsSettings
-from ...engine.naming import format_value
 from ...engine.packages import (Package, availability, disable_package, effective, enable_package, list_packages,
                                 load_package, save_package)
 from ...engine.study_results import CONSTANT_NAMES, SWEEP_NAMES
@@ -176,7 +175,7 @@ class ResultsPage:
             replace(definitions, derived=[*definitions.derived, trial])
         result = study_results(self.directory, extended, self.settings.average_last)
         if curve:
-            return [(" · ".join(f"{SWEEP_LABELS[k]} {format_value(v)}" for k, v in row.curve.items()),
+            return [(" · ".join(f"{SWEEP_LABELS[k]} {variable_text(v)}" for k, v in row.curve.items()),
                      _value_text(row.values.get(trial.name))) for row in result.characteristics[:3]], ""
         rows = []
         for _, row in result.table.head(3).iterrows():
@@ -678,7 +677,7 @@ class ResultsPage:
                                         f"background: {SERIES_COLORS[i % 8]}")
                                     ui.label(design.name)
                             for key in keys:
-                                td(format_value(row.curve[key]) if key in row.curve else "—")
+                                td(variable_text(row.curve[key]) if key in row.curve else "—")
                             for c in characteristics:
                                 value = row.values.get(c.name)
                                 cell = td(_value_text(value)).mark(f"char-{i}-{j}-{c.name}")

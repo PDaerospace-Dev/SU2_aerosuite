@@ -410,3 +410,36 @@ async def test_monitor_plots_an_imported_case(user: User, imported_study):
     await user.open(project_url("monitor", imported_study) + "&case=M1p2_10km_vt_a0_b4")
     assert _element(user, "monitor-case").value == "M1p2_10km_vt_a0_b4"
     await user.should_see(marker="chart-history")
+
+
+async def test_characteristic_values_split_by_config_show_the_label(user: User, tmp_path):
+    from aerosuite.engine.imported import create_imported_study
+    from aerosuite.engine.models import DerivedValue
+
+    runs = tmp_path / "runs"
+    for part in ("ht", "vt"):
+        for alpha in (0, 2, 4):
+            folder = runs / f"M1p2_{part}_a{alpha}"
+            folder.mkdir(parents=True)
+            (folder / f"{folder.name}.cfg").write_text(f"MACH_NUMBER= 1.2\nAOA= {alpha}\n")
+            rows = ["Inner_Iter,CL"] + [f"{i},{0.1 * alpha}" for i in range(20)]
+            (folder / "history.csv").write_text("\n".join(rows) + "\n")
+    project, _ = create_imported_study(tmp_path / "study", runs)
+    project.results.parameters = ["CL"]
+    project.results.characteristics = [DerivedValue(name="CLmax", formula="max(CL)")]
+    save_project(tmp_path / "study", project)
+    await _open(user, tmp_path / "study")
+    await user.should_see(marker="characteristics-table")
+    await user.should_see("vt")
+    await _panel(user, "parameters")
+    await _derived_dialog_open(user)
+    with user:
+        _element(user, "derived-kind").set_value("curve")
+    _fill(user, "derived-formula", "max(CL)")
+    await user.should_see(marker="derived-preview-0")
+    assert "Config ht" in _text(user, "derived-preview-0")
+
+
+async def _derived_dialog_open(user):
+    user.find(marker="derived-add").click()
+    await user.should_see(marker="derived-save")
