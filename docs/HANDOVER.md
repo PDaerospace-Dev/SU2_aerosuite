@@ -130,6 +130,12 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   a panel on the right that stays in view: ticked cases, cores per case, Submit — or the running job with elapsed
   and a rough time left, Cancel — then checks (warnings folded), the machine (`engine/machine.py`: cores, free now,
   memory, who uses the cores) and the last job. No small convergence plot on the case card (Monitor link instead).
+- **Setup and Sweep (2026-10-02, the user's choices "A" and "D"):** Setup is four steps in one card (the path box
+  opens with Change…) and a panel with the project, what is ready and the next page. Sweep has two tabs: Conditions
+  (lists shown as `from:to:step` when evenly spaced, one restart rule, "What this makes") and Cases (restart in
+  words, Change per row, folded by Mach and altitude from 13 cases). The restart rule is not stored: it is the one
+  the most cases follow (`web/sweep_view.detect_rule`), the others are "set differently"; choosing a rule sets
+  every case. Aircraft cards fold (`ui_kit.fold_button`, remembered while the server runs).
 - On the Results page **Config** (a label: filters, columns, splits lines, never an X axis) and **Temperature** (a
   number) are case variables for every study. A variable fixed by the other splitting ones does not split lines.
 

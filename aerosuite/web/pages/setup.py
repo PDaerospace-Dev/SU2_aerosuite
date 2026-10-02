@@ -62,8 +62,8 @@ def register() -> None:
 @contextmanager
 def _step(number: int, title: str) -> Iterator[None]:
     """One row of the steps card: its number, its title, then whatever the step shows."""
-    with ui.row().classes("as-step w-full no-wrap"):
-        ui.label(str(number)).classes("as-step-num")
+    with ui.row().classes("as-setup-step w-full no-wrap"):
+        ui.label(str(number)).classes("as-setup-num")
         with ui.column().classes("gap-2 grow min-w-0"):
             ui.label(title).classes("as-card-title")
             yield
