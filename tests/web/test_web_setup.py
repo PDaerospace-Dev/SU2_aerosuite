@@ -54,16 +54,21 @@ async def test_set_mesh_by_pasting(user: User, ready_project, tmp_path):
     mesh = tmp_path / "wing2.su2"
     mesh.write_text("MARKER_TAG= skin\n")
     await _open(user, project_dir)
+    await user.should_not_see(marker="mesh-input")  # a mesh is chosen: the box opens with Change…
+    user.find(marker="mesh-change").click()
     user.find(marker="mesh-input").type(str(mesh))
     user.find(marker="mesh-set").click()
     await user.should_see(marker="mesh-marker-skin")
     assert _element(user, "mesh-name").text == "wing2.su2"
     assert open_project(project_dir).mesh.markers == ["skin"]
+    assert _element(user, "ready-mesh").text == "Mesh · 1 marker"  # the panel follows
+    await user.should_not_see(marker="mesh-input")  # set: the box is put away again
 
 
 async def test_bad_mesh_path_is_reported(user: User, ready_project, tmp_path):
     project_dir, _ = ready_project
     await _open(user, project_dir)
+    user.find(marker="mesh-change").click()
     user.find(marker="mesh-input").type(str(tmp_path / "gone.su2"))
     user.find(marker="mesh-set").click()
     await user.should_see("Mesh not found")
@@ -74,6 +79,7 @@ async def test_set_template_with_the_picker(user: User, ready_project, tmp_path,
     project_dir, _ = ready_project
     (tmp_path / "master2.cfg").write_text("AOA= 7\n")
     await _open(user, project_dir)
+    user.find(marker="template-change").click()
     user.find(marker="template-browse").click()
     await user.should_see(marker="picker-location")
     user.find(marker="picker-entry-master2.cfg").click()
@@ -128,6 +134,7 @@ async def test_mono_fields_keep_their_label_in_the_body_font(user: User, ready_p
     # Only the typed path is monospace: the generic as-mono class on the field would change its label too.
     project_dir, _ = ready_project
     await user.open(project_url("setup", project_dir))
+    user.find(marker="mesh-change").click()
     classes = _element(user, "mesh-input").classes
     assert "as-field-mono" in classes and "as-mono" not in classes
 
@@ -172,3 +179,27 @@ async def test_partitions_show_what_the_machine_has(user: User, ready_project, m
         cores=64, physical_cores=32, load=60.2, memory_total_gb=503.0, memory_free_gb=120.4, su2_processes=48))
     await user.open(project_url("setup", project_dir))
     await user.should_see("This machine: 64 cores, about 4 free now")
+
+
+async def test_the_panel_says_what_is_ready_and_leads_on(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    assert _element(user, "setup-project-name").text == "study"
+    assert _element(user, "ready-mesh").text == "Mesh · 2 markers"
+    assert _element(user, "ready-template").text == "Config template"
+    assert _element(user, "ready-study").text == "Sweep · 3 cases"
+    assert _element(user, "setup-next").text == "CFG setup"
+    user.find(marker="setup-next").click()
+    await user.should_see(marker="config-text")
+
+
+async def test_a_new_study_opens_with_the_file_boxes_shown(user: User, tmp_path):
+    from aerosuite.engine.models import Project
+
+    (tmp_path / "bare").mkdir()
+    save_project(tmp_path / "bare", Project(name="bare"))
+    await _open(user, tmp_path / "bare")
+    await user.should_see(marker="mesh-input")  # nothing chosen yet: no Change… needed
+    await user.should_see(marker="template-input")
+    assert _element(user, "ready-mesh").text == "No mesh selected"
+    assert _element(user, "ready-template").text == "No template yet"

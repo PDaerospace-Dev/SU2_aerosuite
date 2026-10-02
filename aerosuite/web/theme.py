@@ -300,6 +300,13 @@ a.as-step:hover { background: #f6f8fa; }
 .as-seg-pending { background: #d0d7de; } .as-seg-cancelled { background: #8c959f; }
 .as-table-compact .as-td { min-height: 34px; padding-top: 4px; padding-bottom: 4px; white-space: nowrap; }
 .as-table-compact .q-checkbox { margin-left: 6px; }
+.as-step { padding: 16px 18px; gap: 14px; border-top: 1px solid var(--as-hairline); align-items: flex-start; }
+.as-step:first-child { border-top: 0; }
+.as-step-num { width: 26px; height: 26px; border-radius: 50%; background: var(--as-accent-tint);
+  color: var(--as-accent-text); font-weight: 700; font-size: 12px; display: grid; place-items: center; flex: none; }
+.as-ready { font-size: 13px; }
+.as-ready-ok .q-icon { color: #1a7f37; font-size: 18px; }
+.as-ready-todo { color: #7a5200; } .as-ready-todo .q-icon { color: #bf8700; font-size: 18px; }
 .as-rule { cursor: pointer; padding: 9px 12px; }
 .as-rule.as-choice-selected { padding: 8px 11px; }
 .as-rule .q-icon { font-size: 18px; color: var(--as-muted); }
