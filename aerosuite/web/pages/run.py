@@ -8,7 +8,7 @@ from ...engine.errors import AeroSuiteError
 from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.plan import plan_restarts
 from ...engine.naming import format_value
-from ...engine.machine import machine, partitions_note
+from ...engine.machine import machine, partitions_note, usage, usage_text
 from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import restart_file
 from ..jobs import WATCHER, JobView
@@ -176,6 +176,9 @@ class RunPage:
                 self.machine_labels[key].mark(f"machine-{key}")
             ui.space()
             self.machine_note = ui.label("").classes("as-hint-warning").mark("machine-note")
+            with ui.row().classes("as-machine-usage w-full items-baseline no-wrap"):
+                ui.label("Using the cores").classes("as-stat-label")
+                self.machine_usage = ui.label("").classes("as-mono").mark("machine-usage")
         self._machine_values()
 
     def _machine_values(self) -> None:
@@ -192,6 +195,7 @@ class RunPage:
         labels["su2"].text = str(here.su2_processes)
         labels["asked"].text = f"{partitions} per case"
         self.machine_note.text = partitions_note(partitions, here) or ""
+        self.machine_usage.text = "   |   ".join(usage_text(item) for item in usage()) or "nothing much"
 
     def _selection(self, view: JobView) -> _Selection:
         ticked = [case.name for case in self.project.cases if case.name in self.ticked]

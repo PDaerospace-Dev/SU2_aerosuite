@@ -278,6 +278,8 @@ a.as-step:hover { background: #f6f8fa; }
 
 .as-strip { background: #f6f8fa; border-radius: 8px; padding: 10px 12px; gap: 28px; align-items: center;
   flex-wrap: wrap; width: 100%; }
+.as-machine { row-gap: 8px; }
+.as-machine-usage { gap: 12px; border-top: 1px solid var(--as-hairline); padding-top: 8px; }
 .as-stat-label { font-size: 11px; color: var(--as-muted); }
 .as-stat-value { font-weight: 600; }
 

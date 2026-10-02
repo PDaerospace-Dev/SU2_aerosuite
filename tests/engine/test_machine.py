@@ -22,3 +22,23 @@ def test_the_note_about_partitions():
     assert partitions_note(4, m) is None
     assert partitions_note(16, m) == "16 partitions asked, about 4 cores free now: the run will share cores and be slow"
     assert partitions_note(80, m) == "80 partitions asked, the machine has 64 cores"
+
+
+def test_who_is_using_the_cores():
+    from aerosuite.engine.machine import Usage, summarize_usage, usage_text
+
+    rows = [("pdas", "buoyantSimpleNFoam", 99.0)] * 60 + [("daniel", "SU2_CFD", 100.0)] * 2
+    rows += [("pdas", "paraview", 98.0), ("root", "tailscaled", 30.0), ("pdas", "python", 0.4)] + [(None, None, 5.0)]
+    found = summarize_usage(rows)
+    assert found == [Usage("pdas", "buoyantSimpleNFoam", 59.4, 60), Usage("daniel", "SU2_CFD", 2.0, 2),
+                     Usage("pdas", "paraview", 1.0, 1)]  # under half a core: left out
+    assert usage_text(found[0]) == "pdas · buoyantSimpleNFoam × 60 · 59.4 cores"
+    assert usage_text(found[2]) == "pdas · paraview · 1 core"
+    assert summarize_usage([("a", f"p{i}", 100.0) for i in range(9)], top=4) == [
+        Usage("a", f"p{i}", 1.0, 1) for i in range(4)]
+
+
+def test_usage_of_this_machine_is_read():
+    from aerosuite.engine.machine import usage
+
+    assert isinstance(usage(), list)

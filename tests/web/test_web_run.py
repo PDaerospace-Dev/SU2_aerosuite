@@ -254,8 +254,11 @@ async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User,
     save_project(project_dir, project)
     monkeypatch.setattr(page, "machine", lambda: Machine(
         cores=64, physical_cores=32, load=60.2, memory_total_gb=503.0, memory_free_gb=120.4, su2_processes=48))
+    from aerosuite.engine.machine import Usage
+    monkeypatch.setattr(page, "usage", lambda: [Usage("daniel", "SU2_CFD", 47.6, 48), Usage("pdas", "paraview", 1.0, 1)])
     await _open(user, project_dir)
     await user.should_see(marker="run-machine")
+    assert _text(user, "machine-usage") == "daniel · SU2_CFD × 48 · 47.6 cores   |   pdas · paraview · 1 core"
     assert _text(user, "machine-cores") == "64 (32 physical)"
     assert _text(user, "machine-free") == "about 4"
     assert _text(user, "machine-memory") == "120 of 503 GB"
