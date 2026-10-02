@@ -150,6 +150,17 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   `naming.name_part_problem`). A project.json that already holds an unsafe case name gets a Sweep error.
   Setup's "Apply profile defaults" saves the template's new name and redraws the page.
 
+- Monitor follows the running job to its next case ("Follow the running case", on unless the link names a case;
+  picking a case or opening a file switches it off). The status is the pill only; the line beside it is case and job.
+- Hover texts are set with `ui_kit.titled`, never as a `title="…"` props string (a double quote in the text broke it).
+
+- Monitor has two tabs (2026-10-02; mock and screenshots in `specs/assets/2026-10-02-monitor-parameters/`).
+  *Parameters* (`web/monitor_params.py`): plots of any history columns, one value axis per plot, each zoomed on its
+  own (the zoom is held server-side per page as iterations, `Window`, and re-applied at every update: a window that
+  ends on the newest iteration follows it). The *Values* block shows the mean of the last N iterations in bold with
+  the latest value and range below. By the user's choice: plots and N live in `monitor_params._STATES` (per project,
+  while the server runs), not in project.json; no Normalize on this tab; no shading or mean line on the plots.
+
 ## Open items and next steps
 
 Next, in the order recommended to the user on 2026-09-30:
@@ -162,8 +173,6 @@ Next, in the order recommended to the user on 2026-09-30:
 
 Known smaller items (from reviews; none blocking):
 
-- Monitor shows the status twice; the job indicator, project switcher and study-kind tiles are not
-  keyboard-reachable.
 - `BREAKDOWN_FILENAME` is relative (files land in `runs/`); an all-NaN history column counts as converged;
   `write_lock` creates the file before writing it.
 - CLI `show`/`set` don't surface the profile or sweep-off state of AeroSuite studies.

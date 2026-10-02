@@ -1,5 +1,6 @@
-"""Monitor: one chart of a case's (or an opened file's) residuals/coefficients against iteration,
-with a checkbox per column — like the old PyQt5 monitor."""
+"""Monitor, in two tabs over one case (or one opened file). Convergence: one chart of the residuals and main
+coefficients against iteration, with a checkbox per column — like the old PyQt5 monitor. Parameters: plots of any
+columns of the history file, each on its own axes, and their means over the last iterations (monitor_params.py)."""
 import math
 import re
 from pathlib import Path
@@ -12,6 +13,7 @@ from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.runner import CaseState, JobRecord
 from ..jobs import WATCHER, JobView
 from ..layout import ProjectFrame, open_session
+from ..monitor_params import ParametersTab, param_state, thinned_indices
 from ..picker import pick_path
 from ..theme import HAIRLINE, SERIES_COLORS
 from ..ui_kit import card, card_head, field, pill, secondary_button, set_pill
@@ -20,6 +22,8 @@ POLL_SECONDS = 2.0
 ITERATION_COLUMNS = ("Inner_Iter", "Outer_Iter")
 COLUMN_PATTERN = re.compile(r"rms|Res|^CL$|^CD$|^CFx$|^CFy$|^CFz$")
 MAX_POINTS = 2000  # per series; longer histories are thinned evenly
+TABS = (("convergence", "Convergence"), ("parameters", "Parameters"))
+NOTES = {"not-run": "This case has not run yet.", "no-history": "No history yet for this case."}
 
 
 def register() -> None:
@@ -70,14 +74,7 @@ def line_options(x: list, df, columns: list, normalize: bool = False, colors: Op
     """ECharts options: one line per column against iteration, thinned to MAX_POINTS; NaN is a
     gap. `normalize` applies the old app's normalize_data to each series first. `colors` maps a
     column to its line colour."""
-    count = len(x)
-    step = max(1, math.ceil(count / MAX_POINTS))
-    indices = list(range(0, count, step))  # length <= MAX_POINTS, since step >= count / MAX_POINTS
-    if count and indices[-1] != count - 1:
-        if len(indices) < MAX_POINTS:
-            indices.append(count - 1)  # room to spare: add the last index as an extra point
-        else:
-            indices[-1] = count - 1  # already at the bound: swap in the last index, don't grow
+    indices = thinned_indices(len(x), MAX_POINTS)
     series = []
     for column in columns:
         values = df[column].tolist()
@@ -179,32 +176,61 @@ class MonitorPage:
         # Built once; poll() updates these in place so it never closes an open dropdown or
         # resets a checkbox. Only the checkbox list and the chart-vs-message area are rebuilt,
         # and only when what they must show actually changes shape.
+        self.state = param_state(self.directory, frame.session.project.results.average_last)
+        self.tab_heads: dict = {}
+        with ui.row().classes("as-tabs w-full gap-1 items-center").mark("monitor-tabs"):
+            for key, label in TABS:
+                self.tab_heads[key] = ui.label(label).classes("as-tab").mark(f"monitor-tab-{key}")
+                self.tab_heads[key].on("click", lambda _, k=key: self._show_tab(k))
+            ui.space()
+            self.average_row = ui.row().classes("items-center gap-2 no-wrap mr-3")
+            self.iteration_label = ui.label("").classes("as-hint").mark("monitor-iteration")
         with ui.element("div").classes("as-monitor"):
-            with card():
-                self.select = field(ui.select([], label="Case", on_change=lambda e: self._choose_case(e.value)))
-                self.select.classes("w-full").mark("monitor-case")
-                secondary_button("Open file…", on_click=self._open_file).classes("w-full").mark("monitor-open-file")
-                with ui.row().classes("items-center gap-2"):
-                    self.status_pill = pill("PENDING").mark("monitor-status")
-                    self.source_label = ui.label("").classes("as-hint").mark("monitor-source")
-                self.status_pill.set_visibility(False)
-                with ui.row().classes("w-full items-center no-wrap gap-2"):
+            with ui.column().classes("as-monitor-left gap-4 w-full"):
+                with card():
+                    self.select = field(ui.select([], label="Case", on_change=lambda e: self._choose_case(e.value)))
+                    self.select.classes("w-full").mark("monitor-case")
+                    secondary_button("Open file…", on_click=self._open_file).classes("w-full").mark("monitor-open-file")
+                    with ui.row().classes("items-center gap-2"):
+                        self.status_pill = pill("PENDING").mark("monitor-status")
+                        self.source_label = ui.label("").classes("as-hint").mark("monitor-source")
+                    self.status_pill.set_visibility(False)
                     self.stop_button = secondary_button("Stop", on_click=self._toggle_stop).mark("monitor-stop")
-                    ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark(
-                        "monitor-normalize")
-                self.follow_box = ui.checkbox("Follow the running case", value=self.follow,
-                                              on_change=lambda e: self._set_follow(e.value)).mark("monitor-follow")
-                ui.label("Columns").classes("as-label")
-                self.checkbox_holder = ui.column().classes("gap-1")
-            with card():
-                card_head("Convergence", f"updates every {POLL_SECONDS:g} s")
-                self.chart_holder = ui.column().classes("w-full")
+                    self.follow_box = ui.checkbox("Follow the running case", value=self.follow,
+                                                  on_change=lambda e: self._set_follow(e.value)).mark("monitor-follow")
+                    with ui.column().classes("w-full gap-2") as self.convergence_controls:  # the Convergence tab's own
+                        ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark(
+                            "monitor-normalize")
+                        ui.label("Columns").classes("as-label")
+                        self.checkbox_holder = ui.column().classes("gap-1")
+                with card() as values_card:  # the Parameters tab's own; filled by ParametersTab
+                    values_card.mark("params-values")
+            with ui.column().classes("gap-4 w-full min-w-0"):
+                with card() as self.convergence_card:
+                    card_head("Convergence")
+                    self.chart_holder = ui.column().classes("w-full")
+                self.params_box = ui.column().classes("w-full gap-3").mark("params-plots")
+        self.params = ParametersTab(self.state, self.params_box, values_card, MAX_POINTS)
+        with self.average_row:
+            self.params.average_box()
+        self._show_tab(self.state.tab)
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
 
     @property
     def directory(self):
         return self.frame.session.directory
+
+    def _show_tab(self, tab: str) -> None:
+        self.state.tab = tab  # kept while the server runs: a reload opens the same tab
+        parameters = tab == "parameters"
+        for key, head in self.tab_heads.items():
+            head.classes(**({"add": "as-tab-on"} if key == tab else {"remove": "as-tab-on"}))
+        self.convergence_card.set_visibility(not parameters)
+        self.convergence_controls.set_visibility(not parameters)
+        self.params_box.set_visibility(parameters)
+        self.average_row.set_visibility(parameters)
+        self.params.set_active(parameters)
 
     def _row(self, view: JobView):
         return next((row for row in view.overview.rows if row.name == self.case), None)
@@ -268,6 +294,8 @@ class MonitorPage:
         with self.chart_holder:
             ui.label(text).classes(css)
         self.columns_shape, self.chart_shape, self.chart, self.df = (), None, None, None
+        self.iteration_label.set_text("")
+        self.params.show(None, [], text)
 
     def _case_content(self, view: JobView) -> _Content:
         imported = self.frame.session.project.imported
@@ -327,6 +355,10 @@ class MonitorPage:
             self._build_chart_area(content.state, content.message)
         if content.state == "chart":
             self._draw_chart()
+        has_rows = content.df is not None and not content.df.empty
+        x = iteration_values(content.df) if has_rows else []
+        self.iteration_label.set_text((f"iteration {x[-1]:g} · " if x else "") + f"updates every {POLL_SECONDS:g} s")
+        self.params.show(content.df, x, "" if has_rows else NOTES.get(content.state, "No history yet."))
 
     def _build_checkboxes(self, columns: tuple) -> None:
         self.checkbox_holder.clear()

@@ -494,6 +494,8 @@ async def test_removing_a_parameter_takes_it_off_the_plots(user: User, results_p
 
 async def test_a_reason_with_a_double_quote_is_one_hover_text(user: User, results_project):
     # A reason is an error message: it can quote a name. It must stay one title, not end at the quote.
+    from nicegui import ui
+
     from aerosuite.web.ui_kit import titled
     await _open(user, results_project)
     with user:

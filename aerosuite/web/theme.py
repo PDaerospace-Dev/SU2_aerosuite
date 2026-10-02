@@ -365,10 +365,20 @@ a.as-step:hover { background: #f6f8fa; }
 .as-tab-on, .as-tab-on:hover { color: var(--as-accent-text); border-bottom-color: var(--as-accent); font-weight: 600; }
 .as-recent-row-on { background: var(--as-accent-tint); box-shadow: inset 3px 0 0 var(--as-accent); }
 .as-monitor { grid-template-columns: 250px minmax(0, 1fr); gap: 16px; }
+.as-monitor-left { position: sticky; top: 66px; max-height: calc(100vh - 80px); overflow-y: auto; }
+.as-plots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; width: 100%; }
+.as-add-plot { border: 1.5px dashed #c4c9cf; border-radius: 10px; min-height: 120px; align-items: center;
+  justify-content: center; gap: 8px; color: var(--as-muted); font-weight: 500; cursor: pointer; }
+.as-add-plot:hover, .as-add-plot:focus-visible { border-color: var(--as-accent); color: var(--as-accent-text);
+  background: var(--as-accent-tint); }
+.as-value-row { border-top: 1px solid var(--as-hairline); padding-top: 8px; }
+.as-value-mean { font-size: 18px; font-weight: 600; line-height: 1.3; }
+.as-param-grid { gap: 2px 14px; }
+@media (max-width: 1200px) { .as-plots { grid-template-columns: 1fr; } }
 @media (max-width: 900px) {
   .as-grid-2, .as-grid-3, .as-grid-4, .as-columns, .as-columns-projects, .as-columns-profiles, .as-monitor,
   .as-tiles { grid-template-columns: 1fr; }
-  .as-side { position: static; max-height: none; }
+  .as-side, .as-monitor-left { position: static; max-height: none; }
 }
 
 .q-dialog .q-card { border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 35, 40, .14); padding: 18px; gap: 12px; }
