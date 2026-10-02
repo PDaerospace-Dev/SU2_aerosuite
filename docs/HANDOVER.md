@@ -117,6 +117,11 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   full-width plots ("F"; no hover box, no per-case list); with one study each plot line has its own colour.
   Projects = recent list with a filter + one card with New / Open / Import tabs ("B"). Mockups in
   `docs/superpowers/specs/assets/2026-09-30-layout/`.
+- **Run page (2026-10-02, the user's choice "B"):** cases on the left by study size (`web/run_view.py`: a case
+  card for one case, a plain list, or the list folded by Mach and altitude from 13 cases with more than one group),
+  a panel on the right that stays in view: ticked cases, cores per case, Submit — or the running job with elapsed
+  and a rough time left, Cancel — then checks (warnings folded), the machine (`engine/machine.py`: cores, free now,
+  memory, who uses the cores) and the last job. No small convergence plot on the case card (Monitor link instead).
 - On the Results page **Config** (a label: filters, columns, splits lines, never an X axis) and **Temperature** (a
   number) are case variables for every study. A variable fixed by the other splitting ones does not split lines.
 

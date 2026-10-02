@@ -278,8 +278,33 @@ a.as-step:hover { background: #f6f8fa; }
 
 .as-strip { background: #f6f8fa; border-radius: 8px; padding: 10px 12px; gap: 28px; align-items: center;
   flex-wrap: wrap; width: 100%; }
-.as-machine { row-gap: 8px; }
-.as-machine-usage { gap: 12px; border-top: 1px solid var(--as-hairline); padding-top: 8px; }
+/* Run: the cases on the left, a panel on the right that stays in view (below the 52px top bar) */
+.as-run { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+.as-run-main { min-width: 0; width: 100%; }
+.as-run-panel { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; position: sticky;
+  top: 68px; max-height: calc(100vh - 84px); overflow-y: auto; }
+.as-run-part { padding: 14px 16px; border-top: 1px solid var(--as-hairline); }
+.as-run-part:first-child { border-top: 0; }
+.as-run-live { background: var(--as-accent-tint); border-radius: 10px 10px 0 0; }
+.as-run-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--as-muted); }
+.as-run-big { font-size: 22px; font-weight: 700; line-height: 1.15; word-break: break-all; }
+.as-run-panel .as-banner, .as-run-panel .as-warn-group { font-size: 12.5px; }
+.as-machine { gap: 18px; row-gap: 8px; }
+.as-machine-usage { border-top: 1px solid var(--as-hairline); padding-top: 8px; }
+.as-usage { white-space: pre-line; font-size: 11.5px; }
+.as-status-bar { height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }
+.as-status-seg { height: 100%; min-width: 4px; }
+.as-seg-done { background: #2da44e; } .as-seg-running { background: var(--as-running, #2f6fe4); }
+.as-seg-failed { background: #cf222e; } .as-seg-unconverged { background: #d4a72c; }
+.as-seg-pending { background: #d0d7de; } .as-seg-cancelled { background: #8c959f; }
+.as-table-compact .as-td { min-height: 34px; padding-top: 4px; padding-bottom: 4px; white-space: nowrap; }
+.as-table-compact .q-checkbox { margin-left: 6px; }
+.as-group-cell { background: #f6f8fa; gap: 6px; }
+.as-group-name { cursor: pointer; }
+.as-group-name:hover { background: var(--as-hairline); }
+@media (max-width: 1100px) { .as-run { grid-template-columns: minmax(0, 1fr); } .as-run-panel { position: static;
+  max-height: none; } }
 .as-stat-label { font-size: 11px; color: var(--as-muted); }
 .as-stat-value { font-weight: 600; }
 
