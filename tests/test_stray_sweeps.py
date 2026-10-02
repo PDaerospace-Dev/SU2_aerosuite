@@ -1,8 +1,9 @@
 """The leak check of tests/conftest.py: it finds a fake sweep by the temp folder in its command line."""
 import subprocess
 import sys
+from pathlib import Path
 
-from conftest import FAKE_SWEEP
+FAKE_SWEEP = Path(__file__).resolve().parent / "fixtures" / "fake_sweep.py"
 
 
 def _hung_sweep(folder):
