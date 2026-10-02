@@ -260,6 +260,8 @@ a.as-step:hover { background: #f6f8fa; }
 .as-tabs .q-tab--active { color: var(--as-text); }
 .as-tabs .q-tab__indicator { background: var(--as-accent); height: 2px; }
 .as-tab-panels, .as-tab-panels .q-tab-panel { padding: 0; background: transparent; }
+/* the side card is as tall as the window: its tab panels take the rest of it and scroll (Quasar clips them) */
+.as-side .as-tab-panels { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .as-tab-panels .q-tab-panel { padding-top: 12px; display: flex; flex-direction: column; }
 
 /* A compact two-way switch in a page's action bar (Config's Sweep | Single case) */
