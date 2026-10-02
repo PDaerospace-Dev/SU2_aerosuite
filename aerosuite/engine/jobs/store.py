@@ -99,16 +99,36 @@ def _wait_gone(procs: list[psutil.Process], timeout: float) -> list[psutil.Proce
     return alive
 
 
+def _suspend_tree(pid: int) -> list[psutil.Process]:
+    """Suspend a process and all its descendants; returns them (empty if the process is gone).
+
+    A running process can start a child between being listed and being signalled, and that child
+    would live on with no parent (Cancel right after Run: the wrapper starts the sweep). A suspended
+    process cannot, so each one is suspended before its children are listed.
+    """
+    try:
+        pending = [psutil.Process(pid)]
+    except psutil.NoSuchProcess:
+        return []
+    procs = []
+    while pending:
+        proc = pending.pop()
+        try:
+            proc.suspend()
+            pending.extend(proc.children())
+        except psutil.NoSuchProcess:
+            continue
+        procs.append(proc)
+    return procs
+
+
 def kill_tree(pid: int, timeout: float = 5.0) -> None:
     """Terminate a process and all its descendants (mpirun, SU2 ranks); kill survivors."""
-    try:
-        parent = psutil.Process(pid)
-        procs = parent.children(recursive=True) + [parent]
-    except psutil.NoSuchProcess:
-        return
+    procs = _suspend_tree(pid)
     for proc in procs:
         try:
             proc.terminate()
+            proc.resume()  # a suspended process acts on the request only once it runs again
         except psutil.NoSuchProcess:
             pass
     for proc in _wait_gone(procs, timeout):
