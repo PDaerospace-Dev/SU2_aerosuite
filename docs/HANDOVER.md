@@ -62,9 +62,10 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   `ui_kit.py`; NiceGUI-free rules beside the pages (`results_view.py`, `results_charts.py`, `calculators/*_rules.py`).
 - The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python run_aerosuite.py`); it
   is retired in a later phase.
-- Tests: `uv run pytest -q -p no:cacheprovider` — **920 passed, 1 Windows-only skip** (2026-09-30, ~3 min; up to
+- Tests: `uv run pytest -q -p no:cacheprovider` — **955 passed, 1 Windows-only skip** (2026-10-02, ~4 min; up to
   7 min when the workstation is busy with other jobs). Web tests use NiceGUI's simulated user;
-  `tests/fixtures/fake_sweep.py` stands in for SU2.
+  `tests/fixtures/fake_sweep.py` stands in for SU2. A fake sweep still running when its test ends fails that
+  test (see the working notes).
 
 ## Checked on the workstation
 
@@ -85,6 +86,10 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   of old runs (Projects page card, or `aerosuite import`), check the scan's values and warnings, look at it on
   Results and Monitor, Rescan after adding a folder.
 
+- **Cancel right after Run on a real job** (fix `d9ffccb`, 2026-10-02): press Cancel within a second of Submit
+  and check with `ps` that no `mpirun` / `SU2_CFD` is left. Tested only on Linux with the fake sweep, not with
+  real `mpirun` and not on Windows.
+
 ## Decisions worth knowing
 
 - No login in the web UI (spec §7 known risk); it listens on 127.0.0.1 unless `--host … --i-understand-no-auth`.
@@ -98,6 +103,9 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
 - The bundled `resources/config_template.cfg` is SU2's original reference setup: never edit it.
 - Jobs run through `engine/jobs/sweep_wrapper.py` (AeroSuite's Python, `-I`), which records the exit code in
   `jobs/<id>.exit` (kept as `exit_code`); the web cancels in a worker thread (`run.io_bound`).
+- `store.kill_tree` **suspends each process before listing its children**, then terminates and resumes it
+  (2026-10-02). Listing first and signalling after let a child started in between live on with no parent: a
+  Cancel right after Run killed the wrapper and left the sweep (SU2) running. Keep that order.
 - **Results:** parameters are history columns (grouped from SU2 names in `results.group_of`), chosen per study
   (`project.results`; `None` = not chosen yet, `[]` = cleared on purpose). Derived values and characteristic values
   are formulas read by `engine/formula.py` (an `ast` reader with an allowed list; **never `eval`**); derived values
@@ -146,7 +154,9 @@ Known smaller items (from reviews; none blocking):
   has no Temperature column (imported studies do).
 - With many unrelated sweeps in one study (e.g. an imported folder mixing a β sweep and an α sweep), plots get many
   single-point lines and a paged legend; filters help.
-- On Windows the test `test_losing_the_lock_race_leaves_nothing_behind` flaked once.
+- On Windows the test `test_losing_the_lock_race_leaves_nothing_behind` flaked once (before the `kill_tree` fix
+  of 2026-10-02, which may have been the cause; not rerun on Windows since).
+- `kill_tree` can still miss a child that a process starts from its own SIGTERM handler after it is resumed.
 
 ## Working notes for Claude
 
@@ -162,5 +172,11 @@ Known smaller items (from reviews; none blocking):
   venv) and read `location.pathname`. The Claude-in-Chrome extension was not connected in this setup.
 - A test server for screenshots on port 8093 (`uv run aerosuite serve --port 8093 --root <scratch>`) keeps port
   8080 free for the user's own `aeroweb`.
+- **Leaked fake sweeps:** `ready_project` kills the jobs in the project's records, then any `fake_sweep.py`
+  whose command line is under the test's temp folder, and fails the test if it found one; a session fixture
+  (`no_fake_sweep_outlives_the_session` in `tests/conftest.py`) does the same for the session's temp folder.
+  Other pytest sessions' sweeps are never touched. `ps -eo pid,etimes,args | grep "fixtures/fake_swee[p].py"`
+  should print nothing when no suite is running (57 left by earlier runs were killed on 2026-10-02). Such a
+  failure means a kill or cancel missed a process: look at the engine, not at the fixture.
 - The workstation is shared and often busy (load ~60): the suite's time varies; don't read slowness as a bug
   without checking `uptime`.
