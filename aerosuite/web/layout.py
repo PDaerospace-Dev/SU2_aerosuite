@@ -14,6 +14,7 @@ from .guide import app_version, web_ui_guide
 from .calc_panel import CalcPanel
 from .jobs import WATCHER, job_progress
 from .log_panel import LogPanel
+from .paraview_menu import ParaViewMenu
 from .recent import add_recent, load_recent
 from .session import Change, ProjectSession
 from .status import STEPS, project_kind, step_badges, visible_steps
@@ -178,6 +179,7 @@ class ProjectFrame:
                     self._job_fill = ui.element("div").classes("as-job-fill").style("width: 0%")
             self._job.on("click", lambda: self.log.open())  # tail the running job's log
             self._job.set_visibility(False)
+            ParaViewMenu(self)
             _calculators_button(self)
             _help_button()
             with ui.row().classes("as-topbar-control as-switcher").mark("project-switcher"):

@@ -90,6 +90,11 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   and check with `ps` that no `mpirun` / `SU2_CFD` is left. Tested only on Linux with the fake sweep, not with
   real `mpirun` and not on Windows.
 
+- **ParaView menu in the top bar** (2026-10-02; `engine/paraview.py`, `web/paraview_menu.py`): on the workstation's
+  own browser, open a case and *All cases* and check ParaView really starts and shows the files. Only the menu
+  and the "No display" error were seen for real (the server was started from a shell without a desktop session);
+  the launch itself is tested with `Popen` replaced. From another PC a case copies its folder path instead.
+
 ## Decisions worth knowing
 
 - No login in the web UI (spec §7 known risk); it listens on 127.0.0.1 unless `--host … --i-understand-no-auth`.
