@@ -7,6 +7,7 @@ from nicegui import ui
 from ...engine import project as engine_project
 from ...engine.errors import ProjectError
 from ...engine.jobs.runner import BUNDLED_SWEEP_SCRIPT, is_aerosuite_python, resolve_sweep_python
+from ...engine.machine import machine
 from ...engine.models import Project
 from ...engine.profiles import apply_profile, list_profiles, load_profile, save_profile
 from ..fields import text_field
@@ -268,6 +269,8 @@ def _run_section(frame: ProjectFrame) -> None:
                     lambda text: frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Partitions"))),
                     mark="partitions",
                 )
+                here = machine()
+                hint(f"This machine: {here.cores} cores, about {here.free_cores} free now").mark("partitions-machine")
         # Rarely changed, so folded away -- unless the sweep would run under the wrong Python.
         wrong_python = is_aerosuite_python(resolve_sweep_python(run.sweep_python))
         with ui.expansion("Advanced · sweep Python and script", value=wrong_python).classes(

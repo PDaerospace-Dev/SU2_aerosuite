@@ -161,3 +161,14 @@ async def test_advanced_opens_by_itself_when_the_sweep_python_looks_wrong(user: 
     await _open(user, project_dir)
     assert _element(user, "run-advanced").value is True
     await user.should_see("AeroSuite's own Python")
+
+
+async def test_partitions_show_what_the_machine_has(user: User, ready_project, monkeypatch):
+    import aerosuite.web.pages.setup as page
+    from aerosuite.engine.machine import Machine
+
+    project_dir, _ = ready_project
+    monkeypatch.setattr(page, "machine", lambda: Machine(
+        cores=64, physical_cores=32, load=60.2, memory_total_gb=503.0, memory_free_gb=120.4, su2_processes=48))
+    await user.open(project_url("setup", project_dir))
+    await user.should_see("This machine: 64 cores, about 4 free now")
