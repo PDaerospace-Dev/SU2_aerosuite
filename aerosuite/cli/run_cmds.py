@@ -135,13 +135,20 @@ def cancel(
 @engine_errors
 def summarize(
     directory: ProjectDir,
-    last: Annotated[int, typer.Option(min=1, help="Average the last N iterations of each case")] = 100,
-    columns: Annotated[str, typer.Option(help="Comma-separated history columns")] = "CL,CD,CMy",
+    last: Annotated[Optional[int], typer.Option(
+        min=1, help="Average the last N iterations of each case (default: the Results page's setting)")] = None,
+    columns: Annotated[Optional[str], typer.Option(
+        help="Comma-separated history columns, instead of the Results page's parameters")] = None,
 ) -> None:
-    """Average each case's history into results/summary.csv and print it."""
+    """Average each case's history into results/summary.csv (with the Results page's parameters, derived values
+    and characteristic values unless --columns is given) and print it."""
     project_dir = Path(directory)
-    engine_project.open_project(project_dir)  # fails clearly if this is not a project
+    project = engine_project.open_project(project_dir)  # fails clearly if this is not a project
+    if columns is None:
+        _summarize_as_the_page(project_dir, project, last)
+        return
     wanted = [col.strip() for col in columns.split(",") if col.strip()]
+    last = last or 100
     index = engine_results.load_case_index(project_dir / CONFIGS_DIR)
     summary, warnings = engine_results.summarize(project_dir / RUNS_DIR, wanted, last, index)
     for warning in warnings:
@@ -152,3 +159,22 @@ def summarize(
     path = engine_results.write_summary(project_dir, summary)
     typer.echo(summary.to_string(index=False))
     typer.echo(f"Saved {path}")
+
+
+def _summarize_as_the_page(project_dir: Path, project, last: Optional[int]) -> None:
+    from ..engine.packages import effective
+    from ..engine.study_results import study_results, summary_frame, write_results
+
+    definitions = effective(project.results, engine_results.history_columns(project_dir, project))
+    result = study_results(project_dir, definitions, last or project.results.average_last)
+    for warning in result.warnings:
+        typer.echo(f"Warning: {warning}")
+    for note in result.notes:
+        typer.echo(f"Note: {note}")
+    if result.table.empty:
+        typer.echo(f"Error: No results found in {project_dir / RUNS_DIR}", err=True)
+        raise typer.Exit(1)
+    paths = write_results(project_dir, result, definitions.parameters)
+    typer.echo(summary_frame(result, definitions.parameters).to_string(index=False))
+    for path in paths:
+        typer.echo(f"Saved {path}")

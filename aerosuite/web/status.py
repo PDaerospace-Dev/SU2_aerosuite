@@ -28,7 +28,9 @@ STEPS: list[tuple[str, str]] = [
 
 def visible_steps(project: Project) -> list[tuple[str, str]]:
     """Aircraft only with a profile, and then instead of CFG setup (its Template tab holds the template);
-    Sweep only when the sweep is on."""
+    Sweep only when the sweep is on; an imported study only has Results and Monitor."""
+    if project.imported is not None:
+        return [(key, label) for key, label in STEPS if key in ("results", "monitor")]
     return [
         (key, label) for key, label in STEPS
         if not (key == "aircraft" and not project.profile)
@@ -38,7 +40,10 @@ def visible_steps(project: Project) -> list[tuple[str, str]]:
 
 
 def project_kind(project: Project) -> str:
-    """The switcher's and the recent list's second line: "sweep · 3 cases" or "single case"."""
+    """The switcher's and the recent list's second line: "sweep · 3 cases", "single case" or "imported · 12 cases"."""
+    if project.imported is not None:
+        count = len(project.imported.cases)
+        return f"imported · {count} case{'' if count == 1 else 's'}"
     if not project.sweep.enabled:
         return "single case"
     count = len(project.cases)
@@ -102,5 +107,5 @@ def step_badges(project_dir: Path, project: Project) -> dict[str, Badge]:
         "sweep": sweep,
         "run": _run_badge(project_dir, project),
         "monitor": "plain",
-        "results": "later",
+        "results": "plain",
     }

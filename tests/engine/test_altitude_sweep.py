@@ -153,7 +153,7 @@ def _schema_4(tmp_path, freestream, cases, enabled=True):
 def test_schema_4_altitude_projects_migrate_to_a_list_of_one(tmp_path):
     case = {"name": "M0p8_11km_a0_b0_x", "mach": 0.8, "alpha": 0.0, "beta": 0.0, "restart": "previous"}
     project = _schema_4(tmp_path, {"mode": "altitude", "altitude_km": 11.0, "reynolds_length": 6.0}, [case])
-    assert project.schema_version == SCHEMA_VERSION == 5
+    assert project.schema_version == SCHEMA_VERSION
     assert project.sweep.altitudes_km == [11.0]
     assert project.settings.freestream.altitude_km == 11.0
     assert (project.cases[0].altitude_km, project.cases[0].restart) == (11.0, "previous")

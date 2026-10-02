@@ -65,8 +65,8 @@ def banner(kind: BannerKind, text: str) -> ui.label:
 _OPEN_GROUPS: set[str] = set()  # warning groups the user opened (by marker), kept while the server runs
 
 
-def warning_group(messages: Sequence[str], *, mark: str) -> ui.expansion:
-    """Warnings folded into one amber row ("3 warnings"), opened with a click; errors stay banners.
+def warning_group(messages: Sequence[str], *, mark: str, label: Optional[str] = None) -> ui.expansion:
+    """Warnings folded into one amber row ("3 warnings", or `label`), opened with a click; errors stay banners.
 
     It stays open or closed as the user left it, also when the page is redrawn."""
     count = len(messages)
@@ -74,7 +74,7 @@ def warning_group(messages: Sequence[str], *, mark: str) -> ui.expansion:
     def remember(event) -> None:
         (_OPEN_GROUPS.add if event.value else _OPEN_GROUPS.discard)(mark)
 
-    with ui.expansion(f"{count} warning{'' if count == 1 else 's'}", icon="warning", value=mark in _OPEN_GROUPS,
+    with ui.expansion(label or f"{count} warning{'' if count == 1 else 's'}", icon="warning", value=mark in _OPEN_GROUPS,
                       on_value_change=remember).classes("as-warn-group w-full").mark(mark) as group:
         for message in messages:
             ui.label(message).classes("as-warn-line")
@@ -90,12 +90,39 @@ def ok_line(text: str) -> ui.label:
 
 @contextmanager
 def card(title: Optional[str] = None, subtitle: Optional[str] = None, *,
-         flush: bool = False) -> Iterator[ui.column]:
-    """A white card; `flush` drops the padding for a card that holds a table."""
+         flush: bool = False, fold: Optional[str] = None) -> Iterator[ui.column]:
+    """A white card; `flush` drops the padding for a card that holds a table; `fold` (a key) gives it a button
+    that folds it down to its title row."""
     with ui.column().classes("as-card w-full" + (" as-card-flush" if flush else "")) as box:
-        if title is not None or subtitle is not None:
+        if fold is not None:
+            with card_head(title, subtitle):
+                ui.space()
+                fold_button(box, fold)
+        elif title is not None or subtitle is not None:
             card_head(title, subtitle)
         yield box
+
+
+_FOLDED: set[str] = set()  # cards the user folded (by key), kept while the server runs
+
+
+def fold_button(box: ui.element, key: str) -> ui.button:
+    """A chevron for a card's title row: folds the card `box` down to that row and opens it again. Folded cards
+    stay folded when the page is drawn again."""
+    def apply() -> None:
+        folded = key in _FOLDED
+        box.classes(**({"add": "as-card-folded"} if folded else {"remove": "as-card-folded"}))
+        button.props(f'icon={"expand_more" if folded else "expand_less"}')
+        button.props(f'title="{"Open" if folded else "Fold"} this card"')
+
+    def toggle() -> None:
+        (_FOLDED.discard if key in _FOLDED else _FOLDED.add)(key)
+        apply()
+
+    button = ui.button(icon="expand_less", color=None, on_click=toggle).props("flat round dense size=sm").mark(
+        f"fold-{key}")
+    apply()
+    return button
 
 
 def card_head(title: Optional[str] = None, subtitle: Optional[str] = None) -> ui.row:

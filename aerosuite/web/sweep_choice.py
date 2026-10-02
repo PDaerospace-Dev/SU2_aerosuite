@@ -20,10 +20,11 @@ def set_sweep(frame: ProjectFrame, on: bool, then: Optional[Callable[[], None]] 
         ui.notify(message, type="negative")
 
 
-def sweep_radio(frame: ProjectFrame, *, mark: str) -> ui.radio:
+def sweep_radio(frame: ProjectFrame, *, mark: str, then: Optional[Callable[[], None]] = None) -> ui.radio:
     """Setup's two large choices."""
     return ui.radio(LONG, value=frame.session.project.sweep.enabled,
-                    on_change=lambda e: set_sweep(frame, e.value)).props("inline").classes("as-choice").mark(mark)
+                    on_change=lambda e: set_sweep(frame, e.value, then)).props("inline").classes("as-choice").mark(
+        mark)
 
 
 def sweep_toggle(frame: ProjectFrame, *, mark: str, then: Callable[[], None]) -> ui.toggle:

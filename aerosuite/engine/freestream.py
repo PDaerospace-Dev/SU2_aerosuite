@@ -64,7 +64,7 @@ def naming_altitude(project: Project) -> str:
     return label_for(project, project.settings.freestream.altitude_km)
 
 
-def _altitude_error(altitude_km: Optional[float]) -> Optional[str]:
+def altitude_error(altitude_km: Optional[float]) -> Optional[str]:
     if altitude_km is None:
         return "Freestream from altitude needs an altitude (0–100 km)"
     if not math.isfinite(altitude_km) or not ALTITUDE_MIN_KM <= altitude_km <= ALTITUDE_MAX_KM:
@@ -89,10 +89,10 @@ def freestream_setup_errors(source) -> list[str]:
         else:
             altitudes = [fs.altitude_km]
             errors = []
-        errors += [e for e in map(_altitude_error, altitudes) if e]
+        errors += [e for e in map(altitude_error, altitudes) if e]
     else:
         fs = source
-        errors = [e for e in (_altitude_error(fs.altitude_km),) if e]
+        errors = [e for e in (altitude_error(fs.altitude_km),) if e]
     length = _length_error(fs)
     return errors + ([length] if length else [])
 
@@ -102,7 +102,7 @@ def freestream_values(fs: Freestream, mach: float, altitude_km=_FROM_SETTINGS) -
     ProjectError when they cannot be computed."""
     if altitude_km is _FROM_SETTINGS:
         altitude_km = fs.altitude_km
-    error = _altitude_error(altitude_km) or _length_error(fs)
+    error = altitude_error(altitude_km) or _length_error(fs)
     if error:
         raise ProjectError(error)
     if not mach > 0:

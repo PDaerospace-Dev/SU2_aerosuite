@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import matplotlib
+import psutil
 import pytest
 
 # Legacy results code imports pyplot at module import; never open a window in tests.
@@ -64,11 +65,55 @@ def kill_project_jobs():
     return _kill_project_jobs
 
 
+def _stray_sweeps(folder: Path) -> list[psutil.Process]:
+    """Fake sweep processes still running whose command line names a path under `folder`."""
+    folder = Path(folder).resolve()
+    strays = []
+    for proc in psutil.process_iter(["cmdline", "status"]):
+        args = proc.info["cmdline"] or []  # None: a process we may not inspect
+        if proc.info["status"] == psutil.STATUS_ZOMBIE or not any(Path(a).name == FAKE_SWEEP.name for a in args):
+            continue
+        if any(folder in Path(a).parents for a in args):
+            strays.append(proc)
+    return strays
+
+
+def _kill_strays(folder: Path) -> list[str]:
+    """Kill every fake sweep left under `folder`; one line (pid and command) for each."""
+    lines = []
+    for proc in _stray_sweeps(folder):
+        try:
+            lines.append(f"  pid {proc.pid}: {' '.join(proc.cmdline())}")
+            kill_tree(proc.pid)
+        except psutil.Error:
+            pass  # it ended meanwhile
+    return lines
+
+
+@pytest.fixture
+def stray_sweeps():
+    return _stray_sweeps
+
+
+@pytest.fixture(scope="session", autouse=True)
+def no_fake_sweep_outlives_the_session(tmp_path_factory):
+    """Kill and report any fake sweep of this session's temp folder that is still running at the end.
+
+    Only this session's: fake sweeps under another pytest session's folder are left alone.
+    """
+    yield
+    killed = _kill_strays(tmp_path_factory.getbasetemp())
+    if killed:
+        pytest.fail("Fake sweeps were still running at the end of the session (killed now):\n" + "\n".join(killed))
+
+
 @pytest.fixture
 def ready_project(tmp_path):
     """A saved project with template, mesh, three cases and the fake sweep script.
 
-    On teardown every job the test started is killed, so no fake sweep outlives its test.
+    On teardown every job the test started is killed, so no fake sweep outlives its test. A fake sweep
+    that is still running after that belongs to no job record (e.g. a cancel that missed it): it is
+    killed and the test fails.
     """
     project_dir = tmp_path / "study"
     project_dir.mkdir()
@@ -88,3 +133,6 @@ def ready_project(tmp_path):
     save_project(project_dir, project)
     yield project_dir, project
     _kill_project_jobs(project_dir)
+    killed = _kill_strays(tmp_path)
+    if killed:
+        pytest.fail("Fake sweeps outlived the test and its job records (killed now):\n" + "\n".join(killed))

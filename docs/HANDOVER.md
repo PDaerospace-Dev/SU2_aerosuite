@@ -1,118 +1,153 @@
 # Handover: continuing AeroSuite on the workstation
 
-Written 2026-09-28 when development moved from the Windows dev PC to the Linux workstation. It holds
-what the code and git history do not: the machine setup, where each branch stands, the decisions taken
-along the way and what is still open. Read it first in a new session; keep it current or fold it into
-a CLAUDE.md.
+Started 2026-09-28 when development moved from the Windows dev PC to the Linux workstation; last updated
+2026-09-30. It holds what the code and git history do not: the machine setup, where the branch stands, the
+decisions taken along the way and what is still open. Read it first in a new session; keep it current or fold it
+into a CLAUDE.md.
 
 ## The workstation
 
-- `pdas@pdas-Super-Server`, Ubuntu (glibc 2.39).
-- `python3` is conda base **Python 3.7.6**, which imports SU2; `SU2_RUN=/usr/local/bin`.
-- AeroSuite itself runs in its own **uv-managed Python 3.12** environment (`uv sync`, then `uv run …`).
-  The sweep script `aerosuite/resources/aoa_sweep_v8.py` must keep running under the conda 3.7.6
-  interpreter: keep it Python 3.7 compatible, and never resolve the sweep interpreter inside
-  AeroSuite's own venv. Set `export AEROSUITE_SWEEP_PYTHON="$(which python3)"` in a shell where conda
-  base is active, or set *Setup → Advanced → Python for the sweep script*.
-- The user reaches it from Windows with MobaXterm. The web UI (`uv run aerosuite serve`; `--root` only sets where the
-  file picker starts, default home)
-  listens on 127.0.0.1:8080 only; from the PC it needs an SSH tunnel
-  (`ssh -L 8080:127.0.0.1:8080 pdas@<workstation>`, or MobaXterm's Tunneling tool), then
-  http://localhost:8080.
-- User profiles live in `~/.aerosuite/profiles/` (override with `AEROSUITE_HOME`; the tests do).
+- `pdas@pdas-Super-Server`, Ubuntu (glibc 2.39), 64 cores; on the user's Tailscale network as
+  `pdas-super-server` / `100.111.93.91`. Other machines share that network, so the web UI stays on 127.0.0.1.
+- `python3` is conda base **Python 3.7.6**, which imports SU2 (`SU2_RUN=/usr/local/bin`, `PYTHONPATH` set in
+  `~/.bashrc`, interactive shells only). SU2's QuickStart case is in `~/SU2/QuickStart` (useful for real runs).
+- AeroSuite runs in its own **uv-managed Python 3.12** environment (`uv sync`, then `uv run …`). The sweep
+  script `aerosuite/resources/aoa_sweep_v8.py` must keep running under conda 3.7.6: keep it Python 3.7
+  compatible and never resolve the sweep interpreter inside AeroSuite's venv (`AEROSUITE_SWEEP_PYTHON`, or
+  *Setup → Advanced → Python for the sweep script*).
+- **Starting the web UI:** `aeroweb` (a function in `~/.bash_aliases`) runs `aerosuite serve` from any folder with
+  the conda sweep Python set; port 8080 on 127.0.0.1. Inside `tmux new -s aero` it survives logging out.
+- **From the Windows PC:** an SSH tunnel with Windows' own OpenSSH, `ssh -N -L 8080:127.0.0.1:8080
+  pdas@100.111.93.91` (the user has an `AeroSuite.bat` for it), then http://localhost:8080. The user stopped
+  using MobaXterm. The Claude app opens a short SSH connection per operation; with a passphrase key it asks each
+  time unless the Windows `ssh-agent` service runs and the key is added (`ssh-add`) — advised, not confirmed.
+- User profiles in `~/.aerosuite/profiles/`, user packages in `~/.aerosuite/packages/` (`AEROSUITE_HOME`
+  overrides; the tests do).
+- No GitHub login is stored for git and `gh` is not installed: **the user pushes** (`git push origin
+  feat/web-ui-refresh`) and opens pull requests in the browser.
 
 ## How the user works
 
-- The user maintains the code; Claude writes most of it. Work goes phase by phase with approval
-  gates: propose, get a yes, then build test-first, commit in small logical commits.
-- The user tests on the workstation with real meshes and templates and sends back a list of comments.
-  Answer each with an opinion and a recommendation first; ask only where the choice is theirs.
-- Only commit when asked or as part of an agreed batch; push only when asked.
-- The user writes briefly; they appreciate short, plain summaries with what to try next.
+- The user maintains the code; Claude writes most of it. Work goes phase by phase with approval gates: propose
+  (with screenshots of a working prototype when it is UI: the user asks "show screenshots"), get a yes, write a
+  spec and plan in `docs/superpowers/`, then build test-first in small commits.
+- The user tests on the workstation with real data and sends back comments. Answer each with an opinion and a
+  recommendation first; ask only where the choice is theirs.
+- Commit as part of an agreed batch; push only when asked (and the user does the push, see above).
+- The user writes briefly and wants short, plain summaries with what to try next.
+- Studies are not only external aerodynamics (ducts, internal flow): nothing may assume CL/CD exist.
 
-## Branches
+## Branch
 
-All work is stacked, newest last; none is merged into `main`:
+Everything is on **`feat/web-ui-refresh`**, stacked on `feat/engine-phase-0-1` → `feat/cli-phase-2` →
+`feat/web-phase-3a` → `feat/web-run-monitor`. `origin/main` was merged into it on 2026-09-29 (`3417955`: main's
+V3 README; its committed `.pyc` files and `aerosuite.egg-info/` were then removed, `8532620`). The user chose a
+**pull request into `main`**: https://github.com/PDaerospace-Dev/SU2_aerosuite/compare/main...feat/web-ui-refresh
+— not opened yet as far as this session knows. On 2026-09-30 the branch was **22 commits ahead** of the copy of
+it GitHub last showed this workstation; the user needs to push before the PR shows them.
 
-`feat/engine-phase-0-1` → `feat/cli-phase-2` → `feat/web-phase-3a` → `feat/web-run-monitor` →
-**`feat/web-ui-refresh`** (current; contains everything below).
-
-The user decided to keep the branches as they are for now; the merge into `main` is still to be
-decided. Specs and implementation plans for each phase are in `docs/superpowers/specs/` and
-`docs/superpowers/plans/`; the architecture is in
+Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`; architecture:
 `docs/superpowers/specs/2026-09-21-aerosuite-web-architecture-design.md`.
 
 ## What exists (short)
 
-- `aerosuite/engine/`: all logic, no UI imports. Projects (`project.json`, schema 4), config
-  generation, sweeps and naming, restarts, profiles, ISA / y+, job running (`jobs/`: LocalRunner,
-  job records in `jobs/<id>.json`, log `jobs/<id>.log`, per-job configs in `jobs/<id>/configs`).
-- `aerosuite/cli/`: `aerosuite new/show/set/edit/generate/run/status/cancel/summarize/serve`.
-- `aerosuite/web/`: the NiceGUI web UI. Pages: Projects, Profiles, Setup, CFG setup (general cases),
-  Aircraft (aircraft studies; has Preview | Template | SU2 reference tabs), Sweep, Run (Cases | Job
-  history tabs), Monitor, Calculators (also a panel from the right on every page). A log panel opens
-  from the bottom of every project page. Look lives in `theme.py`; building blocks in `ui_kit.py`.
-- The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python
-  run_aerosuite.py`); it is retired in a later phase.
-- Tests: `uv run pytest` (756 passing, 1 Windows-only skip, on the workstation 2026-09-29). Web tests use NiceGUI's simulated
-  user; `tests/fixtures/fake_sweep.py` stands in for SU2; `tests/engine/test_sweep_script.py` runs the
-  real sweep script against a stand-in `SU2` package.
+- `aerosuite/engine/`: all logic, no UI imports. Projects (`project.json`, **schema 7**), config generation,
+  sweeps (Mach, α, β, altitude) and naming, restarts, profiles, ISA / y+, job running (`jobs/`: LocalRunner
+  through `sweep_wrapper.py`, job records `jobs/<id>.json`, logs, per-job configs), results (`results.py`,
+  `study_results.py`, `formula.py`, `packages.py`) and imported runs (`imported.py`).
+- `aerosuite/cli/`: `aerosuite new/show/set/edit/generate/run/status/cancel/summarize/serve/import`.
+- `aerosuite/web/`: the NiceGUI web UI. Pages: Projects (open, **Import SU2 runs**, new), Profiles, Setup, CFG setup
+  (general cases) or Aircraft (aircraft studies), Sweep, Run, Monitor, **Results**, Calculators (also a panel
+  from the right). A log panel opens from the bottom of project pages. Look in `theme.py`, building blocks in
+  `ui_kit.py`; NiceGUI-free rules beside the pages (`results_view.py`, `results_charts.py`, `calculators/*_rules.py`).
+- The legacy PyQt5 app (`aerosuite/main.py`, `ui/`, `core/`) still runs (`uv run python run_aerosuite.py`); it
+  is retired in a later phase.
+- Tests: `uv run pytest -q -p no:cacheprovider` — **955 passed, 1 Windows-only skip** (2026-10-02, ~4 min; up to
+  7 min when the workstation is busy with other jobs). Web tests use NiceGUI's simulated user;
+  `tests/fixtures/fake_sweep.py` stands in for SU2. A fake sweep still running when its test ends fails that
+  test (see the working notes).
 
-## Workstation feedback already done
+## Checked on the workstation
 
-First round (2026-09-28): the restart fix in `aoa_sweep_v8.py` (a `previous` case after a failed one
-starts fresh with `RESTART_SOL= NO`), Setup highlights the chosen mesh/template, partitions first with
-the rest under Advanced, Mach in Freestream, Preview/Reference tabs, sweep switch on the config page,
-no Configs step, collapsible failure details on Run. The user confirmed all of it works.
+- Rounds one and two of the user's feedback (2026-09-28), the altitude sweep: the user confirmed them.
+- With real SU2 (QuickStart NACA 0012, 2 ranks), by Claude: the sweep's exit code (a killed sweep fails the case it
+  was running, "killed by signal 9"); Cancel from the Run page ("Cancelling…", other pages answer within 0.35 s,
+  nothing left running).
+- In headless Chrome, by Claude: the line-numbered template editor (saving after a pause, on Ctrl+S, on leaving),
+  folded warnings, the Freestream card, the Results page on demo data, an imported demo folder. Still for the user:
+  clicking into the editor's text with the mouse in a real window.
 
-Second round (2026-09-28, commits `e5299a0`..`414b14e`; the user confirmed it all works on the workstation
-2026-09-29):
+## Not yet checked by the user
 
-- the template copy keeps its file name; the previous copy is removed;
-- job names are `YYYYMMDD-HHMM` (then `-2`, `-3` in the same minute). Because names are unique only
-  within a project, `LocalRunner` keys its caches by (project folder, job id);
-- Config page renamed **CFG setup**; aircraft studies don't show it (Aircraft has a Template tab,
-  the sweep switch and Generate);
-- log panel at the bottom (Log button; the top bar's "Running 3/32" opens it); Run's Job history tab;
-- Calculators as a panel from the right;
-- profiles also store the mesh path, sweep and run settings; `/profiles` page to edit them (editing
-  a bundled profile saves the user's copy; Reset restores the bundled one).
+- **Results page** (spec `2026-09-29-results-design.md`, commits `e31a474`..`5214edd`): open Results on a finished
+  real study, choose parameters (the picker), add a derived value (e.g. `CL / CD`, or a force with `q_inf * S_ref`)
+  and a plot, compare a second study (+ Add design), Copy table, Export CSV, Save as package.
+- **Import SU2 runs** (spec `2026-09-30-import-runs-design.md`, commits `af6a0c9`..`ab1288e`): import a real folder
+  of old runs (Projects page card, or `aerosuite import`), check the scan's values and warnings, look at it on
+  Results and Monitor, Rescan after adding a folder.
 
-Altitude sweep (2026-09-29, commit `4326026`, spec `docs/superpowers/specs/2026-09-29-altitude-sweep-design.md`;
-the user confirmed it works on the workstation 2026-09-29): in *From altitude* mode the Sweep page has an
-**Altitudes (km)** list next to Mach, α, β; altitude is the outermost loop; each case gets its own label,
-temperature and Reynolds number; Set all → Previous starts each altitude block fresh; schema 5 moves the one
-altitude into the list. A single case keeps one altitude on the Aircraft page.
+- **Cancel right after Run on a real job** (fix `d9ffccb`, 2026-10-02): press Cancel within a second of Submit
+  and check with `ps` that no `mpirun` / `SU2_CFD` is left. Tested only on Linux with the fake sweep, not with
+  real `mpirun` and not on Windows.
 
 ## Decisions worth knowing
 
-- No login/token in the web UI yet (spec §7 known risk); it listens on 127.0.0.1 unless
-  `--host … --i-understand-no-auth`.
-- ISA uses the US76/SU2 Sutherland constants, so its viscosity and Reynolds number differ ~4% from the
-  old PyQt app (the old app was wrong).
-- Altitude sweeps only in *From altitude* mode (in *Set by hand* the altitude is just a name label). A sweep's
-  altitudes are `sweep.altitudes_km`, a single case's is `freestream.altitude_km` (like Mach: sweep list vs
-  template); neither is copied into the other.
-- Restart options are only `none` / `previous` / `custom`; the job's own copy of each cfg gets
-  `RESTART_SOL` set from its line; the template and `configs/` are never changed by a run.
-- The bundled `aerosuite/resources/config_template.cfg` is SU2's original reference setup: never edit it
-  (e.g. its two `FREESTREAM_TEMPERATURE` lines, flow and solid zone, stay; AeroSuite sets both and warns).
-- Jobs run through `engine/jobs/sweep_wrapper.py` (AeroSuite's Python, `-I`), which records the sweep
-  script's exit code in `jobs/<id>.exit` (kept as `exit_code` in the job record); an abnormal end fails the
-  case that was running. The web cancels in a worker thread (`run.io_bound`).
-- Results page is a separate, later design; until then `aerosuite summarize`.
+- No login in the web UI (spec §7 known risk); it listens on 127.0.0.1 unless `--host … --i-understand-no-auth`.
+  Keep it behind the SSH tunnel: the Tailscale network is shared.
+- ISA uses the US76/SU2 Sutherland constants (viscosity and Reynolds number ~4% off the old PyQt app, which was
+  wrong).
+- Altitude sweeps only in *From altitude* mode; a sweep's altitudes are `sweep.altitudes_km`, a single case's is
+  `freestream.altitude_km`; neither is copied into the other.
+- Restart options are only `none` / `previous` / `custom`; each job's own cfg copy gets `RESTART_SOL`; the
+  template and `configs/` are never changed by a run.
+- The bundled `resources/config_template.cfg` is SU2's original reference setup: never edit it.
+- Jobs run through `engine/jobs/sweep_wrapper.py` (AeroSuite's Python, `-I`), which records the exit code in
+  `jobs/<id>.exit` (kept as `exit_code`); the web cancels in a worker thread (`run.io_bound`).
+- `store.kill_tree` **suspends each process before listing its children**, then terminates and resumes it
+  (2026-10-02). Listing first and signalling after let a child started in between live on with no parent: a
+  Cancel right after Run killed the wrapper and left the sweep (SU2) running. Keep that order.
+- **Results:** parameters are history columns (grouped from SU2 names in `results.group_of`), chosen per study
+  (`project.results`; `None` = not chosen yet, `[]` = cleared on purpose). Derived values and characteristic values
+  are formulas read by `engine/formula.py` (an `ast` reader with an allowed list; **never `eval`**); derived values
+  use averaged values (ratio of averages); a characteristic value's curve runs along its curve function's X (α by
+  default). Convergence is judged on the chosen history parameters (none → "not judged"). Packages combine at read
+  time (`packages.effective`), so switching one off removes what it brought; the bundled *aero* package
+  (`resources/packages/aero.json`) switches on by itself when the history has CL, CD and CMy. Compared studies are
+  read with the current study's definitions.
+- **Imported runs:** one folder per case (`.cfg` + history), found up to 4 levels down (group folders; study and
+  hidden folders left out; only case-like folders reported as skipped); clashing folder names → `group/folder`,
+  Config = group;
+  values from the cfg (`MACH_NUMBER`, `AOA`, `SIDESLIP_ANGLE`, `FREESTREAM_TEMPERATURE`), else the folder name read
+  part by part (`M2p5`, `30km`/`11000m`/`sl`, `a50`/`an4`/`a5m`, `b6`, `T200K`, the rest = Config). **The cfg wins**;
+  identical disagreements are grouped. The study holds only `project.json` and never writes the source; it shows
+  only Results and Monitor. Reading only: re-running imported cases was deferred by the user.
+- **Layouts (2026-09-30, user's choices):** Results = conditions strip + icon strip whose panels open over
+  full-width plots ("F"; no hover box, no per-case list); with one study each plot line has its own colour.
+  Projects = recent list with a filter + one card with New / Open / Import tabs ("B"). Mockups in
+  `docs/superpowers/specs/assets/2026-09-30-layout/`.
+- **Run page (2026-10-02, the user's choice "B"):** cases on the left by study size (`web/run_view.py`: a case
+  card for one case, a plain list, or the list folded by Mach and altitude from 13 cases with more than one group),
+  a panel on the right that stays in view: ticked cases, cores per case, Submit — or the running job with elapsed
+  and a rough time left, Cancel — then checks (warnings folded), the machine (`engine/machine.py`: cores, free now,
+  memory, who uses the cores) and the last job. No small convergence plot on the case card (Monitor link instead).
+- **Setup and Sweep (2026-10-02, the user's choices "A" and "D"):** Setup is four steps in one card (the path box
+  opens with Change…) and a panel with the project, what is ready and the next page. Sweep has two tabs: Conditions
+  (lists shown as `from:to:step` when evenly spaced, one restart rule, "What this makes") and Cases (restart in
+  words, Change per row, folded by Mach and altitude from 13 cases). The restart rule is not stored: it is the one
+  the most cases follow (`web/sweep_view.detect_rule`), the others are "set differently"; choosing a rule sets
+  every case. Aircraft cards fold (`ui_kit.fold_button`, remembered while the server runs).
+- On the Results page **Config** (a label: filters, columns, splits lines, never an X axis) and **Temperature** (a
+  number) are case variables for every study. A variable fixed by the other splitting ones does not split lines.
 
-## Open items
+## Open items and next steps
 
-Done 2026-09-29 and checked on the workstation with real SU2 (QuickStart NACA 0012, 2 ranks):
-- the sweep's exit code is recorded (`f7987a4`): the sweep script and SU2 killed mid-case (SIGKILL) gave
-  that case Failed "The sweep stopped during this case (killed by signal 9)", the rest "stopped before this
-  case started", exit code -9, no SU2 left;
-- Cancel from the Run page (`46abec2`): "Cancelling…" shown, other pages answered within 0.35 s meanwhile,
-  job and cases Cancelled, no SU2 or lock left (this cancel took 1.4 s);
-- `ed2882c` (line-numbered template editor, folded warnings, Freestream card): checked in headless Chrome
-  (saving after a pause, on Ctrl+S and on leaving; warnings row; mode toggle). Still for the user: clicking
-  into the editor text with the mouse in a real window.
+Next, in the order recommended to the user on 2026-09-30:
+
+1. The user checks Results and Import on real data (above) and sends comments.
+2. The user pushes and opens the PR into `main`.
+3. Candidate features the user has mentioned or been offered: re-running imported cases (deferred); experimental
+   or reference data from a CSV as a Results overlay; a PDF report of the plots and tables; recording more per
+   imported case (mesh, other cfg values); retiring the PyQt5 app.
 
 Known smaller items (from reviews; none blocking):
 
@@ -120,12 +155,34 @@ Known smaller items (from reviews; none blocking):
   keyboard-reachable.
 - `BREAKDOWN_FILENAME` is relative (files land in `runs/`); an all-NaN history column counts as converged;
   `write_lock` creates the file before writing it.
-- CLI `show`/`set` don't surface the profile or sweep-off state.
-- On Windows the test `test_losing_the_lock_race_leaves_nothing_behind` flaked once.
+- CLI `show`/`set` don't surface the profile or sweep-off state of AeroSuite studies.
+- AeroSuite studies in altitude mode do not record each case's temperature in `cases.json`, so their Results page
+  has no Temperature column (imported studies do).
+- With many unrelated sweeps in one study (e.g. an imported folder mixing a β sweep and an α sweep), plots get many
+  single-point lines and a paged legend; filters help.
+- On Windows the test `test_losing_the_lock_race_leaves_nothing_behind` flaked once (before the `kill_tree` fix
+  of 2026-10-02, which may have been the cause; not rerun on Windows since).
+- `kill_tree` can still miss a child that a process starts from its own SIGTERM handler after it is resumed.
 
 ## Working notes for Claude
 
-- NiceGUI 3.17: `refreshable.refresh()` is fire-and-forget, so pages that tests read right after a
-  change rebuild synchronously (`box.clear()` then redraw) instead.
+- NiceGUI 3.17: `refreshable.refresh()` is fire-and-forget, so pages that tests read right after a change rebuild
+  synchronously (`box.clear()` then redraw) instead.
 - Tests that open dialogs must `await user.should_see(marker=…)` before clicking inside them.
-- On Windows, git checks files out with CRLF; that won't matter on Linux.
+- `ui.navigate.to` called while a page is being built never reaches a real browser (the simulated user does get
+  it): issue it from `ui.timer(0, …, once=True)`.
+- NiceGUI's simulated `ui.download.file(path)` fetches the path as a URL; use `ui.download.content(bytes, name)`
+  and check it with `await user.download.next()`.
+- Checking in a real browser: headless Chrome's `--screenshot` flag can capture a page before a client-side
+  navigation; drive Chrome over the DevTools protocol instead (a script with `websockets` + `httpx`, both in the
+  venv) and read `location.pathname`. The Claude-in-Chrome extension was not connected in this setup.
+- A test server for screenshots on port 8093 (`uv run aerosuite serve --port 8093 --root <scratch>`) keeps port
+  8080 free for the user's own `aeroweb`.
+- **Leaked fake sweeps:** `ready_project` kills the jobs in the project's records, then any `fake_sweep.py`
+  whose command line is under the test's temp folder, and fails the test if it found one; a session fixture
+  (`no_fake_sweep_outlives_the_session` in `tests/conftest.py`) does the same for the session's temp folder.
+  Other pytest sessions' sweeps are never touched. `ps -eo pid,etimes,args | grep "fixtures/fake_swee[p].py"`
+  should print nothing when no suite is running (57 left by earlier runs were killed on 2026-10-02). Such a
+  failure means a kill or cancel missed a process: look at the engine, not at the fixture.
+- The workstation is shared and often busy (load ~60): the suite's time varies; don't read slowness as a bug
+  without checking `uptime`.

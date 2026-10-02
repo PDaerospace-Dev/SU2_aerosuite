@@ -128,6 +128,50 @@ def test_kill_tree_kills_children(tmp_path):
     assert not any(process_alive(pid, ct) for pid, ct in tracked)
 
 
+def test_kill_tree_kills_a_child_started_while_the_tree_is_listed(tmp_path, monkeypatch):
+    """Cancel right after Run: the wrapper starts the sweep after its children were listed."""
+    go, child_pid = tmp_path / "go", tmp_path / "child.pid"
+    code = (
+        "import os, subprocess, sys, time\n"
+        f"go, out = {str(go)!r}, {str(child_pid)!r}\n"
+        "while not os.path.exists(go):\n"
+        "    time.sleep(0.01)\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        "open(out + '.tmp', 'w').write(str(child.pid))\n"
+        "os.replace(out + '.tmp', out)\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen([sys.executable, "-c", code])
+    list_children = psutil.Process.children
+
+    def children_then_a_new_child(self, recursive=False):
+        listed = list_children(self, recursive=recursive)
+        if self.pid == proc.pid and not go.exists():
+            go.write_text("")  # the parent may start its child now: too late to be in `listed`
+            deadline = time.monotonic() + 0.5
+            while not child_pid.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+        return listed
+
+    monkeypatch.setattr(psutil.Process, "children", children_then_a_new_child)
+    try:
+        kill_tree(proc.pid)
+        proc.wait(timeout=10)
+        assert go.exists()
+        if child_pid.exists():  # the child got started: it must be gone as well
+            assert not _running_pid(int(child_pid.read_text()))
+    finally:
+        if child_pid.exists() and _running_pid(int(child_pid.read_text())):
+            psutil.Process(int(child_pid.read_text())).kill()
+
+
+def _running_pid(pid: int) -> bool:
+    try:
+        return psutil.Process(pid).status() != psutil.STATUS_ZOMBIE
+    except psutil.NoSuchProcess:
+        return False
+
+
 def test_kill_tree_on_dead_pid_is_harmless():
     kill_tree(2**22 + 12345)
 

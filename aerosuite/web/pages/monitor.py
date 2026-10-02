@@ -24,14 +24,14 @@ MAX_POINTS = 2000  # per series; longer histories are thinned evenly
 
 def register() -> None:
     @ui.page("/monitor")
-    def monitor_page(project: str = "") -> None:
+    def monitor_page(project: str = "", case: str = "") -> None:
         session = open_session(project)
         if session is None:
             return
         pages: list = []
         frame = ProjectFrame(session, "monitor", on_reload=lambda: pages[0].render() if pages else None)
         with frame.content:
-            pages.append(MonitorPage(frame))
+            pages.append(MonitorPage(frame, case or None))
 
 
 def iteration_values(df) -> list:
@@ -154,10 +154,10 @@ def _replace_options(chart, options: dict) -> None:
 
 
 class MonitorPage:
-    def __init__(self, frame: ProjectFrame) -> None:
+    def __init__(self, frame: ProjectFrame, case: Optional[str] = None) -> None:
         self.frame = frame
         self.mode = "case"  # or "file"
-        self.case: Optional[str] = None
+        self.case: Optional[str] = case  # e.g. a point clicked on the Results page; else the default case
         self.file_path: Optional[Path] = None
         self.stopped = False
         self.normalize = False
@@ -254,6 +254,14 @@ class MonitorPage:
         self.columns_shape, self.chart_shape, self.chart, self.df = (), None, None, None
 
     def _case_content(self, view: JobView) -> _Content:
+        imported = self.frame.session.project.imported
+        if imported is not None:  # a read-only study: the case's own history file, no jobs
+            record = next((case for case in imported.cases if case.name == self.case), None)
+            if record is None:
+                return _Content(None, "not-run", "", "")
+            df = WATCHER.file_history(Path(record.history))
+            state = "no-history" if df is None or df.empty else "chart"
+            return _Content(df, state, f"{self.case} · imported", record.history)
         row = self._row(view)
         if row is None or row.status == NOT_RUN:
             return _Content(None, "not-run", "", "")

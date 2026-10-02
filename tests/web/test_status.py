@@ -14,7 +14,7 @@ def test_ready_project(ready_project):
     project_dir, project = ready_project
     assert step_badges(project_dir, project) == {
         "setup": "done", "config": "done", "aircraft": "done", "sweep": "todo",  # configs not generated yet
-        "run": "todo", "monitor": "plain", "results": "later",
+        "run": "todo", "monitor": "plain", "results": "plain",
     }
 
 
@@ -143,3 +143,14 @@ def test_an_aircraft_studys_badge_carries_the_template_and_generate(ready_projec
     assert step_badges(project_dir, project)["aircraft"] == "done"
     (project_dir / TEMPLATE_FILE).write_text("AOA= 1\nAOA= 2\n")
     assert step_badges(project_dir, project)["aircraft"] == "attention"
+
+
+def test_an_imported_study_offers_results_and_monitor_only():
+    from aerosuite.engine.models import ImportedCase, ImportedRuns, Project
+    from aerosuite.web.status import project_kind, visible_steps
+
+    project = Project(name="old", imported=ImportedRuns(source="/old", cases=[
+        ImportedCase(name=f"c{i}", folder="/old", history="/old/h.csv", mach=0.8, alpha=0.0) for i in range(3)]))
+    project.cases = []
+    assert [key for key, _ in visible_steps(project)] == ["monitor", "results"]  # the usual order
+    assert project_kind(project) == "imported · 3 cases"

@@ -108,7 +108,7 @@ async def test_cancel_asks_first(user: User, ready_project, su2_env, eventually)
     user.find(marker="submit").click()
     await eventually(lambda: _text(user, f"status-{A0}") == "RUNNING", timeout=20)
     await user.should_see(marker="badge-run-running")
-    assert not _element(user, "submit").enabled
+    await user.should_not_see(marker="submit")  # one job at a time: the panel shows the running job
     user.find(marker="cancel").click()
     await user.should_see(marker="cancel-keep")
     user.find(marker="cancel-keep").click()
@@ -182,30 +182,18 @@ async def test_a_poll_with_nothing_new_does_not_rebuild_the_page(user: User, rea
     await eventually(lambda: _text(user, f"status-{A0}") == "CANCELLED", timeout=20)
 
 
-from aerosuite.engine.jobs.overview import CaseRow
-from aerosuite.web.pages.run import tile_counts
-
-
-def test_tile_counts_group_the_statuses():
-    rows = [CaseRow(n, s, None) for n, s in [("a", "CONVERGED"), ("b", "RUNNING"), ("c", "FAILED"),
-                                             ("d", "UNCONVERGED"), ("e", "CANCELLED"), ("f", "PENDING"),
-                                             ("g", "NOT_RUN"), ("h", "CONVERGED")]]
-    assert tile_counts(rows) == (2, 1, 3, 2)
-
-
-async def test_tiles_pills_and_the_failure_box(user: User, ready_project, su2_env):
+async def test_counts_pills_and_the_failure_box(user: User, ready_project, su2_env):
     project_dir, project = ready_project
     _run_to_end(project_dir, project, **{A2: "fail"})
     await _open(user, project_dir)
-    assert (_text(user, "tile-converged"), _text(user, "tile-running"), _text(user, "tile-attention"),
-            _text(user, "tile-pending")) == ("2", "0", "1", "0")
+    assert (_text(user, "count-converged"), _text(user, "count-failed")) == ("2 converged", "1 failed")
+    await user.should_not_see(marker="count-running")
+    assert _element(user, "select-failed").text == "Failed 1" and _element(user, "select-all").text == "All 3"
     assert "as-pill-failed" in _element(user, f"status-{A2}").classes
     assert "as-pill-done" in _element(user, f"status-{A0}").classes
     user.find(marker=f"status-{A2}").click()
     assert "as-failure" in _element(user, f"tail-{A2}").classes
-    actions = _element(user, "page-actions")
-    assert _element(user, "submit").parent_slot.parent is actions
-    assert "as-btn-primary" in _element(user, "submit").classes
+    assert "as-btn-primary" in _element(user, "submit").classes  # in the panel on the right
 
 
 async def test_failure_details_are_collapsed_until_the_failed_status_is_clicked(user: User, ready_project, su2_env):
@@ -227,3 +215,106 @@ async def test_failure_details_are_collapsed_until_the_failed_status_is_clicked(
 
     user.find(marker=f"status-{A2}").click()
     await user.should_not_see(marker=f"tail-{A2}")
+
+
+async def test_warnings_are_folded_and_errors_stay_in_view(user: User, ready_project, monkeypatch):
+    from aerosuite.engine.project import TEMPLATE_FILE
+
+    project_dir, _ = ready_project
+    monkeypatch.delenv("SU2_RUN", raising=False)
+    template = project_dir / TEMPLATE_FILE
+    template.write_text(template.read_text() + "oops\n")
+    await _open(user, project_dir)
+    await user.should_see("SU2_RUN is not set")  # an error: a banner
+    group = _element(user, "run-warnings")
+    assert "warning" in group._props["label"] and not group.value  # folded until opened
+    with user:
+        group.open()
+    await user.should_see("is not an option or a comment")
+
+
+async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User, ready_project, monkeypatch):
+    import aerosuite.web.pages.run as page
+    from aerosuite.engine.machine import Machine
+
+    project_dir, project = ready_project
+    project.run.partitions = 16
+    save_project(project_dir, project)
+    monkeypatch.setattr(page, "machine", lambda: Machine(
+        cores=64, physical_cores=32, load=60.2, memory_total_gb=503.0, memory_free_gb=120.4, su2_processes=48))
+    from aerosuite.engine.machine import Usage
+    monkeypatch.setattr(page, "usage", lambda: [Usage("daniel", "SU2_CFD", 47.6, 48), Usage("pdas", "paraview", 1.0, 1)])
+    await _open(user, project_dir)
+    await user.should_see(marker="run-machine")
+    assert _text(user, "machine-usage") == "daniel · SU2_CFD × 48 · 47.6 cores\npdas · paraview · 1 core"
+    assert _text(user, "machine-cores") == "64 (32 physical)"
+    assert _text(user, "machine-free") == "about 4"
+    assert _text(user, "machine-memory") == "120 of 503 GB"
+    assert _text(user, "machine-su2") == "48"
+    assert _element(user, "run-partitions").value == "16"
+    assert "about 4 cores free now" in _text(user, "machine-note")
+
+
+# -- the list and the panel on the right (layout "B") ---------------------------------------------
+
+
+async def test_the_panel_says_what_will_run_and_sets_the_cores(user: User, ready_project, su2_env):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    await user.should_see(marker="run-panel")
+    assert _text(user, "run-what") == "3" and _element(user, "submit").text == "Submit 3 cases"
+    assert _text(user, "last-job") == "No job yet"
+    user.find(marker="run-partitions").clear().type("12").trigger("blur")
+    assert open_project(project_dir).run.partitions == 12
+    user.find(marker="run-partitions").clear().type("0").trigger("blur")
+    await user.should_see(marker="run-partitions-error")
+    assert open_project(project_dir).run.partitions == 12
+    user.find(marker="select-none").click()
+    assert not _element(user, "submit").enabled and _text(user, "submit-blocked") == "Tick at least one case"
+
+
+async def test_the_panel_follows_a_running_job(user: User, ready_project, su2_env, eventually):
+    project_dir, _ = ready_project
+    _plan(project_dir, **{A2: "hang"})
+    await _open(user, project_dir)
+    user.find(marker="submit").click()
+    await eventually(lambda: _text(user, f"status-{A2}") == "RUNNING", timeout=20)
+    assert _text(user, "run-what") == "2" and _text(user, "run-current") == A2  # the second of three
+    assert _text(user, "run-elapsed").startswith("Elapsed ") and "left" in _text(user, "run-elapsed")
+    assert _element(user, "run-progress").value == pytest.approx(1 / 3)
+    await user.should_not_see(marker="run-partitions")
+    user.find(marker="cancel").click()
+    await user.should_see(marker="cancel-confirm")
+    user.find(marker="cancel-confirm").click()
+    await eventually(lambda: _text(user, f"status-{A2}") == "CANCELLED", timeout=20)
+    assert "Cancelled" in _text(user, "last-job") and "3 cases" in _text(user, "last-job")
+
+
+async def test_a_single_case_is_a_card(user: User, tmp_path, su2_env):
+    from aerosuite.engine.study import create_study
+
+    create_study(tmp_path / "one", use_reference_template=True)
+    await _open(user, tmp_path / "one")
+    await user.should_see(marker="case-not-run")
+    await user.should_see(marker="case-conditions")
+    await user.should_not_see(marker="run-tabs")
+    await user.should_not_see(marker="select-all")
+    assert _element(user, "submit").text == "Run case"
+    await user.should_see(marker="history-none")
+
+
+async def test_many_cases_fold_by_mach_and_altitude(user: User, ready_project, su2_env):
+    project_dir, project = ready_project
+    update_sweep(project, mach=[0.6, 0.8], alpha=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    await user.should_see(marker="group-0")
+    await user.should_see(marker="group-1")
+    first = open_project(project_dir).cases[0].name
+    await user.should_not_see(marker=f"tick-{first}")  # folded: nothing needs attention
+    assert _text(user, "run-what") == "14"
+    user.find(marker="group-0").click()
+    await user.should_see(marker=f"tick-{first}")
+    with user:
+        _element(user, "group-tick-1").set_value(False)
+    assert _text(user, "run-what") == "7"
