@@ -300,6 +300,11 @@ a.as-step:hover { background: #f6f8fa; }
 .as-seg-pending { background: #d0d7de; } .as-seg-cancelled { background: #8c959f; }
 .as-table-compact .as-td { min-height: 34px; padding-top: 4px; padding-bottom: 4px; white-space: nowrap; }
 .as-table-compact .q-checkbox { margin-left: 6px; }
+.as-rule { cursor: pointer; padding: 9px 12px; }
+.as-rule.as-choice-selected { padding: 8px 11px; }
+.as-rule .q-icon { font-size: 18px; color: var(--as-muted); }
+.as-rule.as-choice-selected .q-icon { color: var(--as-accent); }
+.as-table-compact .as-edit-cell { white-space: normal; gap: 8px; padding-top: 8px; padding-bottom: 8px; }
 .as-group-cell { background: #f6f8fa; gap: 6px; }
 .as-group-name { cursor: pointer; }
 .as-group-name:hover { background: var(--as-hairline); }

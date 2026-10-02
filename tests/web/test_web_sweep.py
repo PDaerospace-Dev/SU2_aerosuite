@@ -12,6 +12,16 @@ async def _open(user, project_dir):
     await user.open(project_url("sweep", project_dir))
 
 
+def _cases_tab(user):
+    user.find(marker="sweep-tab-cases").click()
+
+
+def _change(user, case):
+    """Open the Cases tab and one case's restart choice."""
+    _cases_tab(user)
+    user.find(marker=f"change-{case}").click()
+
+
 def _element(user, marker):
     return next(iter(user.find(marker=marker).elements))
 
@@ -23,6 +33,8 @@ async def test_changing_mach_rebuilds_the_cases(user: User, ready_project):
     project = open_project(project_dir)
     assert project.sweep.mach == [0.6, 0.8]
     assert len(project.cases) == 6
+    assert _element(user, "sweep-count").text == "6" and _element(user, "sweep-formula").text == "= 2 Mach × 3 α × 1 β"
+    _cases_tab(user)
     await user.should_see(marker="case-M0p6_a0_b0")
 
 
@@ -49,6 +61,7 @@ async def test_naming_checkbox_changes_case_names(user: User, ready_project):
     with user:
         checkbox.set_value(False)
     assert open_project(project_dir).cases[0].name == "M0p8_a0"
+    _cases_tab(user)
     await user.should_see(marker="case-M0p8_a0")
 
 
@@ -56,6 +69,7 @@ async def test_duplicates_block_generate(user: User, ready_project):
     project_dir, _ = ready_project
     await _open(user, project_dir)
     user.find(marker="sweep-mach").clear().type("0.8, 0.8").trigger("blur")
+    _cases_tab(user)
     await user.should_see(marker="dup-M0p8_a0_b0")
     await user.should_see(marker="problem-error")
     assert not _element(user, "generate").enabled
@@ -65,6 +79,7 @@ async def test_restart_choices(user: User, ready_project, tmp_path):
     project_dir, _ = ready_project
     await _open(user, project_dir)
     await user.should_not_see(marker="initial-restart")
+    _change(user, "M0p8_a2_b0")
     select = _element(user, "restart-M0p8_a2_b0")
     assert list(select.options) == ["none", "previous", "custom"]
     with user:
@@ -142,6 +157,7 @@ async def test_browse_picks_a_case_folder(user: User, ready_project, tmp_path):
     folder.mkdir(parents=True)
     (folder / "restart_flow.dat").write_text("x")
     await _open(user, project_dir)
+    _change(user, "M0p8_a2_b0")
     with user:
         _element(user, "restart-M0p8_a2_b0").set_value("custom")
     user.find(marker="ref-browse-M0p8_a2_b0").click()
@@ -158,6 +174,7 @@ async def test_browse_picks_a_restart_file(user: User, ready_project, tmp_path):
     solution = tmp_path / "restart_flow.dat"
     solution.write_text("x")
     await _open(user, project_dir)
+    _change(user, "M0p8_a2_b0")
     with user:
         _element(user, "restart-M0p8_a2_b0").set_value("custom")
     user.find(marker="ref-browse-M0p8_a2_b0").click()
@@ -193,6 +210,7 @@ async def test_generate_is_the_primary_action_and_checks_are_banners(user: User,
 async def test_a_custom_restart_without_a_file_is_an_error_banner(user: User, ready_project):
     project_dir, _ = ready_project
     await user.open(project_url("sweep", project_dir))
+    _change(user, "M0p8_a2_b0")
     _element(user, "restart-M0p8_a2_b0").set_value("custom")
     label = _element(user, "problem-error")
     assert "as-banner-error" in label.parent_slot.parent.classes
@@ -211,7 +229,9 @@ async def test_set_all_to_previous_keeps_the_first_case_fresh(user: User, ready_
     await _open(user, project_dir)
     user.find(marker="restart-all-previous").click()
     assert _restarts(project_dir) == [("none", None), ("previous", None), ("previous", None)]
-    assert _element(user, f"restart-{A4}").value == "previous"  # the table shows it at once
+    assert "as-choice-selected" in _element(user, "restart-all-previous").classes  # the rule shows it at once
+    _cases_tab(user)
+    assert _element(user, f"restart-text-{A4}").text == f"continues from {A2}"
     await user.should_see(marker="problems-none")
 
 
@@ -283,6 +303,9 @@ async def test_altitude_mode_shows_the_altitudes_and_per_case_values(user: User,
     await user.should_see(marker="sweep-altitude-note")
     await user.should_not_see(marker="sweep-altitude")  # no typed label in altitude mode
     name = project.cases[0].name
+    assert [label.text for label in _element(user, "sweep-summary").default_slot.children][5:] == [
+        "0.8", "11 km", "216.65 K", "3.63e7", "3"]
+    _cases_tab(user)
     assert _element(user, f"alt-{name}").text == "11"
     assert _element(user, f"temp-{name}").text == "216.65 K"
     assert _element(user, f"re-{name}").text == "3.63e7"
@@ -317,8 +340,10 @@ async def test_editing_the_altitudes_sweeps_them(user: User, ready_project):
     assert project.sweep.altitudes_km == [0.0, 11.0] and len(project.cases) == 6
     first, fourth = project.cases[0].name, project.cases[3].name
     assert (first, fourth) == ("M0p8_0km_a0_b0", "M0p8_11km_a0_b0")
+    _cases_tab(user)
     assert _element(user, f"alt-{first}").text == "0"  # the table follows at once
     assert _element(user, f"temp-{first}").text == "288.15 K"
+    user.find(marker="sweep-tab-conditions").click()
     user.find(marker="restart-all-previous").click()
     assert [c.restart for c in open_project(project_dir).cases] == [
         "none", "previous", "previous", "none", "previous", "previous"]
@@ -330,6 +355,7 @@ async def test_reynolds_column_follows_a_mach_edit(user: User, ready_project):
     await _open(user, project_dir)
     user.find(marker="sweep-mach").clear().type("0.6").trigger("blur")
     name = open_project(project_dir).cases[0].name
+    _cases_tab(user)
     assert _element(user, f"re-{name}").text == "2.72e7"
 
 
@@ -337,6 +363,7 @@ async def test_an_invalid_altitude_shows_dashes(user: User, ready_project):
     project_dir, _ = ready_project
     project = _altitude_mode(project_dir, altitude_km=120.0)
     await _open(user, project_dir)
+    _cases_tab(user)
     assert _element(user, f"re-{project.cases[0].name}").text == "—"
     await user.should_see(marker="problem-error")
 
@@ -347,3 +374,59 @@ async def test_manual_mode_has_no_freestream_columns(user: User, ready_project):
     await user.should_not_see(marker=f"re-{project.cases[0].name}")
     await user.should_not_see(marker=f"alt-{project.cases[0].name}")
     assert "readonly" not in _element(user, "sweep-altitude").props
+
+
+# -- two tabs, the restart rule and the cases set differently ---------------------------------
+
+
+async def test_conditions_come_first_and_cases_are_a_tab(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    await user.should_see(marker="sweep-mach")
+    await user.should_not_see(marker=f"case-{A0}")
+    assert _element(user, "sweep-tab-cases").text == "Cases 3"
+    assert "as-choice-selected" in _element(user, "restart-all-none").classes
+    assert _element(user, "sweep-names").text == f"Names: {A0} … {A4}"
+    _cases_tab(user)
+    await user.should_see(marker=f"case-{A0}")
+    await user.should_not_see(marker="sweep-mach")
+    assert _element(user, f"restart-text-{A2}").text == "from scratch"
+
+
+async def test_a_case_set_differently_is_marked_and_the_rule_says_so(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    _change(user, A2)
+    with user:
+        _element(user, f"restart-{A2}").set_value("previous")
+    assert _restarts(project_dir)[1] == ("previous", None)
+    user.find(marker=f"change-{A2}").click()  # Done
+    assert _element(user, f"restart-text-{A2}").text == f"continues from {A0}"
+    await user.should_see(marker=f"differs-{A2}")
+    user.find(marker="sweep-tab-conditions").click()
+    assert "1 case is set differently" in _element(user, "restart-differs").text
+    user.find(marker="restart-all-none").click()  # choosing the rule sets every case
+    assert _restarts(project_dir) == [("none", None)] * 3
+    await user.should_not_see(marker="restart-differs")
+
+
+async def test_an_evenly_spaced_list_shows_as_a_range(user: User, ready_project):
+    project_dir, project = ready_project
+    update_sweep(project, alpha=[float(a) for a in range(-10, 22, 2)])
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    assert _element(user, "sweep-alpha").value == "-10:20:2"
+    assert _element(user, "sweep-formula").text == "= 1 Mach × 16 α × 1 β"
+
+
+async def test_many_cases_fold_by_mach_on_the_cases_tab(user: User, ready_project):
+    project_dir, project = ready_project
+    update_sweep(project, mach=[0.6, 0.8], alpha=[float(a) for a in range(7)])
+    save_project(project_dir, project)
+    first = open_project(project_dir).cases[0].name
+    await _open(user, project_dir)
+    _cases_tab(user)
+    await user.should_see(marker="sweep-group-1")
+    await user.should_not_see(marker=f"case-{first}")
+    user.find(marker="sweep-group-0").click()
+    await user.should_see(marker=f"case-{first}")
