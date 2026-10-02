@@ -56,6 +56,7 @@ body { background: var(--as-page); color: var(--as-text); font-family: var(--as-
 .nicegui-content { padding: 0 !important; gap: 0 !important; }
 .as-mono { font-family: var(--as-mono); font-size: 12px; }
 .as-muted, .as-hint { color: var(--as-muted); font-size: 12px; }
+.as-hint { overflow-wrap: anywhere; }
 .as-hint-warning { color: #7a5200; }
 .as-error-text { color: #a40e26; font-size: 12px; }
 .as-strong { font-weight: 500; }

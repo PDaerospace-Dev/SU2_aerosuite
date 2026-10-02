@@ -8,11 +8,14 @@ from typing import Any, Optional
 from .cfg import build_cases
 from .errors import ProjectError
 from .models import Project, Settings
+from .naming import name_part_problem
 
 MARKER_PREFIX = "MARKER_"
 REMOVE_WORD = "none"
 # Written per case from the sweep and the mesh; a project-wide value would be overwritten.
 CASE_KEYS = frozenset({"MACH_NUMBER", "AOA", "SIDESLIP_ANGLE", "MESH_FILENAME", "BREAKDOWN_FILENAME"})
+
+MAX_LIST_VALUES = 1000  # in one sweep list; a mistyped step must not build millions of values
 
 _SPLIT_RE = re.compile(r"[,\s]+")
 _KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*")
@@ -20,9 +23,12 @@ _KEY_RE = re.compile(r"[A-Z][A-Z0-9_]*")
 
 def _number(token: str, context: str) -> float:
     try:
-        return float(token)
+        value = float(token)
     except ValueError:
         raise ProjectError(f"{token!r} in {context!r} is not a number") from None
+    if not math.isfinite(value):
+        raise ProjectError(f"{token!r} in {context!r} is not a number")
+    return value
 
 
 def _expand_range(token: str) -> list[float]:
@@ -34,6 +40,8 @@ def _expand_range(token: str) -> list[float]:
         raise ProjectError(f"Range {token!r} needs a positive step")
     if stop < start:
         raise ProjectError(f"Range {token!r} has its stop below its start")
+    if (stop - start) / step >= MAX_LIST_VALUES:  # checked before anything is built
+        raise ProjectError(f"Range {token!r} makes more than {MAX_LIST_VALUES} values; use a larger step")
     count = math.floor(round((stop - start) / step, 9)) + 1
     # round() removes float noise (0.30000000000000004); + 0.0 turns -0.0 into 0.0
     return [round(start + i * step, 10) + 0.0 for i in range(count)]
@@ -51,6 +59,8 @@ def parse_value_list(text: str) -> list[float]:
             values.append(_number(token, text))
     if not values:
         raise ProjectError(f"No values given in {text!r}")
+    if len(values) > MAX_LIST_VALUES:
+        raise ProjectError(f"{len(values)} values given; a list takes at most {MAX_LIST_VALUES}")
     return values
 
 
@@ -159,6 +169,10 @@ def update_sweep(
     if altitude is not None and project.settings.freestream.mode == "altitude":
         raise ProjectError("The altitude label follows the altitudes in altitude mode "
                            "(set them on the Sweep page, or with --altitude-km)")
+    for text, what in ((altitude, "The altitude label"), (base_name, "The base name")):
+        problem = name_part_problem(text, what) if text else None  # empty: left out of the names
+        if problem:
+            raise ProjectError(problem)
     sweep = project.sweep
     changed = False
     for field, value in (("mach", mach), ("alpha", alpha), ("beta", beta), ("altitudes_km", altitudes_km)):

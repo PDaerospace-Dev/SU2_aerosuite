@@ -13,7 +13,6 @@ from typing import Mapping, Optional
 import pandas as pd
 
 from ..engine.models import PlotSpec
-from ..engine.naming import format_value
 from ..engine.study_results import SWEEP_NAMES
 from .results_view import SWEEP_LABELS, SWEEP_UNITS, VARIABLES, variable_text
 from .theme import HAIRLINE, MUTED, SERIES_COLORS

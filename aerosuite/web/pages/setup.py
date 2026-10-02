@@ -49,7 +49,7 @@ def register() -> None:
                     with _step(2, STEP_TITLES[1]):
                         _template_section(frame, panel)
                     with _step(3, STEP_TITLES[2]):
-                        _study_section(frame, panel)
+                        _study_section(frame, panel, body.refresh)
                     with _step(4, STEP_TITLES[3]):
                         _run_section(frame)
                 side = ui.column().classes("as-run-panel gap-0").mark("setup-panel")
@@ -113,7 +113,7 @@ def _panel(frame: ProjectFrame) -> None:
                 hint(f"then {rest}")
 
 
-def _study_section(frame: ProjectFrame, changed: Callable[[], None]) -> None:
+def _study_section(frame: ProjectFrame, changed: Callable[[], None], redraw: Callable[[], None]) -> None:
     project = frame.session.project
     profiles, problems = list_profiles()
     options = {"": "None (general case)", **{p.id: p.name for p in profiles}}
@@ -165,8 +165,12 @@ def _study_section(frame: ProjectFrame, changed: Callable[[], None]) -> None:
         # be refused (a stale project.json) or fail validation.
         message = frame.save(lambda p: apply_profile(frame.session.directory, p, profile, copy_template=False))
         if message is None and profile.template is not None:
-            engine_project.set_template(frame.session.directory, frame.session.project, profile.template)
+            # Saved too: set_template renames the project's template, and project.json must name the new file.
+            message = frame.save(
+                lambda p: engine_project.set_template(frame.session.directory, p, profile.template))
         ui.notify(message or f"Applied {profile.name} defaults", type="negative" if message else "positive")
+        if message is None:
+            redraw()  # the mesh, template, sweep and run settings may all have changed
 
     async def save_as() -> None:
         with ui.dialog() as dialog, ui.card().classes("w-96"):

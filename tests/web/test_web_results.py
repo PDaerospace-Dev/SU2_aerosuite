@@ -490,3 +490,25 @@ async def test_removing_a_parameter_takes_it_off_the_plots(user: User, results_p
     user.find(marker="results-choose").click()
     user.find(marker="pick-CL").click()
     await user.should_see(marker="chart-aero-0")
+
+
+async def test_a_reason_with_a_double_quote_is_one_hover_text(user: User, results_project):
+    # A reason is an error message: it can quote a name. It must stay one title, not end at the quote.
+    from aerosuite.web.ui_kit import titled
+    await _open(user, results_project)
+    with user:
+        label = titled(ui.label("x"), 'file "a b" is missing = bad')
+    assert label.props["title"] == 'file "a b" is missing = bad'
+    assert set(label.props) == {"title"}
+
+
+async def test_an_unreadable_job_does_not_break_the_page(user: User, results_project, monkeypatch):
+    from aerosuite.engine.errors import JobError
+    from aerosuite.web.pages import results
+
+    def broken(directory, project):
+        raise JobError("jobs/x.json cannot be read")
+
+    monkeypatch.setattr(results.WATCHER, "state", broken)
+    await _open(user, results_project)
+    await user.should_see(marker="results-table")

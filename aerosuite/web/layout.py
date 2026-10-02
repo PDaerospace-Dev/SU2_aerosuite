@@ -178,17 +178,19 @@ class ProjectFrame:
                 with ui.element("span").classes("as-job-bar"):
                     self._job_fill = ui.element("div").classes("as-job-fill").style("width: 0%")
             self._job.on("click", lambda: self.log.open())  # tail the running job's log
+            self._job.props('tabindex=0 role=button').on("keydown.enter", lambda: self.log.open())
             self._job.set_visibility(False)
             ParaViewMenu(self)
             _calculators_button(self)
             _help_button()
-            with ui.row().classes("as-topbar-control as-switcher").mark("project-switcher"):
+            with ui.row().classes("as-topbar-control as-switcher").props('tabindex=0 role=button').mark(
+                    "project-switcher") as switcher:
                 self._initials = ui.label("").classes("as-initials")
                 with ui.column().classes("gap-0 min-w-0"):
                     self._name = ui.label("").classes("as-switcher-name as-truncate").mark("project-name")
                     self._kind = ui.label("").classes("as-switcher-kind as-topbar-muted").mark("project-kind")
                 ui.icon("expand_more").classes("as-topbar-muted")
-                with ui.menu().mark("project-menu"):
+                with ui.menu().mark("project-menu") as menu:
                     ui.menu_item("All projects", on_click=lambda: ui.navigate.to("/")).mark("menu-all-projects")
                     ui.menu_item("Profiles", on_click=lambda: ui.navigate.to("/profiles")).mark("menu-profiles")
                     here = Path(self.session.directory).resolve()
@@ -196,6 +198,7 @@ class ProjectFrame:
                         if directory.resolve() != here:
                             ui.menu_item(directory.name, on_click=lambda d=directory: ui.navigate.to(
                                 project_url("setup", d))).mark(f"menu-recent-{directory.name}")
+            switcher.on("keydown.enter", menu.open)
 
     def refresh(self) -> None:
         """Redraw the project name, the sidebar's steps and badges, and the job indicator."""

@@ -15,6 +15,7 @@ from .models import Case, Project, Settings
 from .naming import case_name, find_collisions, format_value
 
 CONFIGS_DIR = "configs"
+MAX_CASES = 10000  # in one sweep: more is a mistyped list, and would stall every page that lists the cases
 RUN_CONTROL_FILE = "run_control.txt"
 CASE_INDEX_FILE = "cases.json"
 
@@ -169,6 +170,9 @@ def build_cases(project: Project) -> list[Case]:
             restart_ref=old.restart_ref if old else None,
         )]
     altitudes: list[Optional[float]] = (list(sweep.altitudes_km) or [None]) if sweeps_altitude(project) else [None]
+    count = len(altitudes) * max(1, len(sweep.mach)) * max(1, len(sweep.alpha)) * max(1, len(sweep.beta))
+    if count > MAX_CASES:
+        raise GenerationError(f"The sweep would make {count} cases; the most is {MAX_CASES}")
     by_flight: dict = {}  # with several altitudes, a new altitude's cases start fresh
     if len(altitudes) == 1:
         flight = Counter((case.mach, case.alpha, case.beta) for case in project.cases)

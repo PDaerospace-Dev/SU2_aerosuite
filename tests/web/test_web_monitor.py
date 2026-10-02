@@ -49,7 +49,7 @@ async def test_a_finished_case_shows_the_chart_with_every_column_ticked(user: Us
     _wait(runner, project_dir, job, lambda j: not j.is_active)
     await _open(user, project_dir)
     assert _element(user, "monitor-case").value == A4  # the case that ran last
-    assert _element(user, "monitor-source").text == f"{A4} · job {job.id} · CONVERGED"
+    assert _element(user, "monitor-source").text == f"{A4} · job {job.id}"
     series = _element(user, "chart-history").options["series"]
     assert [s["name"] for s in series] == ["rms[Rho]", "CL", "CD"]  # CMy is not a plotted column
     assert _element(user, "monitor-col-rms[Rho]").value is True
@@ -71,7 +71,7 @@ async def test_unticking_a_column_removes_it_and_ticks_are_remembered_across_cas
     assert [s["name"] for s in _element(user, "chart-history").options["series"]] == ["rms[Rho]", "CL"]
     with user:
         _element(user, "monitor-case").set_value(A0)
-    assert _element(user, "monitor-source").text == f"{A0} · job {job.id} · CONVERGED"
+    assert _element(user, "monitor-source").text == f"{A0} · job {job.id}"
     # The checkbox list was rebuilt for the new case, but CD's tick is remembered by name.
     assert _element(user, "monitor-col-CD").value is False
     assert [s["name"] for s in _element(user, "chart-history").options["series"]] == ["rms[Rho]", "CL"]
@@ -126,7 +126,7 @@ async def test_open_file_plots_a_history_file_and_choosing_a_case_switches_back(
 
     with user:
         _element(user, "monitor-case").set_value(A4)
-    assert _element(user, "monitor-source").text == f"{A4} · job {job.id} · CONVERGED"
+    assert _element(user, "monitor-source").text == f"{A4} · job {job.id}"
 
 
 async def _open_picked_file(user, folder, eventually):
@@ -200,7 +200,7 @@ async def test_defaults_to_the_running_case_with_no_history_yet(user: User, read
     try:
         await _open(user, project_dir)
         assert _element(user, "monitor-case").value == A2
-        assert _element(user, "monitor-source").text == f"{A2} · job {job.id} · RUNNING"
+        assert _element(user, "monitor-source").text == f"{A2} · job {job.id}"
         await user.should_see(marker="monitor-no-history")
     finally:
         runner.cancel(project_dir, job)
@@ -427,3 +427,39 @@ async def test_lines_match_their_swatches_and_the_source_has_a_status_pill(user:
     assert [(s["name"], s["color"]) for s in series] == [("rms[Rho]", SERIES_COLORS[0]), ("CD", SERIES_COLORS[2])]
     status = _element(user, "monitor-status")
     assert status.visible and status.text == "CONVERGED" and "as-pill-done" in status.classes
+
+
+async def test_the_page_follows_the_job_to_its_next_case(user: User, ready_project, eventually, monkeypatch):
+    from aerosuite.web.pages import monitor
+    monkeypatch.setattr(monitor, "POLL_SECONDS", 0.05)
+    project_dir, project = ready_project
+    generate_configs(project_dir, project)
+    (project_dir / CONFIGS_DIR / "fake_plan.json").write_text(json.dumps({"delay": 1.0, "cases": {A4: "hang"}}))
+    runner = LocalRunner()
+    job = runner.submit(project_dir, project)
+    _wait(runner, project_dir, job, lambda j: j.case_status[A0] is CaseState.RUNNING)
+    try:
+        await _open(user, project_dir)
+        assert _element(user, "monitor-case").value == A0
+        assert _element(user, "monitor-follow").value is True
+        await eventually(lambda: _element(user, "monitor-case").value == A4, timeout=15)  # no click: it followed
+        assert _element(user, "monitor-status").text == "RUNNING"
+        with user:
+            _element(user, "monitor-case").set_value(A0)  # a case picked by hand stays
+        assert _element(user, "monitor-follow").value is False
+        await asyncio.sleep(0.3)
+        assert _element(user, "monitor-case").value == A0
+        with user:
+            _element(user, "monitor-follow").set_value(True)  # and following again goes back to the job
+        await eventually(lambda: _element(user, "monitor-case").value == A4, timeout=5)
+    finally:
+        runner.cancel(project_dir, job)
+
+
+async def test_a_case_named_in_the_link_is_not_followed_away_from(user: User, ready_project):
+    project_dir, project = ready_project
+    runner, job = _start(project_dir, project)
+    _wait(runner, project_dir, job, lambda j: not j.is_active)
+    await user.open(project_url("monitor", project_dir) + f"&case={A0}")
+    assert _element(user, "monitor-case").value == A0
+    assert _element(user, "monitor-follow").value is False

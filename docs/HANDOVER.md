@@ -144,6 +144,12 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
 - On the Results page **Config** (a label: filters, columns, splits lines, never an X axis) and **Temperature** (a
   number) are case variables for every study. A variable fixed by the other splitting ones does not split lines.
 
+- Sweep input is bounded and checked (2026-10-02, after a review of the whole web UI): a value list takes at most
+  1000 finite numbers (`editing.MAX_LIST_VALUES`), a sweep makes at most 10000 cases (`cfg.MAX_CASES`), and the
+  base name and altitude label can only use letters, digits, `.`, `-` and `_` (they become file names;
+  `naming.name_part_problem`). A project.json that already holds an unsafe case name gets a Sweep error.
+  Setup's "Apply profile defaults" saves the template's new name and redraws the page.
+
 ## Open items and next steps
 
 Next, in the order recommended to the user on 2026-09-30:

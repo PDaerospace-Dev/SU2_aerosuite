@@ -122,8 +122,9 @@ def _is_plain_name(name: str) -> bool:
 
 
 def _kind_card(title: str, text: str, mark: str, on_choose) -> ui.column:
-    tile = ui.column().classes("as-choice-tile").mark(mark)
+    tile = ui.column().classes("as-choice-tile").props('tabindex=0 role=button').mark(mark)
     tile.on("click", lambda _: on_choose())
+    tile.on("keydown.enter", lambda _: on_choose())
     with tile:
         ui.label(title).classes("as-strong")
         ui.label(text).classes("as-muted")
@@ -142,7 +143,6 @@ def _new_form() -> None:
             else:
                 tile.classes(remove="as-choice-selected")
         profile.set_visibility(kind == "aircraft")
-        use_reference.set_visibility(kind == "general")
 
     for problem in problems:
         banner("warning", f"Profile skipped: {problem}").mark("profile-problem")
@@ -191,7 +191,7 @@ def _new_form() -> None:
                 target,
                 profile_id=profile.value if aircraft_study else None,
                 template=Path(template_text) if template_text else None,
-                use_reference_template=bool(use_reference.value) and not aircraft_study,
+                use_reference_template=bool(use_reference.value),  # also for a profile without a template
                 mesh=Path(mesh_text) if mesh_text else None,
             )
         except AeroSuiteError as exc:

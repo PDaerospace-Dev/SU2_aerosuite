@@ -137,6 +137,14 @@ def data_job(view: JobView, case: str, started: Callable[[JobRecord], Sequence[s
     return None
 
 
+def _running_case(view: JobView) -> Optional[str]:
+    """The case the active job is running now, if any."""
+    job = view.active
+    if job is None:
+        return None
+    return next((name for name in job.cases if job.case_status.get(name) is CaseState.RUNNING), None)
+
+
 class _Content(NamedTuple):
     """What poll()/render() feeds into the source line, checkboxes and chart."""
     df: Any  # None: nothing to plot; else a (maybe empty) DataFrame
@@ -158,6 +166,7 @@ class MonitorPage:
         self.frame = frame
         self.mode = "case"  # or "file"
         self.case: Optional[str] = case  # e.g. a point clicked on the Results page; else the default case
+        self.follow = case is None  # move on with the job to the case it runs; off once a case is chosen
         self.file_path: Optional[Path] = None
         self.stopped = False
         self.normalize = False
@@ -183,6 +192,8 @@ class MonitorPage:
                     self.stop_button = secondary_button("Stop", on_click=self._toggle_stop).mark("monitor-stop")
                     ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark(
                         "monitor-normalize")
+                self.follow_box = ui.checkbox("Follow the running case", value=self.follow,
+                                              on_change=lambda e: self._set_follow(e.value)).mark("monitor-follow")
                 ui.label("Columns").classes("as-label")
                 self.checkbox_holder = ui.column().classes("gap-1")
             with card():
@@ -212,6 +223,11 @@ class MonitorPage:
             try:
                 view = WATCHER.state(self.directory, self.frame.session.project)
             except AeroSuiteError:
+                return
+            current = _running_case(view)
+            if self.follow and current is not None and current != self.case:
+                self.case = current  # the job moved on to its next case
+                self.render(view)
                 return
             running = self._running(view)
             if not (running or self.was_running):
@@ -270,13 +286,13 @@ class MonitorPage:
         if source is None:
             # The case appears in a job's case_status (e.g. CANCELLED before it started) but its
             # "Running Case" banner is in no job's log: there is no run to show data for.
-            text = f"{self.case} · job {status_job.id} · {row.status}" if status_job is not None else ""
+            text = f"{self.case} · job {status_job.id}" if status_job is not None else ""
             return _Content(None, "not-run", text, "", status=row.status if status_job is not None else "")
         df = WATCHER.history(self.directory, source.id, self.case)
         if status_job is not None and source.id != status_job.id:
             text = f"{row.status} in job {status_job.id} · showing job {source.id}"
         else:
-            text = f"{self.case} · job {status_job.id} · {row.status}" if status_job is not None else ""
+            text = f"{self.case} · job {status_job.id}" if status_job is not None else ""
         state = "no-history" if df is None or df.empty else "chart"
         return _Content(df, state, text, "", status=row.status)
 
@@ -371,7 +387,14 @@ class MonitorPage:
             return
         self.mode = "case"
         self.case = case
+        self.follow_box.set_value(False)  # a case picked by hand stays; tick the box to follow the job again
         self.render()
+
+    def _set_follow(self, value: bool) -> None:
+        self.follow = value
+        if value and self.mode == "file":  # following is about the project's own cases
+            self.mode = "case"
+            self.render()
 
     async def _open_file(self) -> None:
         chosen = await pick_path("Open history file", mode="file", suffixes=(".csv", ".dat"))
@@ -379,4 +402,5 @@ class MonitorPage:
             return
         self.mode = "file"
         self.file_path = Path(chosen)
+        self.follow_box.set_value(False)
         self.render()

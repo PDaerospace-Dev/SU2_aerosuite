@@ -26,3 +26,12 @@ def test_duplicates_and_restarts(ready_project):
     messages = [m for _, m in _messages(sweep_problems(project))]
     assert any("Duplicate case names" in m for m in messages)
     assert any("M0p8_a2_b0: 'custom' restart needs a restart file or case folder" in m for m in messages)
+
+
+def test_a_case_name_that_cannot_be_a_file_name_is_an_error(ready_project):
+    _, project = ready_project  # e.g. a project.json written before names were checked, or edited by hand
+    project.cases[0].name = "M0p8_a0_b0_x y"
+    project.cases[1].name = "M0p8_a2_b0_a/b"
+    messages = [m for severity, m in _messages(sweep_problems(project)) if severity == "error"]
+    assert messages == ["Case names can only use letters, digits, '.', '-' and '_' (they are file names): "
+                        "'M0p8_a0_b0_x y' and 1 more; change the base name or the altitude label"]

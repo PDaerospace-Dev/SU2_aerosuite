@@ -2,13 +2,21 @@ from nicegui.testing import User
 
 from aerosuite.engine.errors import ProjectError
 from aerosuite.engine.profiles import PROFILE_FILE, save_profile, user_profiles_dir
-from aerosuite.engine.project import TEMPLATE_FILE, open_project
+from aerosuite.engine.project import TEMPLATE_FILE, open_project, save_project, set_template
 from aerosuite.web import session as web_session
 from aerosuite.web.layout import project_url
 
 
 def _element(user, marker):
     return next(iter(user.find(marker=marker).elements))
+
+
+def _renamed(folder, source, name):
+    """A copy of `source` called `name`."""
+    copy = folder / "renamed" / name
+    copy.parent.mkdir(exist_ok=True)
+    copy.write_text(source.read_text())
+    return copy
 
 
 async def _open(user, project_dir):
@@ -85,6 +93,29 @@ async def test_apply_profile_template_is_copied_only_after_the_project_save_succ
     user.find(marker="confirm-apply").click()
     await user.should_see("boom: cannot save project.json")
     assert (project_dir / TEMPLATE_FILE).read_text() == original  # not overwritten by the failed apply
+
+
+async def test_apply_profile_defaults_saves_the_new_template_name(user: User, ready_project, tmp_path):
+    project_dir, project = ready_project
+    master = tmp_path / "master.cfg"
+    master.write_text((project_dir / TEMPLATE_FILE).read_text())
+    source = open_project(project_dir)
+    set_template(project_dir, source, master)  # the profile is saved from a project whose template is master.cfg
+    save_profile(project_dir, source, "acft", "Acft")
+    set_template(project_dir, source, _renamed(tmp_path, master, TEMPLATE_FILE))  # back to template.cfg
+    save_project(project_dir, source)
+
+    await _open(user, project_dir)
+    with user:
+        _element(user, "setup-profile").set_value("acft")
+    user.find(marker="setup-apply-profile").click()
+    await user.should_see(marker="confirm-apply")
+    user.find(marker="confirm-apply").click()
+    await user.should_see("Applied Acft defaults")
+    on_disk = open_project(project_dir)  # what a restart, another tab or the CLI reads
+    assert on_disk.template == "master.cfg"
+    assert (project_dir / "master.cfg").is_file() and not (project_dir / TEMPLATE_FILE).exists()
+    await user.should_see("master.cfg")  # the page shows the new template, not the one it replaced
 
 
 async def test_broken_user_profile_shows_a_warning_but_the_bundled_one_still_works(user: User, ready_project):
