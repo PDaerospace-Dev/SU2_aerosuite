@@ -67,12 +67,18 @@ def thinned_indices(count: int, limit: int) -> list[int]:
     return indices
 
 
+def column(df, name: str):
+    """The column called `name`; SU2 can write a name twice (e.g. "Time(sec)"), and then it is the first."""
+    found = df[name]
+    return found.iloc[:, 0] if found.ndim == 2 else found
+
+
 def plottable_columns(df) -> list[str]:
-    """Every numeric column of a history file except the iteration counters."""
+    """Every numeric column of a history file except the iteration counters, each name once."""
     if df is None:
         return []
-    return [column for column in df.columns
-            if column not in ITERATION_COLUMNS and df[column].dtype.kind in "fiu"]
+    return [name for name in dict.fromkeys(df.columns)
+            if name not in ITERATION_COLUMNS and column(df, name).dtype.kind in "fiu"]
 
 
 class Stats(NamedTuple):
@@ -142,7 +148,7 @@ def param_options(x: list, df, names: Sequence[str], colors: dict, shown: Option
     for name in names:
         if name not in df.columns:
             continue
-        values = df[name].tolist()
+        values = column(df, name).tolist()
         data = [[x[i], None if values[i] is None or not math.isfinite(values[i]) else values[i]] for i in indices]
         series.append({"name": name, "type": "line", "showSymbol": False, "data": data, "color": colors[name]})
     span = {"start": 0, "end": 100} if shown is None else {"startValue": shown[0], "endValue": shown[1]}
@@ -286,7 +292,7 @@ class ParametersTab:
     def _refresh(self) -> None:
         df = self.df
         columns = set(plottable_columns(df))
-        stats = {name: window_stats(df[name].tolist(), self.state.average) if name in columns else None
+        stats = {name: window_stats(column(df, name).tolist(), self.state.average) if name in columns else None
                  for name in self._names()}
         if self._values:
             count = self.state.average

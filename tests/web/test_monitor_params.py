@@ -46,6 +46,14 @@ def test_every_numeric_column_but_the_iteration_counters_can_be_plotted():
     assert plottable_columns(None) == []
 
 
+def test_a_column_name_written_twice_is_offered_once_and_plots_its_first_column():
+    # SU2 writes "Time(sec)" twice in some histories: reading it by name then gives two columns, not one.
+    df = pd.DataFrame([[0, 1.0, 5.0, 0.1], [1, 2.0, 6.0, 0.2]], columns=["Inner_Iter", "Time(sec)", "Time(sec)", "CL"])
+    assert plottable_columns(df) == ["Time(sec)", "CL"]
+    options = param_options([0, 1], df, ["Time(sec)"], {"Time(sec)": "#111"}, None, 2000)
+    assert options["series"][0]["data"] == [[0, 1.0], [1, 2.0]]
+
+
 def test_stats_are_the_mean_and_range_of_the_last_rows_and_the_latest_value():
     stats = window_stats([9.0, 1.0, 2.0, 3.0], 3)
     assert stats.mean == pytest.approx(2.0) and stats.latest == 3.0 and stats.spread == pytest.approx(2.0)
