@@ -311,3 +311,27 @@ async def test_with_the_sweep_off_aircraft_has_the_switch_and_generate(user: Use
         _element(user, "aircraft-sweep").set_value(True)
     assert open_project(project_dir).sweep.enabled is True
     await user.should_not_see(marker="generate")
+
+
+async def test_every_card_folds_and_stays_folded(user: User, ready_project):
+    from aerosuite.web import ui_kit
+
+    aircraft_project, _ = ready_project
+    _with_x07(aircraft_project)
+    try:
+        await _open(user, aircraft_project)
+        keys = ("freestream", "physical-and-reference", "numerics", "markers", "placeholders")
+        for key in keys:
+            await user.should_see(marker=f"fold-aircraft-{key}")
+        button = _element(user, "fold-aircraft-numerics")
+        card = button.parent_slot.parent.parent_slot.parent  # the button sits in the card's title row
+        assert "as-card-folded" not in card.classes
+        user.find(marker="fold-aircraft-numerics").click()
+        assert "as-card-folded" in card.classes
+        await _open(user, aircraft_project)  # drawn again: still folded
+        again = _element(user, "fold-aircraft-numerics").parent_slot.parent.parent_slot.parent
+        assert "as-card-folded" in again.classes
+        user.find(marker="fold-aircraft-numerics").click()
+        assert "as-card-folded" not in again.classes
+    finally:
+        ui_kit._FOLDED.clear()

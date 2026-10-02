@@ -19,7 +19,7 @@ from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
 from ..template_editor import TemplateEditor, carry_unsaved
 from ..template_edit import write_template_params
-from ..ui_kit import (banner, card, card_head, field, hint, sci, secondary_button, stat, table, td, td_box,
+from ..ui_kit import (banner, card, card_head, field, fold_button, hint, sci, secondary_button, stat, table, td, td_box,
                       th, warning_group)
 
 # (label, settings group, field, kind) — kind: "float" | "int"
@@ -144,12 +144,12 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         with ui.column().classes("gap-4 w-full"):
             holders["freestream"] = _freestream(frame, hints, after)
             for title, rows in NUMBER_FIELDS.items():
-                with card(title):
+                with card(title, fold=f"aircraft-{title.lower().replace(' ', '-')}"):
                     with ui.element("div").classes("as-grid-3"):
                         for label, group, name, kind in rows:
                             with ui.column().classes("gap-1"):
                                 _number_field(frame, hints, label, group, name, kind, after)
-            with card("Numerics"):
+            with card("Numerics", fold="aircraft-numerics"):
                 with ui.element("div").classes("as-grid-3"):
                     for label, name, options in DROPDOWNS:
                         with ui.column().classes("gap-1"):
@@ -172,12 +172,13 @@ MODE_HINTS = {
 
 
 def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
-    with card():
+    with card() as whole:
         with card_head("Freestream"):
             ui.space()
             ui.toggle(MODE_CHOICES, value=frame.session.project.settings.freestream.mode,
                       on_change=lambda e: choose(e.value)).props(
                 "no-caps unelevated dense toggle-color=primary").classes("as-toggle").mark("freestream-mode")
+            fold_button(whole, "aircraft-freestream")
         box = ui.column().classes("w-full gap-3")
 
     def both() -> None:
@@ -346,7 +347,7 @@ def _dropdown(frame, label, name, choices, after) -> None:
 
 def _markers(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
     mesh = ", ".join(frame.session.project.mesh.markers) or "(no .su2 mesh markers)"
-    with card("Markers", f"Mesh markers: {mesh}"):
+    with card("Markers", f"Mesh markers: {mesh}", fold="aircraft-markers"):
         box = ui.column().classes("w-full gap-2")
 
     def render() -> None:
@@ -392,7 +393,8 @@ def _markers(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], Non
 
 
 def _placeholders(frame: ProjectFrame, after: Callable[[], None]) -> Callable[[], None]:
-    with card("Placeholders", "Any other SU2 option, written into every config.", flush=True):
+    with card("Placeholders", "Any other SU2 option, written into every config.", flush=True,
+              fold="aircraft-placeholders"):
         box = ui.column().classes("w-full gap-0")
         with ui.row().classes("w-full items-start no-wrap gap-2 px-4 pt-3 pb-2"):
             key_box = field(ui.input("Option"), mono=True).classes("w-48").mark("override-new-key")
