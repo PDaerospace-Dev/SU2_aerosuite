@@ -8,13 +8,15 @@ from ...engine.errors import AeroSuiteError
 from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.plan import plan_restarts
 from ...engine.naming import format_value
+from ...engine.machine import machine, partitions_note
 from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import restart_file
 from ..jobs import WATCHER, JobView
 from ..layout import ProjectFrame, open_session
 from ..ui_kit import (banner, card, card_head, chip_button, danger_button, failure_row, flat_button, ok_line, pill,
-                      primary_button, secondary_button, summary_tile, table, td, td_box, th)
+                      primary_button, secondary_button, stat, summary_tile, table, td, td_box, th, warning_group)
 
+MACHINE_SECONDS = 10.0  # how often the machine strip is read again
 POLL_SECONDS = 2.0
 SELECTORS = [  # (label, statuses to tick; None = every case)
     ("All", None),
@@ -90,6 +92,7 @@ class RunPage:
         self.holder = ui.column().classes("as-content w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
+        ui.timer(MACHINE_SECONDS, self._machine_values)
 
     @property
     def directory(self):
@@ -131,6 +134,7 @@ class RunPage:
         self.frame.actions.clear()
         with self.holder:
             self._checks(view)
+            self._machine()
             selection = self._selection(view)
             self._plan(view, selection)
             self._tiles(view)
@@ -154,10 +158,40 @@ class RunPage:
         found = [(p.severity, p.message) for p in problems] + [("warning", m) for m in view.overview.problems]
         if not found:
             ok_line("No problems found.").mark("run-problems-none")
-        for severity, message in found:
-            kind = "error" if severity == "error" else "warning"
-            prefix = "Error" if severity == "error" else "Warning"
-            banner(kind, f"{prefix}: {message}").mark(f"run-problem-{severity}")
+        for severity, message in found:  # errors stay in view; warnings fold into one row
+            if severity == "error":
+                banner("error", f"Error: {message}").mark("run-problem-error")
+        warnings = [message for severity, message in found if severity != "error"]
+        if warnings:
+            warning_group(warnings, mark="run-warnings")
+
+    def _machine(self) -> None:
+        """This machine now: cores (busy, free), memory, SU2 solvers running; kept current by a timer."""
+        with ui.row().classes("as-strip as-machine w-full").mark("run-machine"):
+            ui.icon("memory").classes("as-muted")
+            self.machine_labels = {key: stat(label, "") for key, label in (
+                ("cores", "Cores"), ("free", "Free now"), ("load", "Load (1 min)"), ("memory", "Memory free"),
+                ("su2", "SU2 solvers running"), ("asked", "This study asks"))}
+            for key in self.machine_labels:
+                self.machine_labels[key].mark(f"machine-{key}")
+            ui.space()
+            self.machine_note = ui.label("").classes("as-hint-warning").mark("machine-note")
+        self._machine_values()
+
+    def _machine_values(self) -> None:
+        labels = getattr(self, "machine_labels", None)
+        if not labels or labels["cores"].is_deleted:
+            return
+        here = machine()
+        partitions = self.project.run.partitions
+        labels["cores"].text = (f"{here.cores}" if here.physical_cores == here.cores
+                                else f"{here.cores} ({here.physical_cores} physical)")
+        labels["free"].text = f"about {here.free_cores}"
+        labels["load"].text = f"{here.load:.1f}"
+        labels["memory"].text = f"{here.memory_free_gb:.0f} of {here.memory_total_gb:.0f} GB"
+        labels["su2"].text = str(here.su2_processes)
+        labels["asked"].text = f"{partitions} per case"
+        self.machine_note.text = partitions_note(partitions, here) or ""
 
     def _selection(self, view: JobView) -> _Selection:
         ticked = [case.name for case in self.project.cases if case.name in self.ticked]
@@ -176,8 +210,10 @@ class RunPage:
         except AeroSuiteError as exc:
             banner("error", f"Error: {exc}").mark("plan-error")
         else:
-            for warning in plan.warnings:
-                banner("warning", f"Warning: {warning}").mark("plan-warning")
+            if plan.warnings:
+                count = len(plan.warnings)
+                warning_group(plan.warnings, mark="plan-warnings",
+                              label=f"{count} warning{'' if count == 1 else 's'} about continuing")
 
     def _tiles(self, view: JobView) -> None:
         converged, running, attention, pending = tile_counts(view.overview.rows)

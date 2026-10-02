@@ -227,3 +227,38 @@ async def test_failure_details_are_collapsed_until_the_failed_status_is_clicked(
 
     user.find(marker=f"status-{A2}").click()
     await user.should_not_see(marker=f"tail-{A2}")
+
+
+async def test_warnings_are_folded_and_errors_stay_in_view(user: User, ready_project, monkeypatch):
+    from aerosuite.engine.project import TEMPLATE_FILE
+
+    project_dir, _ = ready_project
+    monkeypatch.delenv("SU2_RUN", raising=False)
+    template = project_dir / TEMPLATE_FILE
+    template.write_text(template.read_text() + "oops\n")
+    await _open(user, project_dir)
+    await user.should_see("SU2_RUN is not set")  # an error: a banner
+    group = _element(user, "run-warnings")
+    assert "warning" in group._props["label"] and not group.value  # folded until opened
+    with user:
+        group.open()
+    await user.should_see("is not an option or a comment")
+
+
+async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User, ready_project, monkeypatch):
+    import aerosuite.web.pages.run as page
+    from aerosuite.engine.machine import Machine
+
+    project_dir, project = ready_project
+    project.run.partitions = 16
+    save_project(project_dir, project)
+    monkeypatch.setattr(page, "machine", lambda: Machine(
+        cores=64, physical_cores=32, load=60.2, memory_total_gb=503.0, memory_free_gb=120.4, su2_processes=48))
+    await _open(user, project_dir)
+    await user.should_see(marker="run-machine")
+    assert _text(user, "machine-cores") == "64 (32 physical)"
+    assert _text(user, "machine-free") == "about 4"
+    assert _text(user, "machine-memory") == "120 of 503 GB"
+    assert _text(user, "machine-su2") == "48"
+    assert _text(user, "machine-asked") == "16 per case"
+    assert "about 4 cores free now" in _text(user, "machine-note")
