@@ -295,6 +295,10 @@ a.as-step:hover { background: #f6f8fa; }
 .as-run-panel .as-banner, .as-run-panel .as-warn-group { font-size: 12.5px; }
 .as-machine { gap: 18px; row-gap: 8px; }
 .as-cluster-bad { background: #ffebe9; border-radius: 6px; padding: 4px 6px; }
+.as-table-compact.as-queue .as-td { white-space: normal; }
+.as-queue-what { flex-direction: column; align-items: flex-start !important; gap: 0; }
+.as-table-compact .as-td.as-slurm-cell { white-space: normal; gap: 8px; }
+.as-small { font-size: 11.5px; }
 .as-machine-usage { border-top: 1px solid var(--as-hairline); padding-top: 8px; }
 .as-usage { white-space: pre-line; font-size: 11.5px; }
 .as-status-bar { height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }

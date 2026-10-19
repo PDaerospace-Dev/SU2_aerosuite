@@ -215,7 +215,9 @@ def cost_frame(result: StudyResults) -> pd.DataFrame:
     """Case and the Cost columns, for the cases that ran on Slurm (empty when none did)."""
     rows = [{"Case": case, **{column: stats.get(key) for column, key in COST_COLUMNS}}
             for case, stats in result.costs.items()]
-    return pd.DataFrame(rows, columns=["Case"] + [column for column, _ in COST_COLUMNS])
+    frame = pd.DataFrame(rows, columns=["Case"] + [column for column, _ in COST_COLUMNS])
+    frame["Tasks"] = frame["Tasks"].astype("Int64")  # stays whole beside the cases without figures
+    return frame
 
 
 def node_hours(result: StudyResults) -> float:

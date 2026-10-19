@@ -531,3 +531,19 @@ async def test_cost_columns_only_for_slurm_runs(user: User, results_project):
     assert _text(user, "cost-0-M0p8_a0_b0-CPU use") == "97%"
     assert _text(user, "cost-0-M0p8_a2_b0-Elapsed") == "—"
     await user.should_see("1.50 node-hours")
+
+
+async def test_the_csv_download_adds_the_cost_columns_but_summary_csv_does_not(user: User, results_project):
+    import json
+
+    (results_project / "runs" / "M0p8_a0_b0" / "slurm_stats.json").write_text(json.dumps(
+        {"job_id": "101", "node": "hpc1", "ntasks": 96, "elapsed_s": 600.0, "s_per_iter": 15.0}))
+    await _open(user, results_project)
+    user.find(marker="results-export").click()
+    response = await user.download.next()
+    summary = (results_project / "results" / "summary.csv").read_text()
+    assert "Elapsed" not in summary.splitlines()[0]
+    lines = response.content.decode().splitlines()
+    assert lines[0].endswith("Elapsed (s),s/iter,Peak memory (GB),CPU use per rank,Node,Tasks,Slurm job")
+    row = next(line for line in lines if line.startswith("M0p8_a0_b0,"))
+    assert row.endswith("600.0,15.0,,,hpc1,96,101")

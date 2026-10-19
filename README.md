@@ -176,6 +176,32 @@ aerosuite summarize ./study    # the Results page's parameters, derived and char
 
 `aerosuite <command> --help` lists every option. Set `run.sweep_python` (`aerosuite set ./study --sweep-python /path/to/python3`) if the Python that imports SU2 is not the first `python3` on your PATH.
 
+### Running on the Slurm cluster
+On the cluster's controller (hpc1) AeroSuite can submit each case as its own Slurm batch job instead of running the
+sweep on this machine. Choose **Slurm** in the Run page's toggle (saved with the study), or make it the default for
+every study on the **Settings** page (gear in the top bar) or with `aerosuite settings set backend slurm`.
+
+```bash
+aerosuite run ./study --backend slurm --partition node2 --ntasks 48 --time 12:00:00
+aerosuite status ./study --watch     # Slurm job ids, nodes, pending reasons; one squeue per poll interval
+aerosuite cancel ./study             # scancel every unfinished case of the job
+aerosuite resubmit ./study           # the cases that ended NODE_FAIL or OUT_OF_MEMORY, in the same job
+aerosuite settings                   # partitions, default tasks, memory limits, module line, SU2 path, ...
+```
+
+- Every case gets `runs/<case>/su2_job.sh` (one node, `--exclusive`, `srun --mpi=pmix SU2_CFD <case>.cfg`) and its
+  output in `runs/<case>/slurm-<jobid>.out`; the folder records exactly how it ran (`sbatch su2_job.sh` there
+  reruns it by hand, after removing a `--dependency` line).
+- A case that restarts from another case of the same submit waits for it (`--dependency=afterok`); if that one
+  fails, the case shows **Blocked** instead of waiting forever.
+- Studies must live under the shared root (`/data`): the other node cannot see anything else. Before submitting,
+  AeroSuite estimates the memory from the mesh header (`NELEM` × 3.9 GB per million cells, configurable), warns when
+  it is over the partition's limit and refuses on partitions set to block (node2).
+- The Run page shows the cluster (`sinfo`: CPUs busy per partition, drained or down nodes and why) and your queue
+  instead of this machine's cores. The Results page adds a **Cost** group per case (elapsed, s/iter, peak memory and
+  CPU use from `sacct`/`seff`) and the study's node-hours.
+- The local backend (`mpirun` through the sweep script) is unchanged and stays the default.
+
 ### Over SSH
 - From any folder, run `uv run --project /path/to/SU2_aerosuite aerosuite ...`, or add an alias: `alias aerosuite='uv run --project /path/to/SU2_aerosuite aerosuite'`.
 - `SU2_RUN` must be set in the shell that runs `aerosuite run`; the sweep inherits it.

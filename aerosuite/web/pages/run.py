@@ -146,6 +146,8 @@ class RunPage:
         except AeroSuiteError:
             return
         self._tick_clock()
+        if getattr(self, "backend", "local") == "slurm":
+            self._cluster_values()  # redrawn only when the poller has something new
         if view.active is None and not self.was_active:
             return
         # Rebuild only when something shown changed: a rebuild every poll would collapse an open
@@ -469,15 +471,18 @@ class RunPage:
                 hint("No jobs of yours in the queue" if snapshot is not None and snapshot.ok else "").mark(
                     "queue-empty")
             else:
-                with table("auto minmax(0, 1fr) auto auto").classes("as-table-compact w-full"):
-                    for heading in ("Job", "Case", "State", "Time"):
+                with table("auto minmax(0, 1fr) auto").classes("as-table-compact as-queue w-full"):
+                    for heading in ("Job", "State", "Time"):
                         th(heading)
                     for line in lines:
                         td(line.job_id, mono=True, strong=line.own).mark(f"queue-{line.job_id}")
-                        td(line.what or "—")
-                        td(f"{line.state} on {line.node}" if line.node else
-                           (f"{line.state} ({line.reason})" if line.reason else line.state)).mark(
-                            f"queue-{line.job_id}-state")
+                        with td_box() as cell:
+                            cell.classes("as-queue-what")
+                            if line.what:
+                                ui.label(line.what).classes("as-mono as-strong")
+                            ui.label(f"{line.state} on {line.node}" if line.node else
+                                     (f"{line.state} ({line.reason})" if line.reason else line.state)).classes(
+                                "as-muted").mark(f"queue-{line.job_id}-state")
                         td(line.time, mono=True)
 
     def _selection(self, view: JobView) -> _Selection:
@@ -642,10 +647,11 @@ class RunPage:
         job = self.jobs_by_id.get(row.job_id)
         if job is not None and job.backend == "slurm":
             with td_box() as cell:
-                cell.classes("gap-2 no-wrap")
-                ui.label(row.job_id).classes("as-mono").mark(f"job-{row.name}")
-                ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted as-truncate").mark(
-                    f"slurm-{row.name}")
+                cell.classes("as-slurm-cell")
+                with ui.column().classes("gap-0 min-w-0"):
+                    ui.label(row.job_id).classes("as-mono").mark(f"job-{row.name}")
+                    ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted as-small").mark(
+                        f"slurm-{row.name}")
                 self._resubmit_button(job, row.name)
         else:
             td(row.job_id or "—", mono=True).mark(f"job-{row.name}")

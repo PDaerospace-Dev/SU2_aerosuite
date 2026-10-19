@@ -5,6 +5,25 @@ Started 2026-09-28 when development moved from the Windows dev PC to the Linux w
 decisions taken along the way and what is still open. Read it first in a new session; keep it current or fold it
 into a CLAUDE.md.
 
+## hpc1 and the Slurm backend (2026-10-19)
+
+- Development continues on **hpc1** (`pdas-hpc1@hpc1`, 192.168.11.36), the controller of a two-node Slurm cluster
+  (partitions node1 = hpc1, node2 = hpc2; `/data` is NFS from hpc1). The repo is at
+  `/data/software/templates/aerosuite/SU2_aerosuite`; git there commits as `midhun` (set for this repository only).
+- Branch **`feat/slurm-backend`** (from `main` at `39c5135`): spec `docs/superpowers/specs/2026-10-19-slurm-backend-design.md`,
+  plan `docs/superpowers/plans/2026-10-19-slurm-backend.md`, cluster test plan
+  `docs/superpowers/specs/2026-10-19-slurm-manual-test-plan.md` (not run yet: the user runs it).
+- Decisions: one AeroSuite job per submit, one Slurm job per case; afterok + `--kill-on-invalid-dep=yes` (the cluster
+  has `DependencyParameters` unset) and a BLOCKED case state; resubmit (NODE_FAIL / OUT_OF_MEMORY) inside the same
+  job; peak memory from `seff` because `sacct -X` has no MaxRSS (checked on hpc1); CPU use per rank instead of
+  seff's efficiency (192 hardware threads per node, so 96 ranks top out at 50%); a mesh outside `/data` is a warning,
+  a study outside it an error; profiles do not carry the backend or Slurm options.
+- Server settings in `~/.aerosuite/settings.json` (Settings page, `aerosuite settings`). The tests always use a
+  temporary `AEROSUITE_HOME` (autouse fixture) and `tests/fixtures/fake_slurm.py` (fixture `fake_slurm`) so they never
+  reach the real Slurm; the web tests also reset the server's poller between tests.
+- Suite on hpc1: everything passes except 4 tests in `tests/engine/test_sweep_script.py`, which fail on `main` too:
+  they import the real SU2 package from `/opt/su2/bin` instead of their stub.
+
 ## The workstation
 
 - `pdas@pdas-Super-Server`, Ubuntu (glibc 2.39), 64 cores; on the user's Tailscale network as
