@@ -6,6 +6,12 @@ from . import config
 
 def register_pages(root: Path) -> None:
     config.set_root(root)
+    from nicegui import app
+
+    from .slurm_watch import WATCH
+
+    app.on_startup(WATCH.start)  # the Slurm poller: idle until a Slurm job or the cluster panel needs it
+    app.on_shutdown(WATCH.stop)
     from .pages import config as config_page
     from .pages import aircraft, calculators, monitor, profiles, projects, results, run, setup, sweep
 

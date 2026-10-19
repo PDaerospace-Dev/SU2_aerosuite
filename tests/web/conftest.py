@@ -12,6 +12,19 @@ def web_env(tmp_path, monkeypatch):
     monkeypatch.setenv("AEROSUITE_HOME", str(tmp_path / "aerosuite-home"))
 
 
+@pytest.fixture(autouse=True)
+def fresh_slurm_watch():
+    """The server-wide Slurm poller forgets what earlier tests had it watch (so it never asks a real Slurm)."""
+    from aerosuite.web.slurm_watch import WATCH
+
+    WATCH._tracked.clear()
+    WATCH._viewers = 0
+    WATCH.snapshot = WATCH.cluster = WATCH.last_ok = None
+    yield
+    WATCH._tracked.clear()
+    WATCH._viewers = 0
+
+
 @pytest.fixture
 def eventually():
     """Wait (without blocking the event loop) until condition() is true, e.g. after an awaited dialog.

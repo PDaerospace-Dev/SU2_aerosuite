@@ -12,11 +12,13 @@ slurm-<id>.out. A failed squeue never changes a state. The web applies the serve
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
 import shlex
 import shutil
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -147,14 +149,27 @@ def case_stats(project_dir: Path, case: str) -> Optional[dict]:
     return data if isinstance(data, dict) else None
 
 
+def _serialized(method):
+    """Job records change under one lock: the web's poller thread and a Cancel must not undo each other."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class SlurmRunner:
     backend = "slurm"
 
     def __init__(self, settings_loader=current_settings) -> None:
         self._settings = settings_loader
+        self._lock = threading.RLock()
 
     # -- submit -----------------------------------------------------------------------------------------------
 
+    @_serialized
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
                continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
         project_dir = Path(project_dir).resolve()
@@ -278,6 +293,7 @@ class SlurmRunner:
         """The Slurm job ids of the cases not final yet."""
         return [sc.job_id for name, sc in job.slurm.items() if job.case_status.get(name) not in FINAL_CASE_STATES]
 
+    @_serialized
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord:
         """Query Slurm (one squeue, at most one sacct, seff for cases that just finished) and apply it."""
         if not job.is_active:
@@ -301,6 +317,7 @@ class SlurmRunner:
         except JobError:
             return job
 
+    @_serialized
     def apply_snapshot(self, project_dir: Path, job: JobRecord, snap: sl.Snapshot) -> JobRecord:
         """Bring `job` up to date with one poll; saves it when anything changed. Never queries Slurm, except to
         cancel a job whose dependency can never be met."""
@@ -478,6 +495,7 @@ class SlurmRunner:
         """Finished cases still waiting for their seff figures."""
         return [name for name, sc in job.slurm.items() if sc.stats_pending]
 
+    @_serialized
     def add_seff(self, project_dir: Path, job: JobRecord, name: str, stats: Optional[sl.SeffStats]) -> JobRecord:
         """Record seff's figures for a finished case (None: seff failed; retried a few times)."""
         project_dir = Path(project_dir).resolve()
@@ -518,6 +536,7 @@ class SlurmRunner:
 
     # -- cancel and resubmit ----------------------------------------------------------------------------------
 
+    @_serialized
     def cancel(self, project_dir: Path, job: JobRecord) -> JobRecord:
         """scancel every case not finished yet (one call); they become CANCELLED and so does the job."""
         if not job.is_active:
@@ -547,6 +566,7 @@ class SlurmRunner:
         return [name for name in job.cases if job.case_status.get(name) is CaseState.FAILED
                 and name in job.slurm and job.slurm[name].state in sl.RESUBMITTABLE]
 
+    @_serialized
     def resubmit(self, project_dir: Path, project: Project, job: JobRecord, cases: Optional[Sequence[str]] = None,
                  options: Optional[SlurmOptions] = None) -> JobRecord:
         """Submit `cases` (default: every NODE_FAIL / OUT_OF_MEMORY case) again inside the same job, with the cases

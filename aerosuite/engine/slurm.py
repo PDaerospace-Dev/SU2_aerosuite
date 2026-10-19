@@ -325,3 +325,27 @@ async def snapshot_async(watched: Iterable[str], timeout: float = TIMEOUT) -> Sn
                         accounting=parse_sacct(await run_async(sacct_args(gone), timeout=timeout)))
     except SlurmUnavailable as exc:
         return Snapshot(taken=taken, queue=queue, accounting_error=str(exc))
+
+
+@dataclass(frozen=True)
+class ClusterInfo:
+    """The partitions (one sinfo) and, when a node is drained or down, why (one sinfo -R)."""
+    taken: float = field(default_factory=time.time)
+    partitions: Sequence[PartitionRow] = ()
+    reasons: Mapping[str, NodeReason] = field(default_factory=dict)
+    error: Optional[str] = None
+
+
+async def cluster_async(timeout: float = TIMEOUT) -> ClusterInfo:
+    taken = time.time()
+    try:
+        partitions = parse_sinfo(await run_async(sinfo_args(), timeout=timeout))
+    except SlurmUnavailable as exc:
+        return ClusterInfo(taken=taken, error=str(exc))
+    reasons: Mapping[str, NodeReason] = {}
+    if any(row.bad for row in partitions):
+        try:
+            reasons = parse_sinfo_reasons(await run_async(sinfo_reason_args(), timeout=timeout))
+        except SlurmUnavailable:
+            reasons = {}
+    return ClusterInfo(taken=taken, partitions=partitions, reasons=reasons)

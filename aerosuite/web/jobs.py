@@ -1,9 +1,11 @@
 """The web server's single view of jobs.
 
 One LocalRunner for the whole server (it keeps the processes it started so it can reap them),
-an active job refreshed at most every REFRESH_SECONDS per project however many tabs ask, and
+an active local job refreshed at most every REFRESH_SECONDS per project however many tabs ask, and
 one incremental history buffer per (project, job, case), plus one per opened file (for the
-Monitor page's "Open file..."). No NiceGUI and no pandas import here.
+Monitor page's "Open file..."). Slurm jobs are never refreshed here: the server's poller
+(slurm_watch.py) updates their records, and state() only tells it which jobs to watch.
+No NiceGUI and no pandas import here.
 """
 from __future__ import annotations
 
@@ -13,11 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, Optional, Sequence
 
+from ..engine.errors import JobError
+from ..engine.jobs.executors import SlurmOptions, backend_of, runner_for
 from ..engine.jobs.local import RUNS_DIR, LocalRunner
 from ..engine.jobs.overview import CaseOverview, case_overview
 from ..engine.jobs.runner import FINAL_CASE_STATES, CaseState, JobRecord
 from ..engine.models import Project
 from ..engine.results import HISTORY_FILE, HistoryBuffer
+from .slurm_watch import WATCH, SlurmWatch
 
 REFRESH_SECONDS = 2.0
 LOG_TAIL_LINES = 40
@@ -60,8 +65,11 @@ def job_progress(view: JobView) -> Optional[JobProgress]:
 
 class JobWatcher:
     def __init__(self, runner: Optional[LocalRunner] = None,
-                 clock: Callable[[], float] = time.monotonic) -> None:
+                 clock: Callable[[], float] = time.monotonic, slurm_runner=None,
+                 slurm_watch: Optional[SlurmWatch] = None) -> None:
         self.runner = runner if runner is not None else LocalRunner()
+        self._slurm_runner = slurm_runner
+        self.slurm_watch = slurm_watch if slurm_watch is not None else WATCH
         self._clock = clock
         # One entry per project with an active job: (job_id, time of its last refresh).
         # Dropped as soon as the project has no active job, so this never grows past
@@ -74,9 +82,23 @@ class JobWatcher:
         # Projects whose job is being cancelled (in a worker thread, see cancel()): not refreshed meanwhile.
         self._cancelling: set[Path] = set()
 
+    @property
+    def slurm_runner(self):
+        return self._slurm_runner if self._slurm_runner is not None else runner_for("slurm")
+
+    def runner_of(self, job: JobRecord):
+        return self.slurm_runner if job.backend == "slurm" else self.runner
+
     def state(self, project_dir: Path, project: Project) -> JobView:
         directory = Path(project_dir).resolve()
         view = self._view(directory, project)
+        latest = view.latest
+        if latest is not None and latest.backend == "slurm" and (
+                latest.is_active or self.slurm_runner.pending_stats(latest)):
+            self.slurm_watch.track(directory, latest.id)  # the poller keeps its record current
+        if view.active is not None and view.active.backend == "slurm":
+            self._refreshed.pop(directory, None)
+            return view
         if view.active is None:
             self._refreshed.pop(directory, None)
             return view
@@ -101,9 +123,25 @@ class JobWatcher:
         return JobView(latest, active, overview)
 
     def submit(self, project_dir: Path, project: Project, cases: Sequence[str],
-               continue_cases: Iterable[str] = ()) -> JobRecord:
-        return self.runner.submit(Path(project_dir).resolve(), project, cases=list(cases),
-                                  continue_cases=list(continue_cases))
+               continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
+        directory = Path(project_dir).resolve()
+        if backend_of(project) == "slurm":
+            job = self.slurm_runner.submit(directory, project, cases=list(cases),
+                                           continue_cases=list(continue_cases), options=options)
+            self.slurm_watch.track(directory, job.id)
+            return job
+        return self.runner.submit(directory, project, cases=list(cases), continue_cases=list(continue_cases))
+
+    def resubmit(self, project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
+                 options: Optional[SlurmOptions] = None) -> JobRecord:
+        """Submit NODE_FAIL / OUT_OF_MEMORY cases of a Slurm job again (see SlurmRunner.resubmit)."""
+        directory = Path(project_dir).resolve()
+        job = next((job for job in self._view(directory, project).overview.jobs if job.id == job_id), None)
+        if job is None or job.backend != "slurm":
+            raise JobError(f"No Slurm job {job_id} in this project")
+        job = self.slurm_runner.resubmit(directory, project, job, list(cases), options=options)
+        self.slurm_watch.track(directory, job.id)
+        return job
 
     def cancel(self, project_dir: Path, project: Project) -> Optional[JobRecord]:
         """Cancel the project's active job. Stopping SU2 can take ~20 s, so the web calls this in a worker
@@ -114,7 +152,7 @@ class JobWatcher:
             return None
         self._cancelling.add(directory)
         try:
-            return self.runner.cancel(directory, active)
+            return self.runner_of(active).cancel(directory, active)
         finally:
             self._cancelling.discard(directory)
 
@@ -124,7 +162,11 @@ class JobWatcher:
     def started_cases(self, project_dir: Path, job: JobRecord) -> list[str]:
         """Case names whose "Running Case" banner is in `job`'s log (see LocalRunner.started_cases)."""
         directory = Path(project_dir).resolve()
-        return self.runner.started_cases(directory, job)
+        return self.runner_of(job).started_cases(directory, job)
+
+    def case_log(self, project_dir: Path, job: JobRecord, case: str) -> Optional[Path]:
+        """The file with `case`'s solver output in `job` (local: the job log; Slurm: its slurm-<id>.out)."""
+        return self.runner_of(job).case_log(Path(project_dir).resolve(), job, case)
 
     def history(self, project_dir: Path, job_id: str, case: str):
         """Every history row of `case` written in job `job_id` so far (a DataFrame, maybe empty)."""
