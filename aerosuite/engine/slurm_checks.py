@@ -69,7 +69,10 @@ class MemoryCheck:
     @property
     def note(self) -> str:
         if self.estimate_gb is None:
-            return f"No memory estimate for {Path(self.mesh).name} (only .su2 headers are read)"
+            name = Path(self.mesh).name
+            if Path(self.mesh).suffix.lower() == ".su2":
+                return f"No memory estimate: no NELEM in the first lines of {name}"
+            return f"No memory estimate for {name} (only .su2 headers are read)"
         return (f"≈ {self.estimate_gb:.0f} GB of {self.limit_gb:.0f} GB on {self.partition} "
                 f"({self.elements / 1e6:.1f}M cells)")
 

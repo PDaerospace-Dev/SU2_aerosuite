@@ -1,14 +1,15 @@
 """Run: the cases on the left (a case card, a list, or the list folded by Mach and altitude) and a panel on the
-right that stays in view: what will run and Submit (or the running job and Cancel), checks, the machine, the last
-job."""
+right that stays in view: what will run and Submit (or the running job and Cancel), checks, the machine (or, with
+the Slurm backend, the cluster and the queue), the last job."""
 from datetime import datetime
 from typing import NamedTuple, Optional
 from urllib.parse import quote
 
-from nicegui import run, ui
+from nicegui import background_tasks, run, ui
 
 from ...engine.cfg import generate_configs, read_template, render_case
 from ...engine.errors import AeroSuiteError
+from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
 from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.plan import plan_restarts
 from ...engine.machine import machine, partitions_note, usage, usage_text
@@ -17,7 +18,11 @@ from ...engine.packages import effective
 from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import restart_file
 from ...engine.results import history_columns
+from ...engine.settings import AppSettings, load_settings
+from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
+from ..cluster_view import (can_resubmit, case_slurm_text, node_reasons, outage_text, own_jobs, partition_lines,
+                            queue_lines, suggested_partition)
 from ..fields import text_field
 from ..jobs import WATCHER, JobView, job_progress
 from ..layout import ProjectFrame, open_session, project_url
@@ -56,10 +61,13 @@ def _plural(count: int, word: str) -> str:
 
 
 def _snapshot(view: JobView) -> tuple:
-    """What the page shows from `view`: the active job, each case's row and the job history."""
+    """What the page shows from `view`: the active job, each case's row and the job history (and, for a Slurm job,
+    each case's Slurm state, node and pending reason; its run time is kept current by the queue panel)."""
     active = view.active
     return (
         (active.id, active.state) if active is not None else None,
+        tuple((name, sc.job_id, sc.state, sc.node, sc.reason) for job in view.overview.jobs[:1]
+              for name, sc in job.slurm.items()),
         tuple((row.name, row.status, row.job_id, row.failure_tail) for row in view.overview.rows),
         tuple((job.id, job.state, job.finished) for job in view.overview.jobs),
         tuple(view.overview.problems),
@@ -93,10 +101,15 @@ class RunPage:
         self.shown: Optional[tuple] = None  # _snapshot() of the view on screen
         self.dialogs_open = 0  # a re-render while Cancel's confirm dialog awaits would orphan it
         self.cancelling = False  # this page's Cancel is running (other tabs see WATCHER.is_cancelling)
+        self.submitting = False  # a Slurm submit is running in a worker thread
+        self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
+        self.showing_cluster = False  # this page counts as a viewer of the Slurm poller's cluster panel
+        self.cluster_shown: Optional[tuple] = None  # (cluster, snapshot) times on screen
         self.holder = ui.column().classes("as-content w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
         ui.timer(MACHINE_SECONDS, self._machine_values)
+        ui.context.client.on_disconnect(self._hide_cluster)
 
     @property
     def directory(self):
@@ -105,6 +118,25 @@ class RunPage:
     @property
     def project(self):
         return self.frame.session.project
+
+    @property
+    def slurm(self) -> bool:
+        return self.backend == "slurm"
+
+    def _load_settings(self) -> None:
+        self.settings, self.settings_warnings = load_settings()
+        self.backend = backend_of(self.project, self.settings)
+        self.options: Optional[SlurmOptions] = slurm_options(self.project, self.settings) if self.slurm else None
+
+    def _show_cluster(self, on: bool) -> None:
+        if on and not self.showing_cluster:
+            WATCHER.slurm_watch.show_cluster()
+        elif not on and self.showing_cluster:
+            WATCHER.slurm_watch.hide_cluster()
+        self.showing_cluster = on
+
+    def _hide_cluster(self) -> None:
+        self._show_cluster(False)
 
     def poll(self) -> None:
         if self.dialogs_open:
@@ -134,7 +166,10 @@ class RunPage:
                 return
         self.was_active = view.active is not None
         self.shown = _snapshot(view)
+        self._load_settings()
+        self._show_cluster(self.slurm)
         self.ticked &= {case.name for case in self.project.cases}  # the cases may have been rebuilt
+        self.jobs_by_id = {job.id: job for job in view.overview.jobs}
         self.holder.clear()
         self.frame.actions.clear()
         selection = self._selection(view)
@@ -167,11 +202,15 @@ class RunPage:
                             self._launch(selection, single=kind == "single")
                     with ui.column().classes("as-run-part w-full gap-2"):
                         ui.label("Checks").classes("as-run-head")
-                        self._checks(view)
+                        self._checks(view, selection)
                         self._plan(view, selection)
                     with ui.column().classes("as-run-part w-full gap-2"):
-                        ui.label("Machine").classes("as-run-head")
-                        self._machine()
+                        if self.slurm:
+                            ui.label("Cluster").classes("as-run-head")
+                            self._cluster(view)
+                        else:
+                            ui.label("Machine").classes("as-run-head")
+                            self._machine()
                     with ui.column().classes("as-run-part w-full gap-1"):
                         self._last_job(view, single=kind == "single")
         self._buttons_state(view, selection)
@@ -179,16 +218,24 @@ class RunPage:
     # -- the panel on the right ------------------------------------------------
 
     def _launch(self, selection: _Selection, single: bool) -> None:
-        """What will run: the ticked cases, the cores per case, continuing, Submit."""
-        ui.label("Run").classes("as-run-head")
+        """What will run: the ticked cases, where (this machine or Slurm) with how many cores, continuing, Submit."""
+        with ui.row().classes("items-center w-full no-wrap"):
+            ui.label("Run").classes("as-run-head")
+            ui.space()
+            ui.toggle({"local": "This machine", "slurm": "Slurm"}, value=self.backend,
+                      on_change=lambda e: self._set_backend(e.value)).props("dense no-caps unelevated").mark(
+                "run-backend")
         if single:
             ui.label(self.project.cases[0].name).classes("as-run-big as-mono").mark("run-what")
         else:
             with ui.row().classes("items-baseline gap-2 no-wrap"):
                 ui.label(str(len(selection.ticked))).classes("as-run-big").mark("run-what")
                 ui.label(f"of {_plural(len(self.project.cases), 'case')} ticked").classes("as-muted")
-        text_field("Cores per case (MPI partitions)", self.project.run.partitions, self._set_partitions,
-                   mark="run-partitions")
+        if self.slurm:
+            self._slurm_fields()
+        else:
+            text_field("Cores per case (MPI partitions)", self.project.run.partitions, self._set_partitions,
+                       mark="run-partitions")
         box = ui.checkbox("Continue from the last solution" if single else "Continue from each case's last solution",
                           value=selection.chosen, on_change=lambda e: self._set_continue(e.value)).mark("continue")
         if selection.no_solution:
@@ -197,10 +244,29 @@ class RunPage:
             text = ("No solution to continue from yet" if single else
                     f"{_plural(count, 'ticked case')} {'has' if count == 1 else 'have'} no solution to continue from")
             titled(hint(text), ", ".join(selection.no_solution)).mark("continue-missing")
-        self.submit_button = primary_button(
-            "Run case" if single else f"Submit {_plural(len(selection.ticked), 'case')}", on_click=self.submit,
-            icon="play_arrow").classes("w-full").mark("submit")
+        if self.slurm and self.submit_error:
+            banner("error", f"Submit failed: {self.submit_error}").mark("submit-error")
+        label = "Run case" if single else f"Submit {_plural(len(selection.ticked), 'case')}"
+        if self.slurm:
+            label = "Submitting…" if self.submitting else (
+                "Submit to Slurm" if single else f"Submit {_plural(len(selection.ticked), 'case')} to Slurm")
+        self.submit_button = primary_button(label, on_click=self.submit, icon="play_arrow").classes("w-full").mark(
+            "submit")
         self.blocked = hint("").mark("submit-blocked")
+
+    def _slurm_fields(self) -> None:
+        """Partition, tasks per case and time limit (saved with the project); always one node."""
+        options = self.options
+        names = [p.name for p in self.settings.slurm.partitions]
+        if options.partition not in names:
+            names.append(options.partition)
+        ui.select(names, value=options.partition, label="Partition",
+                  on_change=lambda e: self._set_partition(e.value)).classes("w-full").props("dense").mark(
+            "run-partition")
+        text_field("Tasks per case (MPI ranks)", options.ntasks, self._set_ntasks, mark="run-ntasks")
+        text_field("Time limit", options.time_limit, self._set_time_limit, mark="run-time-limit",
+                   placeholder="none, or e.g. 12:00:00")
+        hint("1 node per case" + (", exclusive" if options.exclusive else "")).mark("run-node-note")
 
     def _running(self, view: JobView) -> None:
         """The running job: how far it is, the case running now, elapsed and a rough time left, Cancel."""
@@ -240,9 +306,48 @@ class RunPage:
     def _buttons_state(self, view: JobView, selection: _Selection) -> None:
         if view.active is None:  # one job at a time: while one runs the panel has Cancel, no Submit
             self.clock = None
-            self.submit_button.set_enabled(bool(selection.ticked) and not self.has_errors)
+            self.submit_button.set_enabled(bool(selection.ticked) and not self.has_errors and not self.submitting)
             self.blocked.text = ("Fix the error below to run" if self.has_errors else
                                  "Tick at least one case" if not selection.ticked else "")
+
+    def _set_backend(self, backend: str) -> None:
+        if backend == self.backend:
+            return
+        self.submit_error = None
+        message = self.frame.save(lambda p: setattr(p.run, "backend", backend))
+        if message is not None:
+            ui.notify(message, type="negative")
+        self.render()
+
+    def _set_partition(self, name: str) -> None:
+        if name == self.options.partition:
+            return
+
+        def change(p) -> None:
+            p.run.slurm.partition = name
+            p.run.slurm.ntasks = None  # each partition has its own default
+
+        message = self.frame.save(change)
+        if message is not None:
+            ui.notify(message, type="negative")
+        self.render()
+
+    def _set_ntasks(self, text: str) -> Optional[str]:
+        message = self.frame.save(lambda p: setattr(p.run.slurm, "ntasks", parse_int(text, "Tasks per case")))
+        if message is None:
+            self.render()
+        return message
+
+    def _set_time_limit(self, text: str) -> Optional[str]:
+        from ...engine.settings import valid_time_limit
+
+        text = text.strip()
+        if not valid_time_limit(text):
+            return f"{text!r} is not a Slurm time limit such as 12:00:00 or 2-00:00:00"
+        message = self.frame.save(lambda p: setattr(p.run.slurm, "time_limit", text))
+        if message is None:
+            self.render()
+        return message
 
     def _set_partitions(self, text: str) -> Optional[str]:
         message = self.frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Cores per case")))
@@ -269,8 +374,13 @@ class RunPage:
                 flat_button(f"Job history ({len(view.overview.jobs)})", on_click=lambda: self._set_tab("history"),
                             icon="history").props("dense").mark("last-job-history")
 
-    def _checks(self, view: JobView) -> None:
-        problems = preflight(self.directory, self.project, "submit")
+    def _checks(self, view: JobView, selection: _Selection) -> None:
+        cases = selection.ticked or None
+        problems = preflight(self.directory, self.project, "submit", cases=cases, options=self.options,
+                             settings=self.settings)
+        if self.slurm:
+            for note in memory_notes(self.directory, self.project, cases, self.options.partition, self.settings):
+                hint(note).mark("run-memory")
         if view.active is not None:  # "job ... is still running" is what the table already shows
             problems = [p for p in problems if not p.message.startswith(f"Job {view.active.id} ")]
         self.has_errors = has_errors(problems)
@@ -299,6 +409,9 @@ class RunPage:
         self._machine_values()
 
     def _machine_values(self) -> None:
+        if getattr(self, "backend", "local") == "slurm":
+            self._cluster_values()
+            return
         labels = getattr(self, "machine_labels", None)
         if not labels or labels["cores"].is_deleted:
             return
@@ -312,6 +425,60 @@ class RunPage:
         self.machine_note.text = note
         self.machine_note.set_visibility(bool(note))
         self.machine_usage.text = "\n".join(usage_text(item) for item in usage()) or "nothing much"
+
+    def _cluster(self, view: JobView) -> None:
+        """The partitions (sinfo), drained or down nodes and why, and the queue (squeue --me); kept current from
+        the server's Slurm poller by the machine timer."""
+        self.own = own_jobs(view.overview.jobs)
+        self.cluster_box = ui.column().classes("w-full gap-2").mark("run-cluster")
+        self.cluster_shown = None
+        self._cluster_values()
+
+    def _cluster_values(self) -> None:
+        box = getattr(self, "cluster_box", None)
+        if box is None or box.is_deleted:
+            return
+        watch = WATCHER.slurm_watch
+        cluster, snapshot = watch.cluster, watch.snapshot
+        key = (cluster.taken if cluster else None, snapshot.taken if snapshot else None, tuple(sorted(self.own)))
+        if key == self.cluster_shown:
+            return
+        self.cluster_shown = key
+        box.clear()
+        with box:
+            outage = outage_text(snapshot, cluster, watch.last_ok)
+            if outage:
+                banner("error", outage).mark("cluster-outage")
+            if cluster is None or (not cluster.partitions and not cluster.error):
+                hint("Asking Slurm…").mark("cluster-waiting")
+            for line in partition_lines(cluster.partitions if cluster else ()):
+                with ui.column().classes("w-full gap-0" + (" as-cluster-bad" if line.bad else "")).mark(
+                        f"cluster-{line.name}"):
+                    with ui.row().classes("items-baseline w-full no-wrap gap-2"):
+                        ui.label(line.name + (" (default)" if line.default else "")).classes("as-strong")
+                        ui.label(line.nodes if line.available == "up" else f"partition {line.available}").classes(
+                            "as-error-text" if line.bad else "as-muted").mark(f"cluster-{line.name}-state")
+                        ui.space()
+                        ui.label(line.cpus).classes("as-muted").mark(f"cluster-{line.name}-cpus")
+                    ui.linear_progress(line.busy_percent / 100, show_value=False).props("rounded size=6px")
+            for reason in node_reasons(cluster):
+                banner("error", reason).mark("cluster-reason")
+            ui.label("Queue").classes("as-run-head")
+            lines = queue_lines(snapshot, self.own)
+            if not lines:
+                hint("No jobs of yours in the queue" if snapshot is not None and snapshot.ok else "").mark(
+                    "queue-empty")
+            else:
+                with table("auto minmax(0, 1fr) auto auto").classes("as-table-compact w-full"):
+                    for heading in ("Job", "Case", "State", "Time"):
+                        th(heading)
+                    for line in lines:
+                        td(line.job_id, mono=True, strong=line.own).mark(f"queue-{line.job_id}")
+                        td(line.what or "—")
+                        td(f"{line.state} on {line.node}" if line.node else
+                           (f"{line.state} ({line.reason})" if line.reason else line.state)).mark(
+                            f"queue-{line.job_id}-state")
+                        td(line.time, mono=True)
 
     def _selection(self, view: JobView) -> _Selection:
         ticked = [case.name for case in self.project.cases if case.name in self.ticked]
@@ -372,7 +539,12 @@ class RunPage:
                 with ui.row().classes("as-strip w-full").mark("case-conditions"):
                     for label, value in items:
                         stat(label, value).mark(f"case-{label}")
-            if row.status == "FAILED" and row.failure_tail and row.name in self.opened:
+            job = self.jobs_by_id.get(row.job_id)
+            if job is not None and job.backend == "slurm":
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted").mark(f"slurm-{row.name}")
+                    self._resubmit_button(job, row.name)
+            if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
                 failure_row(row.failure_tail).mark(f"tail-{row.name}")
             if row.status == NOT_RUN:
                 ui.label("Nothing has run yet.").classes("as-muted").mark("case-not-run")
@@ -396,7 +568,7 @@ class RunPage:
 
     def _status(self, row) -> None:
         """A case's status pill; a failed one opens "why it failed" with a click."""
-        details = row.status == "FAILED" and bool(row.failure_tail)
+        details = row.status in ("FAILED", "BLOCKED") and bool(row.failure_tail)
         opened = details and row.name in self.opened
         status = pill(row.status).mark(f"status-{row.name}")
         if details:
@@ -467,8 +639,17 @@ class RunPage:
         td(format_value(case.beta) if case else "")
         with td_box():
             self._status(row)
-        td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
-        if row.status == "FAILED" and row.failure_tail and row.name in self.opened:
+        job = self.jobs_by_id.get(row.job_id)
+        if job is not None and job.backend == "slurm":
+            with td_box() as cell:
+                cell.classes("gap-2 no-wrap")
+                ui.label(row.job_id).classes("as-mono").mark(f"job-{row.name}")
+                ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted as-truncate").mark(
+                    f"slurm-{row.name}")
+                self._resubmit_button(job, row.name)
+        else:
+            td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
+        if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
             failure_row(row.failure_tail).mark(f"tail-{row.name}")
 
     def _tick_group(self, names: list, value: Optional[bool]) -> None:
@@ -540,10 +721,19 @@ class RunPage:
                 ui.notify("Project changed on disk and was reloaded; submit again", type="warning")
             return
         cases = [case.name for case in self.project.cases if case.name in self.ticked]
-        errors = [p for p in preflight(self.directory, self.project, "submit") if p.severity == "error"]
+        self._load_settings()
+        errors = [p for p in preflight(self.directory, self.project, "submit", cases=cases, options=self.options,
+                                       settings=self.settings) if p.severity == "error"]
         if errors:
             ui.notify(errors[0].message, type="negative")
             self.render()
+            return
+        if self.slurm:
+            if not self.submitting:
+                self.submitting = True
+                self.submit_error = None
+                self.render()
+                background_tasks.create(self._submit_slurm(cases, list(self.continue_cases), self.options))
             return
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
@@ -556,6 +746,76 @@ class RunPage:
         self.frame.refresh()
         self.render()
 
+    async def _submit_slurm(self, cases: list, continue_cases: list, options: SlurmOptions) -> None:
+        """sbatch once per case (seconds for a big sweep, or up to the timeout when Slurm is slow): in a worker
+        thread, so the server keeps answering."""
+        try:
+            generate_configs(self.directory, self.project)  # a run always uses the current settings
+            await run.io_bound(WATCHER.submit, self.directory, self.project, cases, continue_cases, options)
+        except AeroSuiteError as exc:
+            self.submit_error = str(exc)
+            ui.notify(str(exc), type="negative")
+        else:
+            ui.notify(f"Submitted {_plural(len(cases), 'case')} to Slurm ({options.partition})", type="positive")
+        finally:
+            self.submitting = False
+        if not self.holder.is_deleted:
+            self.frame.refresh()
+            self.render()
+
+    def _resubmit_button(self, job, case: str) -> None:
+        if can_resubmit(job, case):
+            chip_button("Resubmit", on_click=lambda j=job, c=case: self.confirm_resubmit(j, c)).mark(
+                f"resubmit-{case}")
+
+    async def confirm_resubmit(self, job, case: str) -> None:
+        """NODE_FAIL / OUT_OF_MEMORY: submit the case again (and the cases blocked behind it) in the same job."""
+        self._load_settings()
+        partitions = [p.name for p in self.settings.slurm.partitions]
+        limits = {p.name: p.memory_limit_mb for p in self.settings.slurm.partitions}
+        state = job.slurm[case].state
+        chosen = {"partition": suggested_partition(job, case, partitions, limits)}
+        self.dialogs_open += 1
+        try:
+            with ui.dialog() as dialog, ui.card().classes("gap-3"):
+                ui.label(f"Resubmit {case}?").classes("as-strong")
+                why = ("It ran out of memory" if state == "OUT_OF_MEMORY" else "Its node failed")
+                ui.label(f"{why} on {job.slurm[case].partition} (Slurm job {job.slurm[case].job_id}). It runs "
+                         "again in the same job, with the cases waiting for its solution.").classes("as-muted")
+                if chosen["partition"] != job.slurm[case].partition:
+                    hint(f"Suggested: {chosen['partition']}, which has more memory.").mark("resubmit-suggestion")
+                ui.select(partitions, value=chosen["partition"], label="Partition",
+                          on_change=lambda e: chosen.update(partition=e.value)).classes("w-full").mark(
+                    "resubmit-partition")
+                with ui.row().classes("w-full justify-end gap-2"):
+                    secondary_button("Keep it failed", on_click=lambda: _answer(dialog, False)).mark("resubmit-keep")
+                    primary_button("Resubmit", on_click=lambda: _answer(dialog, True)).mark("resubmit-confirm")
+            confirmed = await dialog
+        finally:
+            self.dialogs_open -= 1
+        if not confirmed:
+            return
+        partition = chosen["partition"]
+        same = partition == job.slurm[case].partition
+        options = slurm_options(self.project, self.settings, partition=partition,
+                                ntasks=job.slurm[case].ntasks if same else None,
+                                time_limit=job.slurm[case].time_limit)
+        errors = [p for p in preflight(self.directory, self.project, "run", cases=[case], options=options,
+                                       settings=self.settings)
+                  if p.severity == "error" and not p.message.startswith(f"Job {job.id} ")]
+        if errors:
+            ui.notify(errors[0].message, type="negative")
+            return
+        try:
+            await run.io_bound(WATCHER.resubmit, self.directory, self.project, job.id, [case], options)
+        except AeroSuiteError as exc:
+            ui.notify(str(exc), type="negative")
+        else:
+            ui.notify(f"Resubmitted {case} to {partition}", type="positive")
+        if not self.holder.is_deleted:
+            self.frame.refresh()
+            self.render()
+
     async def confirm_cancel(self) -> None:
         # poll() must not rebuild the page (and delete this button's row) while this dialog is
         # up: that would orphan its slot and break dialog creation for a second click queued
@@ -563,7 +823,8 @@ class RunPage:
         self.dialogs_open += 1
         try:
             with ui.dialog() as dialog, ui.card():
-                ui.label("Cancel the running job? Cases that have not finished are marked CANCELLED.")
+                ui.label("Cancel the running job? Cases that have not finished are marked CANCELLED." + (
+                    " Its Slurm jobs are cancelled (scancel)." if self.slurm else ""))
                 with ui.row().classes("w-full justify-end gap-2"):
                     # Delete the dialog the instant it is answered, in the same click, rather
                     # than after `await dialog` resumes (which needs a further event-loop tick):

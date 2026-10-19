@@ -294,6 +294,7 @@ a.as-step:hover { background: #f6f8fa; }
 .as-run-big { font-size: 22px; font-weight: 700; line-height: 1.15; word-break: break-all; }
 .as-run-panel .as-banner, .as-run-panel .as-warn-group { font-size: 12.5px; }
 .as-machine { gap: 18px; row-gap: 8px; }
+.as-cluster-bad { background: #ffebe9; border-radius: 6px; padding: 4px 6px; }
 .as-machine-usage { border-top: 1px solid var(--as-hairline); padding-top: 8px; }
 .as-usage { white-space: pre-line; font-size: 11.5px; }
 .as-status-bar { height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }
