@@ -17,6 +17,12 @@ from aerosuite.engine.project import save_project, set_mesh  # noqa: E402
 HISTORY_HEADER = '"Inner_Iter",   "rms[Rho]",   "CL",   "CD",   "CMy"'
 
 
+@pytest.fixture(autouse=True)
+def _isolated_aerosuite_home(tmp_path, monkeypatch):
+    """Never read the real ~/.aerosuite: its settings.json could switch the tests to the Slurm backend."""
+    monkeypatch.setenv("AEROSUITE_HOME", str(tmp_path / "aerosuite-home"))
+
+
 @pytest.fixture
 def history_writer():
     """Write an SU2-style history.csv whose CL column follows `cl`."""
