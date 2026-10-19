@@ -74,6 +74,12 @@ def _brand() -> None:
         ui.label("AeroSuite").classes("as-logo-text")
 
 
+def _settings_button() -> None:
+    """The top bar's gear: the server-wide settings (backend, Slurm)."""
+    ui.button(icon="settings", color=None, on_click=lambda: ui.navigate.to("/settings")).props(
+        "flat dense").classes("as-topbar-icon as-round").mark("settings")
+
+
 def _help_button() -> None:
     """A help icon with the version and "Web UI guide" (the README's web UI section in a dialog)."""
     # Built outside the menu: a dialog created inside a menu item would be unmounted as the menu closes.
@@ -101,6 +107,7 @@ def header() -> None:
         _brand()
         ui.space()
         _calculators_button()
+        _settings_button()
         _help_button()
 
 
@@ -182,6 +189,7 @@ class ProjectFrame:
             self._job.set_visibility(False)
             ParaViewMenu(self)
             _calculators_button(self)
+            _settings_button()
             _help_button()
             with ui.row().classes("as-topbar-control as-switcher").props('tabindex=0 role=button').mark(
                     "project-switcher") as switcher:
