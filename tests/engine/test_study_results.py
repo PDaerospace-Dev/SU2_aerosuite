@@ -185,3 +185,28 @@ def test_studies_without_temperature_or_config_have_no_such_columns(tmp_path):
     _study(tmp_path / "base")
     table = study_results(tmp_path / "base", _definitions()).table
     assert "Temperature" not in table.columns and "Config" not in table.columns
+
+
+def _stats(folder, case, **values):
+    data = {"job_id": "101", "partition": "node1", "node": "hpc1", "ntasks": 96, "state": "COMPLETED",
+            "exit_code": "0:0", "elapsed_s": 1800.0, "iterations": 50, "s_per_iter": 36.0, "peak_memory_gb": 57.9,
+            "cpu_use_per_rank": 0.98, "attempts": []}
+    data.update(values)
+    (folder / "runs" / case / "slurm_stats.json").write_text(json.dumps(data))
+
+
+def test_slurm_costs_are_read_beside_the_histories(tmp_path):
+    from aerosuite.engine.study_results import cost_frame, node_hours
+
+    _study(tmp_path / "base")
+    result = study_results(tmp_path / "base", _definitions())
+    assert result.costs == {} and cost_frame(result).empty and node_hours(result) == 0
+    _stats(tmp_path / "base", "M0p6_sl_a4_b0")
+    _stats(tmp_path / "base", "M0p8_sl_a4_b0", job_id="102", elapsed_s=5400.0, node="hpc2", peak_memory_gb=None)
+    result = study_results(tmp_path / "base", _definitions())  # a new stats file refreshes the cache
+    assert set(result.costs) == {"M0p6_sl_a4_b0", "M0p8_sl_a4_b0"}
+    assert node_hours(result) == pytest.approx(2.0)
+    frame = cost_frame(result).set_index("Case")
+    assert frame.loc["M0p8_sl_a4_b0", "Node"] == "hpc2" and frame.loc["M0p6_sl_a4_b0", "s/iter"] == 36.0
+    assert list(frame.columns) == ["Elapsed (s)", "s/iter", "Peak memory (GB)", "CPU use per rank", "Node", "Tasks",
+                                   "Slurm job"]

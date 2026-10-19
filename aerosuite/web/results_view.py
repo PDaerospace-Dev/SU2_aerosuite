@@ -173,17 +173,47 @@ def _cell(value) -> str:
     return "" if number != number else f"{number:.6g}"
 
 
-def table_text(designs: Sequence[tuple[str, pd.DataFrame]], sweep: Sequence[str], parameters: Sequence[str]
-               ) -> str:
-    """The shown rows as tab-separated text (pastes into a spreadsheet)."""
+def table_text(designs: Sequence[tuple[str, pd.DataFrame]], sweep: Sequence[str], parameters: Sequence[str],
+               costs: Optional[Sequence[Mapping[str, dict]]] = None) -> str:
+    """The shown rows as tab-separated text (pastes into a spreadsheet); with `costs` (per design, case -> its
+    Slurm figures) the Cost columns too."""
     several = len(designs) > 1
     header = (["Design"] if several else []) + ["Case"]
     header += [SWEEP_LABELS[n] + (f" ({SWEEP_UNITS[n]})" if n in SWEEP_UNITS else "") for n in sweep]
-    lines = ["\t".join(header + list(parameters) + ["Status"])]
-    for name, table in designs:
+    header += list(parameters) + ["Status"] + (list(COST_HEADINGS) if costs else [])
+    lines = ["\t".join(header)]
+    for index, (name, table) in enumerate(designs):
         for _, row in table.iterrows():
             cells = ([name] if several else []) + [str(row["Case"])]
             cells += [variable_text(row[n]).replace("—", "") if n in row else "" for n in sweep]
             cells += [_cell(row.get(p)) for p in parameters] + [status_text(row.get("Converged"))]
+            if costs:
+                cells += cost_cells(costs[index].get(str(row["Case"])), plain=True)
             lines.append("\t".join(cells))
     return "\n".join(lines) + "\n"
+
+
+COST_HEADINGS = ("Elapsed", "s/iter", "Peak memory", "CPU use", "Node", "Tasks")
+
+
+def _duration(seconds: float) -> str:
+    seconds = int(round(seconds))
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}"
+
+
+def cost_cells(stats: Optional[dict], plain: bool = False) -> list[str]:
+    """A case's Cost cells: elapsed (h:mm:ss), s/iter, peak memory, CPU use per rank, node, tasks ("—" if unknown;
+    "" with plain)."""
+    blank = "" if plain else "—"
+    if not stats:
+        return [blank] * len(COST_HEADINGS)
+
+    def number(key: str, text) -> str:
+        value = stats.get(key)
+        return blank if value is None else text(value)
+
+    return [number("elapsed_s", _duration), number("s_per_iter", lambda v: f"{v:.3g}"),
+            number("peak_memory_gb", lambda v: f"{v:.1f} GB"), number("cpu_use_per_rank", lambda v: f"{100 * v:.0f}%"),
+            stats.get("node") or blank, number("ntasks", str)]

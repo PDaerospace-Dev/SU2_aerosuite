@@ -20,6 +20,7 @@ from .freestream import altitude_error, case_altitude
 from .models import Case, Project
 from .project import PROJECT_FILE, open_project
 from .restarts import RUNS_DIR
+from .jobs.slurm import STATS_FILE
 from .results import (RESULTS_DIR, case_histories, convergence_columns, history_columns, imported_case_index,
                       load_case_index, summarize, write_summary)
 
@@ -83,6 +84,7 @@ class StudyResults:
     notes: list[str] = field(default_factory=list)  # e.g. "v2 has no CL(Wing)"
     warnings: list[str] = field(default_factory=list)  # per case, from reading the histories
     reasons: dict[tuple[str, str], str] = field(default_factory=dict)  # (case, derived name) -> why it is empty
+    costs: dict[str, dict] = field(default_factory=dict)  # case -> its slurm_stats.json (Slurm runs only)
 
     def reason(self, case: str, column: str) -> Optional[str]:
         return self.reasons.get((case, column))
@@ -99,7 +101,8 @@ def _stamp(folder: Path) -> tuple:
         project = open_project(folder)
     except AeroSuiteError:
         project = None
-    paths = [path for _, path in case_histories(folder, project)]
+    histories = [path for _, path in case_histories(folder, project)]
+    paths = histories + [path.parent / STATS_FILE for path in histories]  # seff's figures arrive after the run
     paths += [folder / CONFIGS_DIR / CASE_INDEX_FILE]
     if project is None:
         paths.append(folder / PROJECT_FILE)
@@ -186,7 +189,38 @@ def _compute(folder: Path, definitions: "Definitions", last_n: int) -> StudyResu
                 values[definition.name] = value
         for name, column in columns.items():
             table[name] = column
-    return StudyResults(project.name, folder, table, _curves(table, characteristics), notes, warnings, reasons)
+    costs = _costs(case_histories(folder, project))
+    return StudyResults(project.name, folder, table, _curves(table, characteristics), notes, warnings, reasons, costs)
+
+
+def _costs(histories) -> dict[str, dict]:
+    """Each case's slurm_stats.json (written beside its history by the Slurm backend), where there is one."""
+    found = {}
+    for name, path in histories:
+        try:
+            data = json.loads((Path(path).parent / STATS_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            found[name] = data
+    return found
+
+
+COST_COLUMNS = (  # (column, key in slurm_stats.json)
+    ("Elapsed (s)", "elapsed_s"), ("s/iter", "s_per_iter"), ("Peak memory (GB)", "peak_memory_gb"),
+    ("CPU use per rank", "cpu_use_per_rank"), ("Node", "node"), ("Tasks", "ntasks"), ("Slurm job", "job_id"))
+
+
+def cost_frame(result: StudyResults) -> pd.DataFrame:
+    """Case and the Cost columns, for the cases that ran on Slurm (empty when none did)."""
+    rows = [{"Case": case, **{column: stats.get(key) for column, key in COST_COLUMNS}}
+            for case, stats in result.costs.items()]
+    return pd.DataFrame(rows, columns=["Case"] + [column for column, _ in COST_COLUMNS])
+
+
+def node_hours(result: StudyResults) -> float:
+    """Node-hours used by the study's Slurm runs (one node per case)."""
+    return sum(float(stats.get("elapsed_s") or 0) for stats in result.costs.values()) / 3600
 
 
 def _number(value) -> float:

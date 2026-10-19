@@ -22,14 +22,14 @@ from ...engine.packages import (Package, availability, disable_package, effectiv
 from ...engine.study_results import CONSTANT_NAMES, SWEEP_NAMES
 from ...engine.project import PROJECT_FILE
 from ...engine.results import history_columns
-from ...engine.study_results import study_results, write_results
+from ...engine.study_results import cost_frame, node_hours, study_results, summary_frame, write_results
 from ..fields import text_field
 from ..jobs import WATCHER
 from ..layout import ProjectFrame, open_session, project_url
 from ..param_picker import ParamPicker
 from ..picker import pick_path
 from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
-from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, clear_filters, conditions, converged_text, filter_rows, pin,
+from ..results_view import (COST_HEADINGS, SWEEP_LABELS, SWEEP_UNITS, add_parameter, cost_cells, clear_filters, conditions, converged_text, filter_rows, pin,
                             remove_parameter, shown_plot, shown_values, status_counts, sweep_values, table_text, toggle_filter,
                             variable_text, varying)
 from ..theme import SERIES_COLORS
@@ -38,6 +38,13 @@ from ..ui_kit import (banner, chip_button, field, hint, pill, primary_button, se
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
 FILTERED = ("Config", "Mach", "Altitude", "Temperature", "Alpha", "Beta")  # the Filters panel's variables
+COST_TIPS = {  # the Cost columns (cases run on Slurm): from sacct and seff
+    "Elapsed": "Wall time of the Slurm job (sacct)",
+    "s/iter": "Elapsed time / iterations run, including reading and partitioning the mesh",
+    "Peak memory": "The job's total memory at its peak (seff: Memory Utilized)",
+    "CPU use": "CPU time / (wall time × tasks): 100% = every rank busy all the time",
+    "Node": "Where it ran", "Tasks": "MPI ranks",
+}
 
 
 def register() -> None:
@@ -295,7 +302,9 @@ class ResultsPage:
 
     def copy_table(self) -> None:
         rows, sweep = self._shown
-        text = table_text([(d.name, part) for d, part in zip(self.designs, rows)], sweep, self.definitions.parameters)
+        costs = [d.costs for d in self.designs] if any(d.costs for d in self.designs) else None
+        text = table_text([(d.name, part) for d, part in zip(self.designs, rows)], sweep, self.definitions.parameters,
+                          costs)
         ui.clipboard.write(text)
         ui.notify("Table copied: paste it into a spreadsheet", type="positive")
 
@@ -308,7 +317,11 @@ class ResultsPage:
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
             return
-        ui.download.content(paths[0].read_bytes(), f"{self.frame.session.project.name}-summary.csv", "text/csv")
+        content = paths[0].read_bytes()
+        if self.designs[0].costs:  # the download adds the Cost columns; results/summary.csv stays as it was
+            summary = summary_frame(self.designs[0], self.definitions.parameters)
+            content = summary.merge(cost_frame(self.designs[0]), on="Case", how="left").to_csv(index=False).encode()
+        ui.download.content(content, f"{self.frame.session.project.name}-summary.csv", "text/csv")
         ui.notify("Saved " + " and ".join(str(p.relative_to(self.directory)) for p in paths), type="positive")
 
     def open_save_package(self) -> None:
@@ -722,12 +735,18 @@ class ResultsPage:
         params = self.definitions.parameters
         several = len(self.designs) > 1
         count = sum(len(r) for r in rows)
-        with section("Results", f"averaged over the last {self.settings.average_last} iterations · {count} cases",
+        costs = any(design.costs for design in self.designs)
+        subtitle = f"averaged over the last {self.settings.average_last} iterations · {count} cases"
+        if costs:
+            subtitle += " · " + " + ".join(f"{node_hours(d):.2f}" for d in self.designs if d.costs) + " node-hours"
+        with section("Results", subtitle,
                      opened="results" not in self.settings.folded, on_fold=lambda o: self.fold("results", o),
                      mark="section-results", flush=True):
             columns = ["minmax(11rem, 1.3fr)"] + (["minmax(8rem, 1fr)"] if several else [])
             columns += ["minmax(4rem, .5fr)"] * len(sweep) + ["minmax(6rem, .7fr)"] * len(params)
             columns += ["minmax(7rem, .6fr)"]
+            if costs:
+                columns += ["minmax(5.5rem, .5fr)"] * len(COST_HEADINGS)
             with ui.element("div").classes("as-table-scroll w-full"):
                 with table(" ".join(columns)).mark("results-table"):
                     th("Case").classes("as-sticky")
@@ -738,11 +757,14 @@ class ResultsPage:
                     for name in params:
                         th(("ƒ " if name in self.definitions.derived_names else "") + name)
                     th("Status")
+                    if costs:
+                        for heading in COST_HEADINGS:
+                            titled(th(heading).classes("as-cost-head"), COST_TIPS.get(heading, ""))
                     for i, (design, part) in enumerate(zip(self.designs, rows)):
                         for _, row in part.iterrows():
-                            self._row(i, design, row, sweep, params, several)
+                            self._row(i, design, row, sweep, params, several, costs)
 
-    def _row(self, i: int, design, row, sweep: list, params: list, several: bool) -> None:
+    def _row(self, i: int, design, row, sweep: list, params: list, several: bool, costs: bool = False) -> None:
         case = row["Case"]
         with td_box() as box:
             box.classes("as-sticky").mark(f"row-{i}-{case}")
@@ -762,3 +784,6 @@ class ResultsPage:
             converged = row.get("Converged")
             pill("NOT JUDGED" if _blank(converged) else "CONVERGED" if converged else "UNCONVERGED").mark(
                 f"status-{i}-{case}")
+        if costs:
+            for heading, text in zip(COST_HEADINGS, cost_cells(design.costs.get(case))):
+                td(text, mono=True).mark(f"cost-{i}-{case}-{heading}")

@@ -163,3 +163,28 @@ def test_a_plot_shows_only_its_chosen_parameters():
     assert shown_plot(PlotSpec(x="CD", y=["CL"]), ["CL"]) is None  # the polar needs its X too
     assert shown_plot(PlotSpec(x="CD", y=["CL"], split="Mach"), ["CL", "CD"]) == PlotSpec(
         x="CD", y=["CL"], split="Mach")
+
+
+def test_cost_cells():
+    from aerosuite.web.results_view import COST_HEADINGS, cost_cells
+
+    stats = {"elapsed_s": 3725.4, "s_per_iter": 2.2612, "peak_memory_gb": 57.94, "cpu_use_per_rank": 0.987,
+             "node": "hpc1", "ntasks": 96}
+    assert cost_cells(stats) == ["1:02:05", "2.26", "57.9 GB", "99%", "hpc1", "96"]
+    assert cost_cells(None) == ["—"] * len(COST_HEADINGS)
+    assert cost_cells({"elapsed_s": 60, "node": ""}, plain=True) == ["0:01:00", "", "", "", "", ""]
+
+
+def test_table_text_with_costs():
+    import pandas as pd
+
+    from aerosuite.web.results_view import table_text
+
+    frame = pd.DataFrame([{"Case": "a", "CL": 0.5, "Converged": True}, {"Case": "b", "CL": 0.6, "Converged": True}])
+    text = table_text([("s", frame)], [], ["CL"], costs=[{"a": {"elapsed_s": 60, "node": "hpc2", "ntasks": 48}}])
+    lines = text.splitlines()
+    assert lines[0].split("\t") == ["Case", "CL", "Status", "Elapsed", "s/iter", "Peak memory", "CPU use", "Node",
+                                    "Tasks"]
+    assert lines[1].split("\t")[3:] == ["0:01:00", "", "", "", "hpc2", "48"]
+    assert lines[2].split("\t")[3:] == [""] * 6
+    assert table_text([("s", frame)], [], ["CL"]).splitlines()[0] == "Case\tCL\tStatus"

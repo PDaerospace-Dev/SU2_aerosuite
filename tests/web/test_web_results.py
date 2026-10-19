@@ -514,3 +514,20 @@ async def test_an_unreadable_job_does_not_break_the_page(user: User, results_pro
     monkeypatch.setattr(results.WATCHER, "state", broken)
     await _open(user, results_project)
     await user.should_see(marker="results-table")
+
+
+async def test_cost_columns_only_for_slurm_runs(user: User, results_project):
+    import json
+
+    await _open(user, results_project)
+    await user.should_see(marker="results-table")
+    await user.should_not_see(marker="cost-0-M0p8_a0_b0-Elapsed")
+    stats = {"job_id": "101", "node": "hpc1", "ntasks": 96, "elapsed_s": 5400.0, "s_per_iter": 2.26,
+             "peak_memory_gb": 57.9, "cpu_use_per_rank": 0.97}
+    (results_project / "runs" / "M0p8_a0_b0" / "slurm_stats.json").write_text(json.dumps(stats))
+    await _open(user, results_project)
+    assert _text(user, "cost-0-M0p8_a0_b0-Elapsed") == "1:30:00"
+    assert _text(user, "cost-0-M0p8_a0_b0-Peak memory") == "57.9 GB"
+    assert _text(user, "cost-0-M0p8_a0_b0-CPU use") == "97%"
+    assert _text(user, "cost-0-M0p8_a2_b0-Elapsed") == "—"
+    await user.should_see("1.50 node-hours")
