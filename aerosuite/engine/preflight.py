@@ -7,7 +7,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Literal, Optional
+from typing import TYPE_CHECKING, Iterable, Literal, Optional, Sequence
 
 from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE, case_freestream
 from .freestream import FREESTREAM_KEYS, freestream_setup_errors
@@ -22,6 +22,10 @@ from .models import Case, Project
 from .naming import NAME_CHARACTERS, find_collisions, unsafe_names
 from .project import template_warnings
 from .restarts import find_restart_file, own_case_of
+
+if TYPE_CHECKING:
+    from .jobs.executors import SlurmOptions
+    from .settings import AppSettings
 
 
 @dataclass(frozen=True)
@@ -213,7 +217,12 @@ def _environment_problems(project: Project) -> list[Problem]:
     return problems
 
 
-def preflight(project_dir: Path, project: Project, action: Literal["generate", "run", "submit"]) -> list[Problem]:
+def preflight(project_dir: Path, project: Project, action: Literal["generate", "run", "submit"],
+              cases: Optional[Sequence[str]] = None, options: Optional["SlurmOptions"] = None,
+              settings: Optional["AppSettings"] = None) -> list[Problem]:
+    """Every problem for `action`. For a run or submit, the backend's own checks: the local sweep's environment, or
+    (Slurm) shared storage, configs, mesh, partition, tasks and memory for `cases` (default all) with `options`
+    (default the project's and the settings')."""
     project_dir = Path(project_dir)
     problems: list[Problem] = []
     template = project_dir / project.template
@@ -242,5 +251,24 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
     if action == "run":
         problems += _config_state_problems(project_dir, project)
     if action in ("run", "submit"):
-        problems += _environment_problems(project)
+        problems += _backend_problems(project_dir, project, action, cases, options, settings)
     return problems
+
+
+def _backend_problems(project_dir: Path, project: Project, action: str, cases: Optional[Sequence[str]],
+                      options: Optional["SlurmOptions"], settings: Optional["AppSettings"]) -> list[Problem]:
+    from .jobs.executors import backend_of, slurm_options
+    from .settings import load_settings
+
+    if settings is None:
+        settings, warnings = load_settings()
+    else:
+        warnings = []
+    if backend_of(project, settings) != "slurm":
+        return _environment_problems(project)
+    from .slurm_checks import slurm_problems
+
+    options = options or slurm_options(project, settings)
+    problems = [Problem("warning", warning) for warning in warnings]
+    return problems + slurm_problems(project_dir, project, cases, options.partition, options.ntasks,
+                                     options.time_limit, settings, read_configs=action == "run")
