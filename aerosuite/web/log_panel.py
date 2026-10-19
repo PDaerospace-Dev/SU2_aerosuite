@@ -95,6 +95,10 @@ class LogPanel:
         else:
             text = WATCHER.log_tail(self.frame.session.directory, job, lines=PANEL_LINES, max_bytes=PANEL_BYTES)
             text = "(the log could not be read)" if text is None else (text or "(nothing written yet)")
+            solver = WATCHER.solver_tail(self.frame.session.directory, job, lines=PANEL_LINES, max_bytes=PANEL_BYTES)
+            if solver is not None:  # a Slurm job: its log has the submits and states, SU2 writes to slurm-<id>.out
+                case, path, tail = solver
+                text += f"\n\n── {case}: {path.name} ──\n" + (tail or "(nothing written yet)")
         if text != self._shown_text:
             self._shown_text = text
             self.text.set_text(text)

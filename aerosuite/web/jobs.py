@@ -197,15 +197,34 @@ class JobWatcher:
     def log_tail(self, project_dir: Path, job: JobRecord, lines: int = LOG_TAIL_LINES,
                  max_bytes: int = LOG_TAIL_BYTES) -> Optional[str]:
         """The last `lines` lines of the job's log, reading at most `max_bytes`; None if unreadable."""
-        path = Path(project_dir) / job.log_path
-        try:
-            with open(path, "rb") as fh:
-                fh.seek(0, 2)
-                fh.seek(max(0, fh.tell() - max_bytes))
-                data = fh.read()
-        except OSError:
+        return _tail_file(Path(project_dir) / job.log_path, lines, max_bytes)
+
+    def solver_tail(self, project_dir: Path, job: JobRecord, lines: int = LOG_TAIL_LINES,
+                    max_bytes: int = LOG_TAIL_BYTES) -> Optional[tuple[str, Path, str]]:
+        """A Slurm job's solver output: (case, its slurm-<id>.out, last lines) of the case running now, else of the
+        last one that started; None for a local job (its log already holds the solver output) or before any ran."""
+        if job.backend != "slurm":
             return None
-        return "\n".join(data.decode("utf-8", errors="replace").splitlines()[-lines:])
+        started = self.started_cases(project_dir, job)
+        running = [name for name in started if job.case_status.get(name) is CaseState.RUNNING]
+        case = (running or started or [None])[-1]
+        if case is None:
+            return None
+        path = self.case_log(project_dir, job, case)
+        text = _tail_file(path, lines, max_bytes) if path is not None else None
+        return None if text is None else (case, path, text)
+
+
+def _tail_file(path: Path, lines: int, max_bytes: int) -> Optional[str]:
+    """The last `lines` lines of `path`, reading at most `max_bytes`; None if unreadable."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            fh.seek(max(0, fh.tell() - max_bytes))
+            data = fh.read()
+    except OSError:
+        return None
+    return "\n".join(data.decode("utf-8", errors="replace").splitlines()[-lines:])
 
 
 WATCHER = JobWatcher()
