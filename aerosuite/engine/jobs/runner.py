@@ -54,6 +54,9 @@ class SlurmCase(BaseModel):
     exit_code: Optional[str] = None  # "0:0", "1:0", "0:125" (exit code:signal), once known
     checks: int = 0  # polls since it left the queue without an accounting row
     started: bool = False  # it has been seen running (or finished)
+    submitted: float = 0.0  # time.time() of the sbatch: an older poll cannot know this job
+    stats_pending: bool = False  # finished, its seff figures not fetched yet
+    seff_tries: int = 0
 
 
 class JobRecord(BaseModel):

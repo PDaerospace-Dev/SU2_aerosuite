@@ -1,0 +1,166 @@
+import pytest
+
+from aerosuite.engine.errors import JobError
+from aerosuite.engine.jobs.executors import SlurmOptions
+from aerosuite.engine.jobs.runner import CaseState, JobState
+from aerosuite.engine.jobs.slurm import job_name, job_script
+from aerosuite.engine.jobs.store import active_lock, list_jobs, load_job, read_lock
+from aerosuite.engine.project import save_project
+from aerosuite.engine.settings import SlurmSettings
+
+from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
+
+OPTIONS = SlurmOptions(partition="node1", ntasks=96, time_limit="", exclusive=True, account="pdas")
+
+
+def test_job_script_matches_the_reference_script():
+    text = job_script("X07 cruise", "M0p8_a2", "M0p8_a2.cfg", OPTIONS, SlurmSettings(), "20261019-1412")
+    lines = text.splitlines()
+    assert lines[:8] == [
+        "#!/bin/bash -l", "#SBATCH -J X07_cruise/M0p8_a2", "#SBATCH -p node1", "#SBATCH -N 1", "#SBATCH -n 96",
+        "#SBATCH --exclusive", "#SBATCH -A pdas", "#SBATCH -o slurm-%j.out"]
+    assert "module load mpi/openmpi-x86_64" in lines
+    assert "export PATH=/opt/su2/bin:\"$PATH\"" in lines
+    assert 'cd "$SLURM_SUBMIT_DIR"' in lines
+    assert "srun --mpi=pmix SU2_CFD M0p8_a2.cfg" in lines
+    assert lines[-3:] == ["code=$?", 'echo "AEROSUITE_EXIT $code $(date -Is)"', "exit $code"]
+    assert "--dependency" not in text and "-t " not in text
+
+
+def test_job_script_options():
+    options = SlurmOptions(partition="node2", ntasks=48, time_limit="12:00:00", exclusive=False, account="")
+    text = job_script("s", "c", "c.cfg", options, SlurmSettings(), "j", after="101", note="restarts from b")
+    assert "#SBATCH -t 12:00:00" in text and "#SBATCH -A" not in text and "--exclusive" not in text
+    assert "#SBATCH --dependency=afterok:101\n#SBATCH --kill-on-invalid-dep=yes\n" in text
+    assert "case c (restarts from b)." in text
+
+
+@pytest.mark.parametrize("change", [dict(partition="node1\n#SBATCH -p x"), dict(account="a b"),
+                                    dict(time_limit="1:00; rm -rf /")])
+def test_job_script_refuses_unsafe_values(change):
+    values = {**OPTIONS.__dict__, **change}
+    with pytest.raises(JobError):
+        job_script("s", "c", "c.cfg", SlurmOptions(**values), SlurmSettings(), "j")
+
+
+def test_job_name_is_safe():
+    assert job_name("My study (v2)", "M0p8_a2") == "My_study__v2_/M0p8_a2"
+
+
+def test_submit_writes_each_case_folder_and_records_the_ids(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = runner.submit(project_dir, project)
+    assert job.state is JobState.RUNNING and job.backend == "slurm"
+    assert {name: sc.job_id for name, sc in job.slurm.items()} == {A0: "101", A2: "102", A4: "103"}
+    assert all(state is CaseState.PENDING for state in job.case_status.values())
+    for name, slurm_id in ((A0, "101"), (A2, "102"), (A4, "103")):
+        folder = project_dir / "runs" / name
+        script = (folder / "su2_job.sh").read_text()
+        assert f"#SBATCH -J study/{name}" in script and "--dependency" not in script
+        assert f"srun --mpi=pmix SU2_CFD {name}.cfg" in script
+        assert (folder / f"{name}.cfg").is_file()
+        submitted = fake.job(slurm_id)
+        assert submitted["cwd"] == str(folder) and submitted["partition"] == "node1"
+        assert submitted["env_virtual_env"] is None
+    sbatch = fake.calls("sbatch")
+    assert sbatch == [["sbatch", "--parsable", "su2_job.sh"]] * 3
+    assert load_job(project_dir, job.id) == job
+    assert read_lock(project_dir)["backend"] == "slurm" and active_lock(project_dir)["job_id"] == job.id
+    log = (project_dir / job.log_path).read_text()
+    assert f"{A2} -> Slurm job 102 on node1, 96 tasks" in log
+
+
+def test_submit_empties_the_case_folder(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    old = project_dir / "runs" / A0
+    old.mkdir(parents=True)
+    (old / "history.csv").write_text("old")
+    runner.submit(project_dir, project, cases=[A0])
+    assert not (old / "history.csv").exists()
+
+
+def test_submit_parses_an_id_with_the_cluster_name(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    fake.update(sbatch_suffix=";pdas-cfd")
+    job = runner.submit(project_dir, project, cases=[A0])
+    assert job.slurm[A0].job_id == "101"
+
+
+def test_submit_uses_the_given_options(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    options = SlurmOptions(partition="node2", ntasks=48, time_limit="2:00:00", exclusive=True, account="")
+    job = runner.submit(project_dir, project, cases=[A0], options=options)
+    assert (job.slurm[A0].partition, job.slurm[A0].ntasks, job.slurm[A0].time_limit) == ("node2", 48, "2:00:00")
+    script = (project_dir / "runs" / A0 / "su2_job.sh").read_text()
+    assert "#SBATCH -p node2" in script and "#SBATCH -n 48" in script and "#SBATCH -t 2:00:00" in script
+
+
+def test_previous_restarts_wait_for_the_case_before(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    for case in project.cases[1:]:
+        case.restart = "previous"
+    save_project(project_dir, project)
+    job = runner.submit(project_dir, project)
+    assert (job.slurm[A0].depends_on, job.slurm[A2].depends_on, job.slurm[A4].depends_on) == (None, A0, A2)
+    assert fake.job("101")["dependency"] is None
+    assert fake.job("102")["dependency"] == "afterok:101"
+    assert fake.job("103")["dependency"] == "afterok:102"
+    script = (project_dir / "runs" / A4 / "su2_job.sh").read_text()
+    assert "#SBATCH --kill-on-invalid-dep=yes" in script
+    cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
+    assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg
+    assert "RESTART_SOL= YES" in cfg
+    assert "RESTART_SOL= NO" in (project_dir / "runs" / A0 / f"{A0}.cfg").read_text()
+
+
+def test_a_restart_from_a_case_outside_the_job_has_no_dependency(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    solution = project_dir / "runs" / A0 / "restart_flow.dat"
+    solution.parent.mkdir(parents=True)
+    solution.write_text("solution")
+    project.cases[1].restart = "previous"
+    save_project(project_dir, project)
+    job = runner.submit(project_dir, project, cases=[A2])
+    assert job.slurm[A2].depends_on is None and fake.job("101")["dependency"] is None
+    cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
+    assert f"SOLUTION_FILENAME= {project_dir / 'jobs' / job.id / 'restart' / A0 / 'restart_flow.dat'}" in cfg
+
+
+def test_a_second_submit_while_one_runs_is_refused(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    runner.submit(project_dir, project, cases=[A0])
+    with pytest.raises(JobError, match="already running"):
+        runner.submit(project_dir, project, cases=[A2])
+
+
+def test_a_failed_sbatch_part_way_cancels_the_rest_and_fails_the_job(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    fake.update(sbatch_fail_after=1, sbatch_message="Invalid account or account/partition combination")
+    with pytest.raises(JobError, match="Cannot submit M0p8_a2_b0: sbatch failed: .*Invalid account"):
+        runner.submit(project_dir, project)
+    assert fake.job("101")["state"] == "CANCELLED"
+    assert fake.calls("scancel") == [["scancel", "101"]]
+    job = list_jobs(project_dir)[0]
+    assert job.state is JobState.FAILED and not job.is_active
+    assert all(state is CaseState.FAILED for state in job.case_status.values())
+    assert "could not be submitted" in job.failure_tail[A0]
+    assert "Not submitted" in job.failure_tail[A2] and "Invalid account" in job.failure_tail[A4]
+    assert active_lock(project_dir) is None
+    assert "Submit failed" in (project_dir / job.log_path).read_text()
+
+
+def test_controller_down_at_submit(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    fake.update(controller_down=True)
+    with pytest.raises(JobError, match="Unable to contact slurm controller"):
+        runner.submit(project_dir, project)
+    assert active_lock(project_dir) is None
+    assert not list_jobs(project_dir)[0].is_active
+
+
+def test_sbatch_missing(slurm_study, tmp_path, monkeypatch):
+    project_dir, project, runner, fake = slurm_study
+    monkeypatch.setenv("PATH", str(tmp_path / "no-bin"))
+    with pytest.raises(JobError, match="sbatch was not found on PATH"):
+        runner.submit(project_dir, project, cases=[A0])
+    assert active_lock(project_dir) is None

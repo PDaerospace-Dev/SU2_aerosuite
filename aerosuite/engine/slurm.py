@@ -296,28 +296,32 @@ def _gone(queue: Mapping[str, QueueRow], watched: Iterable[str]) -> list[str]:
 
 
 def snapshot_sync(watched: Iterable[str], timeout: float = TIMEOUT) -> Snapshot:
+    taken = time.time()  # before squeue: a job submitted after this is not in it
     try:
         queue = parse_squeue(run_sync(squeue_args(), timeout=timeout))
     except SlurmUnavailable as exc:
-        return Snapshot(error=str(exc))
+        return Snapshot(taken=taken, error=str(exc))
     gone = _gone(queue, watched)
     if not gone:
-        return Snapshot(queue=queue)
+        return Snapshot(taken=taken, queue=queue)
     try:
-        return Snapshot(queue=queue, accounting=parse_sacct(run_sync(sacct_args(gone), timeout=timeout)))
+        return Snapshot(taken=taken, queue=queue,
+                        accounting=parse_sacct(run_sync(sacct_args(gone), timeout=timeout)))
     except SlurmUnavailable as exc:
-        return Snapshot(queue=queue, accounting_error=str(exc))
+        return Snapshot(taken=taken, queue=queue, accounting_error=str(exc))
 
 
 async def snapshot_async(watched: Iterable[str], timeout: float = TIMEOUT) -> Snapshot:
+    taken = time.time()
     try:
         queue = parse_squeue(await run_async(squeue_args(), timeout=timeout))
     except SlurmUnavailable as exc:
-        return Snapshot(error=str(exc))
+        return Snapshot(taken=taken, error=str(exc))
     gone = _gone(queue, watched)
     if not gone:
-        return Snapshot(queue=queue)
+        return Snapshot(taken=taken, queue=queue)
     try:
-        return Snapshot(queue=queue, accounting=parse_sacct(await run_async(sacct_args(gone), timeout=timeout)))
+        return Snapshot(taken=taken, queue=queue,
+                        accounting=parse_sacct(await run_async(sacct_args(gone), timeout=timeout)))
     except SlurmUnavailable as exc:
-        return Snapshot(queue=queue, accounting_error=str(exc))
+        return Snapshot(taken=taken, queue=queue, accounting_error=str(exc))
