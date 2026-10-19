@@ -31,7 +31,7 @@ MACHINE_SECONDS = 10.0  # how often the machine strip is read again
 POLL_SECONDS = 2.0
 SELECTORS = [  # (label, statuses to tick; None = every case)
     ("All", None),
-    ("Failed", {"FAILED"}),
+    ("Failed", {"FAILED", "BLOCKED"}),
     ("Unconverged", {"UNCONVERGED"}),
     ("Not run", {NOT_RUN}),
     ("None", set()),

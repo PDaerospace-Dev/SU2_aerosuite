@@ -269,6 +269,10 @@ class LocalRunner:
         self._scan[key] = (offset, started)
         return started
 
+    def case_log(self, project_dir: Path, job: JobRecord, case: str) -> Optional[Path]:
+        """The file holding the case's solver output: the job log (cut at the case banners by its readers)."""
+        return Path(project_dir) / job.log_path
+
     def _update_cases(self, project_dir: Path, job: JobRecord, alive: bool) -> None:
         started = self.started_cases(project_dir, job)
         current = started[-1] if (alive and started) else None

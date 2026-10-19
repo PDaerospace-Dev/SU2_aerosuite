@@ -240,7 +240,7 @@ def save_profile(project_dir: Path, project: Project, profile_id: str, name: str
         mesh=project.mesh.path,
         sweep={"mach": list(sweep.mach), "alpha": list(sweep.alpha), "beta": list(sweep.beta),
                "altitudes_km": list(sweep.altitudes_km), "altitude": sweep.altitude},
-        run=project.run.model_dump(),
+        run=project.run.model_dump(include=set(RUN_KEYS)),  # the backend and Slurm options stay per study
     )
     template = Path(project_dir) / project.template
     try:

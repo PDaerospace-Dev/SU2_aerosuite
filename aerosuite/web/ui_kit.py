@@ -14,7 +14,7 @@ PILL_TONES: dict[str, Tone] = {
     "CONVERGED": "done", "DONE": "done",
     "RUNNING": "running",
     "FAILED": "failed",
-    "UNCONVERGED": "unconverged",
+    "UNCONVERGED": "unconverged", "BLOCKED": "unconverged",
     "PENDING": "pending", "QUEUED": "pending", NOT_RUN: "pending",
     "CANCELLED": "cancelled",
 }

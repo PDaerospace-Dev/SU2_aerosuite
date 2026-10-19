@@ -1,4 +1,4 @@
-"""Job records and the Runner interface every backend (local, later Slurm) implements."""
+"""Job records and the Runner interface every backend (local, Slurm) implements."""
 from __future__ import annotations
 
 import os
@@ -31,10 +31,29 @@ class CaseState(str, Enum):
     UNCONVERGED = "UNCONVERGED"
     FAILED = "FAILED"
     CANCELLED = "CANCELLED"
+    BLOCKED = "BLOCKED"  # never ran: a case it restarts from did not succeed (Slurm only)
 
 
 TERMINAL_JOB_STATES = {JobState.DONE, JobState.FAILED, JobState.CANCELLED}
-FINAL_CASE_STATES = {CaseState.CONVERGED, CaseState.UNCONVERGED, CaseState.FAILED, CaseState.CANCELLED}
+FINAL_CASE_STATES = {CaseState.CONVERGED, CaseState.UNCONVERGED, CaseState.FAILED, CaseState.CANCELLED,
+                     CaseState.BLOCKED}
+
+
+class SlurmCase(BaseModel):
+    """One case's Slurm job (the current attempt) and what Slurm last said about it."""
+    job_id: str
+    attempts: list[str] = Field(default_factory=list)  # earlier Slurm job ids of this case, oldest first
+    partition: str
+    ntasks: int
+    time_limit: str = ""
+    depends_on: Optional[str] = None  # the case whose job this one waits for (afterok)
+    state: str = "PENDING"  # the last Slurm state seen: PENDING, RUNNING, ..., COMPLETED, OUT_OF_MEMORY
+    node: str = ""
+    reason: str = ""  # why it is pending (Resources, Priority, Dependency)
+    elapsed: str = ""  # run time as Slurm prints it
+    exit_code: Optional[str] = None  # "0:0", "1:0", "0:125" (exit code:signal), once known
+    checks: int = 0  # polls since it left the queue without an accounting row
+    started: bool = False  # it has been seen running (or finished)
 
 
 class JobRecord(BaseModel):
@@ -51,6 +70,7 @@ class JobRecord(BaseModel):
     # The sweep script's exit code once the job ended; None when unknown (killed, cancelled, or a job
     # started before AeroSuite recorded it).
     exit_code: Optional[int] = None
+    slurm: dict[str, SlurmCase] = Field(default_factory=dict)  # by case name; empty for local jobs
 
     @property
     def is_active(self) -> bool:
@@ -64,6 +84,10 @@ class Runner(Protocol):
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 
     def cancel(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
+
+    def started_cases(self, project_dir: Path, job: JobRecord) -> list[str]: ...
+
+    def case_log(self, project_dir: Path, job: JobRecord, case: str) -> Optional[Path]: ...
 
 
 def new_job_id(project_dir: Path, now: Optional[datetime] = None) -> str:

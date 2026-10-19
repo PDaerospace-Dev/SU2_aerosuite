@@ -10,8 +10,8 @@ from ..engine.jobs.overview import NOT_RUN
 from ..engine.naming import format_value
 
 GROUPS_FROM = 13  # fewer cases are listed plainly
-STATUS_ORDER = ("CONVERGED", "RUNNING", "PENDING", NOT_RUN, "UNCONVERGED", "FAILED", "CANCELLED")
-ATTENTION = {"RUNNING", "UNCONVERGED", "FAILED"}  # a group holding one of these starts open
+STATUS_ORDER = ("CONVERGED", "RUNNING", "PENDING", NOT_RUN, "UNCONVERGED", "FAILED", "BLOCKED", "CANCELLED")
+ATTENTION = {"RUNNING", "UNCONVERGED", "FAILED", "BLOCKED"}  # a group holding one of these starts open
 
 
 @dataclass(frozen=True)

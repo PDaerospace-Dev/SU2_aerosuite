@@ -139,11 +139,16 @@ def kill_tree(pid: int, timeout: float = 5.0) -> None:
     _wait_gone(procs, timeout)
 
 
-def write_lock(project_dir: Path, job_id: str, pid: int, create_time: float) -> None:
+def write_lock(project_dir: Path, job_id: str, pid: int, create_time: float, backend: str = "local") -> None:
+    """Take the project's lock. A local lock lives as long as its process; a Slurm lock (pid -1) as long as its job
+    record is active."""
     path = Path(project_dir) / LOCK_FILE
+    data = {"job_id": job_id, "pid": pid, "create_time": create_time}
+    if backend != "local":
+        data["backend"] = backend
     try:
         with open(path, "x", encoding="utf-8") as fh:
-            json.dump({"job_id": job_id, "pid": pid, "create_time": create_time}, fh)
+            json.dump(data, fh)
     except FileExistsError:
         raise JobError("A job is already running for this project") from None
 
@@ -179,11 +184,18 @@ def clear_lock(project_dir: Path, job_id: Optional[str] = None) -> None:
 
 
 def active_lock(project_dir: Path) -> Optional[dict]:
-    """The lock if its process is still alive; a stale lock is removed and None returned."""
+    """The lock if its job still runs (local: its process is alive; Slurm: its record is active); a stale lock is
+    removed and None returned."""
     lock = read_lock(project_dir)
     if lock is None:
         return None
-    if process_alive(int(lock.get("pid", -1)), float(lock.get("create_time", 0.0))):
+    if lock.get("backend") == "slurm":
+        try:
+            if load_job(project_dir, str(lock.get("job_id"))).is_active:
+                return lock
+        except JobError:
+            pass  # no readable record: nothing is known to be running
+    elif process_alive(int(lock.get("pid", -1)), float(lock.get("create_time", 0.0))):
         return lock
     clear_lock(project_dir)
     return None

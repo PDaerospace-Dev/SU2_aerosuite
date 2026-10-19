@@ -220,3 +220,28 @@ def test_open_project_with_list_json(tmp_path):
     (tmp_path / PROJECT_FILE).write_text("[]")
     with pytest.raises(ProjectError, match="must contain a JSON object"):
         open_project(tmp_path)
+
+
+def test_schema_7_gains_run_backend_and_slurm_defaults(tmp_path):
+    create_project(tmp_path)
+    data = json.loads((tmp_path / PROJECT_FILE).read_text())
+    data["schema_version"] = 7
+    data["run"] = {"partitions": 4, "sweep_script": "", "sweep_python": "python3"}
+    (tmp_path / PROJECT_FILE).write_text(json.dumps(data))
+    project = open_project(tmp_path)
+    assert project.schema_version == 8
+    assert project.run.partitions == 4
+    assert project.run.backend is None
+    assert (project.run.slurm.partition, project.run.slurm.ntasks, project.run.slurm.time_limit) == (None, None, None)
+
+
+def test_run_slurm_settings_round_trip(tmp_path):
+    project = create_project(tmp_path)
+    project.run.backend = "slurm"
+    project.run.slurm.partition = "node2"
+    project.run.slurm.ntasks = 48
+    project.run.slurm.time_limit = "12:00:00"
+    save_project(tmp_path, project)
+    again = open_project(tmp_path)
+    assert again.run.backend == "slurm"
+    assert again.run.slurm.model_dump() == {"partition": "node2", "ntasks": 48, "time_limit": "12:00:00"}

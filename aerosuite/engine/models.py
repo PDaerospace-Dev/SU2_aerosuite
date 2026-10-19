@@ -6,7 +6,7 @@ from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class Mesh(BaseModel):
@@ -88,10 +88,22 @@ class Case(BaseModel):
     restart_ref: Optional[str] = None
 
 
+BackendChoice = Literal["local", "slurm"]
+
+
+class SlurmRun(BaseModel):
+    """How this project's cases are submitted to Slurm; None keeps the server settings' default."""
+    partition: Optional[str] = None
+    ntasks: Optional[int] = Field(default=None, ge=1)
+    time_limit: Optional[str] = None  # "" = no limit
+
+
 class RunSettings(BaseModel):
-    partitions: int = Field(default=1, ge=1)
+    partitions: int = Field(default=1, ge=1)  # the local backend's MPI partitions
     sweep_script: str = ""  # empty = bundled resources/aoa_sweep_v8.py
     sweep_python: str = "python3"  # must be able to import SU2
+    backend: Optional[BackendChoice] = None  # None: the server settings' backend
+    slurm: SlurmRun = Field(default_factory=SlurmRun)
 
 
 class DerivedValue(BaseModel):

@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -201,3 +202,38 @@ def test_a_lock_of_the_wrong_shape_is_stale(tmp_path, text):
     (tmp_path / ".lock").write_text(text, encoding="utf-8")
     assert active_lock(tmp_path) is None
     assert not (tmp_path / ".lock").exists()
+
+
+def test_a_slurm_lock_is_active_while_its_job_record_is(tmp_path):
+    job = _job("s1").model_copy(update={"backend": "slurm", "state": JobState.RUNNING})
+    save_job(tmp_path, job)
+    write_lock(tmp_path, "s1", -1, 0.0, backend="slurm")
+    assert read_lock(tmp_path)["backend"] == "slurm"
+    assert active_lock(tmp_path)["job_id"] == "s1"  # no process to check: the record says it runs
+    save_job(tmp_path, job.model_copy(update={"state": JobState.DONE}))
+    assert active_lock(tmp_path) is None
+    assert read_lock(tmp_path) is None
+
+
+def test_a_slurm_lock_without_a_record_is_stale(tmp_path):
+    write_lock(tmp_path, "gone", -1, 0.0, backend="slurm")
+    assert active_lock(tmp_path) is None
+    assert read_lock(tmp_path) is None
+
+
+def test_a_local_lock_has_no_backend_key(tmp_path):
+    write_lock(tmp_path, "j1", os.getpid(), psutil.Process().create_time())
+    assert "backend" not in json.loads((tmp_path / ".lock").read_text())
+
+
+def test_job_records_keep_slurm_cases_and_blocked(tmp_path):
+    from aerosuite.engine.jobs.runner import FINAL_CASE_STATES, SlurmCase
+
+    job = _job("s2").model_copy(update={"backend": "slurm"})
+    job.case_status["a"] = CaseState.BLOCKED
+    job.slurm["a"] = SlurmCase(job_id="123", partition="node1", ntasks=96, depends_on="z", state="CANCELLED")
+    save_job(tmp_path, job)
+    again = load_job(tmp_path, "s2")
+    assert again.slurm["a"].job_id == "123" and again.slurm["a"].depends_on == "z"
+    assert again.case_status["a"] is CaseState.BLOCKED and CaseState.BLOCKED in FINAL_CASE_STATES
+    assert _job().slurm == {}

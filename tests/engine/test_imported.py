@@ -170,7 +170,7 @@ def test_an_imported_study_holds_only_project_json_and_changes_nothing(tmp_path)
     assert [p.name for p in (tmp_path / "study").iterdir()] == ["project.json"]
     assert _snapshot(runs) == before
     reopened = open_project(tmp_path / "study")
-    assert SCHEMA_VERSION == 7 and reopened.schema_version == 7 and reopened.name == "Old runs"
+    assert SCHEMA_VERSION == 8 and reopened.schema_version == 8 and reopened.name == "Old runs"
     assert reopened.sweep.enabled is False
     assert reopened.imported.source == str(runs.resolve())
     first = reopened.imported.cases[0]
