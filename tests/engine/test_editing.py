@@ -7,7 +7,7 @@ from aerosuite.engine.editing import (
     unset_parameter,
     update_sweep,
 )
-from aerosuite.engine.errors import ProjectError
+from aerosuite.engine.errors import AeroSuiteError, ProjectError
 from aerosuite.engine.models import Project, Settings
 
 
@@ -33,7 +33,7 @@ def test_parse_value_list_normalises_negative_zero():
     assert str(values[2]) == "0.0"
 
 
-@pytest.mark.parametrize("text", ["", "  ", "abc", "1:2", "1:2:0", "4:0:1", "1:x:1"])
+@pytest.mark.parametrize("text", ["", "  ", "abc", "1:2", "1:2:0", "4:0:1", "1:x:1", "nan", "inf", "0:inf:1"])
 def test_parse_value_list_rejects_bad_input(text):
     with pytest.raises(ProjectError):
         parse_value_list(text)
@@ -103,3 +103,36 @@ def test_update_sweep_rebuilds_cases_and_keeps_restarts():
 def test_update_sweep_rejects_non_positive_mach():
     with pytest.raises(ProjectError, match="Mach"):
         update_sweep(Project(name="t"), mach=[0.0])
+
+
+def test_a_list_is_bounded_before_it_is_built():
+    with pytest.raises(ProjectError, match="more than 1000 values"):
+        parse_value_list("0:1e9:1")  # would be a billion values
+    with pytest.raises(ProjectError, match="more than 1000 values"):
+        parse_value_list("0:1:1e-300")
+    with pytest.raises(ProjectError, match="at most 1000"):
+        parse_value_list("0:999:1, 5000, 6000")
+    assert len(parse_value_list("0:999:1")) == 1000
+
+
+def test_a_sweep_is_bounded_before_its_cases_are_built():
+    project = Project(name="t")
+    with pytest.raises(AeroSuiteError, match="would make 250000 cases; the most is 10000"):
+        update_sweep(project, mach=[0.8], alpha=parse_value_list("1:500:1"), beta=parse_value_list("1:500:1"))
+
+
+@pytest.mark.parametrize("text", ["a/b", "../up", "x y", "q&1", 'he"llo', ".hidden", "-x"])
+def test_update_sweep_rejects_name_parts_that_cannot_be_file_names(text):
+    with pytest.raises(ProjectError, match="base name"):
+        update_sweep(Project(name="t"), base_name=text)
+    with pytest.raises(ProjectError, match="altitude label"):
+        update_sweep(Project(name="t"), altitude=text)
+
+
+def test_update_sweep_takes_plain_name_parts_and_empty_ones():
+    project = Project(name="t")
+    project.sweep.mach = [0.8]
+    assert update_sweep(project, base_name="vt-2_b.1", altitude="10km")
+    assert project.cases[0].name == "M0p8_10km_a0_b0_vt-2_b.1"
+    assert update_sweep(project, base_name="", altitude="")
+    assert project.cases[0].name == "M0p8_a0_b0"

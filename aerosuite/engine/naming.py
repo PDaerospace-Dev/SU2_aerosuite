@@ -15,6 +15,23 @@ from typing import Iterable, NamedTuple, Optional
 from .errors import GenerationError
 
 
+_NAME_PART_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+_CASE_NAME_RE = re.compile(r"[A-Za-z0-9_.-]+")
+NAME_CHARACTERS = "letters, digits, '.', '-' and '_'"
+
+
+def name_part_problem(text: str, what: str) -> Optional[str]:
+    """Why `text` cannot be part of a case name (a file and folder name), or None."""
+    if _NAME_PART_RE.fullmatch(text):
+        return None
+    return f"{what} {text!r} can only use {NAME_CHARACTERS}, starting with a letter or digit"
+
+
+def unsafe_names(names: Iterable[str]) -> list[str]:
+    """The case names that cannot be file and folder names."""
+    return [name for name in names if not _CASE_NAME_RE.fullmatch(name) or name in (".", "..")]
+
+
 def format_value(value: float) -> str:
     """Shortest exact decimal text: 0.85 -> '0.85', 5.0 -> '5', -0.5 -> '-0.5'."""
     value = float(value)

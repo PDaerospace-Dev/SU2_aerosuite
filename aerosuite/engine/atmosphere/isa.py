@@ -5,7 +5,7 @@ Provides functions for calculating atmospheric properties at various altitudes.
 """
 
 import math
-from typing import Dict, Tuple
+from typing import Dict
 
 
 class ISACalculator:

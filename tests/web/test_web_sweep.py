@@ -430,3 +430,19 @@ async def test_many_cases_fold_by_mach_on_the_cases_tab(user: User, ready_projec
     await user.should_not_see(marker=f"case-{first}")
     user.find(marker="sweep-group-0").click()
     await user.should_see(marker=f"case-{first}")
+
+
+async def test_a_base_name_that_cannot_be_a_file_name_is_refused(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="sweep-base-name").type("a/b").trigger("blur")
+    await user.should_see("The base name 'a/b' can only use letters, digits")
+    assert open_project(project_dir).sweep.naming.base_name == ""
+
+
+async def test_a_huge_range_is_refused_at_once(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    user.find(marker="sweep-alpha").clear().type("0:1e9:1").trigger("blur")
+    await user.should_see("makes more than 1000 values")
+    assert open_project(project_dir).sweep.alpha == [0.0, 2.0, 4.0]

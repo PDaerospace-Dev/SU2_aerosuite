@@ -148,6 +148,13 @@ def field(widget, *, mono: bool = False):
     return widget
 
 
+def titled(element, text: str):
+    """Give `element` a hover text. Set as a value, not parsed from a props string: text holding a
+    double quote (an error message, a path) would end the string early and turn into stray props."""
+    element.props["title"] = text
+    return element
+
+
 def hint(text: str = "") -> ui.label:
     return ui.label(text).classes("as-hint")
 

@@ -33,8 +33,8 @@ from ..results_view import (SWEEP_LABELS, SWEEP_UNITS, add_parameter, clear_filt
                             remove_parameter, shown_plot, shown_values, status_counts, sweep_values, table_text, toggle_filter,
                             variable_text, varying)
 from ..theme import SERIES_COLORS
-from ..ui_kit import (banner, card, card_head, chip_button, field, hint, pill, primary_button, secondary_button,
-                      table, td, td_box, th)
+from ..ui_kit import (banner, chip_button, field, hint, pill, primary_button, secondary_button, table, td, td_box,
+                      th, titled)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
 FILTERED = ("Config", "Mach", "Altitude", "Temperature", "Alpha", "Beta")  # the Filters panel's variables
@@ -129,7 +129,10 @@ class ResultsPage:
             ui.notify(message, type="negative")
 
     def _job_key(self):
-        latest = WATCHER.state(self.directory, self.frame.session.project).latest
+        try:
+            latest = WATCHER.state(self.directory, self.frame.session.project).latest
+        except AeroSuiteError:  # an unreadable job: as on Run and Monitor, the page stays as it is
+            return getattr(self, "_job", None)
         return (latest.id, latest.state) if latest else None
 
     def _poll(self) -> None:
@@ -488,8 +491,8 @@ class ResultsPage:
                                   on_click=lambda f=str(design.folder): self.remove_design(f)).props(
                             "flat round dense size=xs").mark(f"design-remove-{i}")
             for folder, why in self.problems:
-                with ui.row().classes("as-design-chip as-design-chip-error items-center gap-2 no-wrap").props(
-                        f'title="{why}"').mark("design-problem"):
+                with titled(ui.row().classes("as-design-chip as-design-chip-error items-center gap-2 no-wrap"),
+                            why).mark("design-problem"):
                     ui.icon("error_outline")
                     ui.label(Path(folder).name)
                     ui.button(icon="close", color=None, on_click=lambda f=folder: self.remove_design(f)).props(
@@ -564,7 +567,7 @@ class ResultsPage:
                 if on:
                     chip.classes("as-chip-on")
                 elif missing:
-                    chip.props(f'disable title="Needs {", ".join(missing)} in the history files"')
+                    titled(chip.props("disable"), f"Needs {', '.join(missing)} in the history files")
 
     def _conditions(self, rows: list) -> None:
         """The shown cases' conditions (one value, a list or a range per variable) and their counts."""
@@ -698,7 +701,7 @@ class ResultsPage:
                     for key in keys:
                         th(SWEEP_LABELS[key])
                     for c in characteristics:
-                        th(c.name + (f" ({c.unit})" if c.unit else "")).props(f'title="{c.name} = {c.formula}"')
+                        titled(th(c.name + (f" ({c.unit})" if c.unit else "")), f"{c.name} = {c.formula}")
                     for i, design in enumerate(self.designs):
                         for j, row in enumerate(design.characteristics):
                             if several:
@@ -712,7 +715,7 @@ class ResultsPage:
                                 value = row.values.get(c.name)
                                 cell = td(_value_text(value)).mark(f"char-{i}-{j}-{c.name}")
                                 if isinstance(value, Missing):
-                                    cell.props(f'title="{value.reason}"')
+                                    titled(cell, value.reason)
 
     def _results_section(self, rows: list, values: dict) -> None:
         sweep = varying(values)
@@ -754,7 +757,7 @@ class ResultsPage:
             cell = td(number_text(value)).mark(f"cell-{i}-{case}-{name}")
             reason = design.reason(case, name)
             if reason:
-                cell.props(f'title="{reason}"')
+                titled(cell, reason)
         with td_box():
             converged = row.get("Converged")
             pill("NOT JUDGED" if _blank(converged) else "CONVERGED" if converged else "UNCONVERGED").mark(

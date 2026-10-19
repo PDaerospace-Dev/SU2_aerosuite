@@ -19,7 +19,7 @@ from .jobs.runner import (
 )
 from .jobs.store import active_lock
 from .models import Case, Project
-from .naming import find_collisions
+from .naming import NAME_CHARACTERS, find_collisions, unsafe_names
 from .project import template_warnings
 from .restarts import find_restart_file, own_case_of
 
@@ -161,6 +161,13 @@ def sweep_problems(project: Project, project_dir: Optional[Path] = None) -> list
     if duplicates:
         problems.append(Problem(
             "error", "Duplicate case names (files would overwrite each other): " + ", ".join(duplicates)
+        ))
+    unsafe = unsafe_names(case.name for case in project.cases)
+    if unsafe:
+        problems.append(Problem(
+            "error", f"Case names can only use {NAME_CHARACTERS} (they are file names): {unsafe[0]!r}"
+            + (f" and {len(unsafe) - 1} more" if len(unsafe) > 1 else "")
+            + "; change the base name or the altitude label"
         ))
     problems += _freestream_problems(project, project_dir)
     problems += _restart_problems(project, project_dir)

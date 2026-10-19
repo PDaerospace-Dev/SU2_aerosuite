@@ -2,6 +2,7 @@ import json
 import re
 
 import pytest
+from nicegui import ElementFilter
 from nicegui.testing import User
 
 from aerosuite.engine.cfg import CONFIGS_DIR, generate_configs
@@ -136,3 +137,19 @@ async def test_a_lock_of_the_wrong_shape_does_not_break_the_page(user: User, rea
     await user.open(project_url("setup", project_dir))
     await user.should_see(marker="partitions")
     await user.should_not_see(marker="job-indicator")
+
+
+async def test_the_top_bar_controls_and_kind_tiles_take_the_keyboard(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("setup", project_dir))
+    for marker in ("project-switcher", "job-indicator"):
+        with user.client:
+            element = next(iter(ElementFilter(only_visible=False, local_scope=False, marker=marker)))
+        assert element.props.get("tabindex") == "0" and element.props.get("role") == "button"
+    user.find(marker="project-switcher").trigger("keydown.enter")
+    await user.should_see(marker="menu-all-projects")
+    await user.open("/")
+    tile = _element(user, "new-kind-aircraft")
+    assert tile.props.get("tabindex") == "0"
+    user.find(marker="new-kind-aircraft").trigger("keydown.enter")
+    assert "as-choice-selected" in tile.classes

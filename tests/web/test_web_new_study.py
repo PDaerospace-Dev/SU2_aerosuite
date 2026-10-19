@@ -37,6 +37,13 @@ async def test_aircraft_study_needs_a_template_when_the_profile_has_none(user: U
     user.find(marker="new-create").click()
     await user.should_see("X07 has none")
     assert not (tmp_path / "x07_a").exists()
+    with user:  # SU2's reference template is offered to an aircraft study too
+        _element(user, "new-use-reference").set_value(True)
+    user.find(marker="new-create").click()
+    await user.should_see(marker="project-name")
+    project = open_project(tmp_path / "x07_a")
+    assert project.profile == "x07"
+    assert "SOLVER=" in (tmp_path / "x07_a" / project.template).read_text(encoding="utf-8")
 
 
 async def test_aircraft_study(user: User, tmp_path):

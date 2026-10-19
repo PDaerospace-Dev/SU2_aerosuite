@@ -3,6 +3,7 @@ right that stays in view: what will run and Submit (or the running job and Cance
 job."""
 from datetime import datetime
 from typing import NamedTuple, Optional
+from urllib.parse import quote
 
 from nicegui import run, ui
 
@@ -24,7 +25,7 @@ from ..run_view import ATTENTION, case_conditions, case_groups, duration_text, l
 from ..session import parse_int
 from ..ui_kit import (banner, card, card_head, chip_button, danger_button, failure_row, flat_button, hint, ok_line,
                       pill, pill_text, pill_tone, primary_button, secondary_button, stat, table, td, td_box, th,
-                      warning_group)
+                      titled, warning_group)
 
 MACHINE_SECONDS = 10.0  # how often the machine strip is read again
 POLL_SECONDS = 2.0
@@ -195,7 +196,7 @@ class RunPage:
             count = len(selection.no_solution)
             text = ("No solution to continue from yet" if single else
                     f"{_plural(count, 'ticked case')} {'has' if count == 1 else 'have'} no solution to continue from")
-            hint(text).props(f'title="{", ".join(selection.no_solution)}"').mark("continue-missing")
+            titled(hint(text), ", ".join(selection.no_solution)).mark("continue-missing")
         self.submit_button = primary_button(
             "Run case" if single else f"Submit {_plural(len(selection.ticked), 'case')}", on_click=self.submit,
             icon="play_arrow").classes("w-full").mark("submit")
@@ -250,7 +251,7 @@ class RunPage:
         return message
 
     def _monitor_url(self, case: Optional[str] = None) -> str:
-        return project_url("monitor", self.directory) + (f"&case={case}" if case else "")
+        return project_url("monitor", self.directory) + (f"&case={quote(case, safe='')}" if case else "")
 
     def _last_job(self, view: JobView, single: bool) -> None:
         ui.label("This job" if view.active is not None else "Last job").classes("as-run-head")
