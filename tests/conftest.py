@@ -1,6 +1,9 @@
 """Shared pytest configuration and fixtures."""
+import json
+import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 import matplotlib
 import psutil
@@ -142,3 +145,87 @@ def ready_project(tmp_path):
     killed = _kill_strays(tmp_path)
     if killed:
         pytest.fail("Fake sweeps outlived the test and its job records (killed now):\n" + "\n".join(killed))
+
+
+FAKE_SLURM = Path(__file__).resolve().parent / "fixtures" / "fake_slurm.py"
+SLURM_COMMANDS = ("sbatch", "squeue", "sinfo", "scancel", "sacct", "seff")
+SEFF_TEXT = """Job ID: {job_id}
+Cluster: pdas-cfd
+User/Group: pdas-hpc1/pdas-hpc1
+State: {state} (exit code 0)
+Nodes: 1
+Cores per node: 192
+CPU Utilized: {cpu}
+CPU Efficiency: 49.49% of 9-15:24:48 core-walltime
+Job Wall-clock time: {wall}
+Memory Utilized: {memory}
+Memory Efficiency: 51.62% of 120.00 GB (640.00 MB/core)
+"""
+
+
+class FakeSlurm:
+    """The fake cluster's state file, and helpers to move its jobs along (see tests/fixtures/fake_slurm.py)."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.write({
+            "next_id": 101, "sbatch_count": 0, "sbatch_fail_after": None, "sbatch_suffix": "",
+            "jobs": {}, "calls": [], "controller_down": False, "accounting_down": False,
+            "partitions": ["node1*|up|1|idle|0/192/0/192", "node2|up|1|idle|0/192/0/192"],
+            "reasons": [],
+        })
+
+    def read(self) -> dict:
+        return json.loads(self.path.read_text(encoding="utf-8"))
+
+    def write(self, state: dict) -> None:
+        self.path.write_text(json.dumps(state, indent=1), encoding="utf-8")
+
+    def update(self, **values) -> None:
+        state = self.read()
+        state.update(values)
+        self.write(state)
+
+    def job(self, job_id: str) -> dict:
+        return self.read()["jobs"][job_id]
+
+    def jobs(self) -> dict:
+        return self.read()["jobs"]
+
+    def set_job(self, job_id: str, **values) -> None:
+        state = self.read()
+        state["jobs"][job_id].update(values)
+        self.write(state)
+
+    def run(self, job_id: str, node: str = "hpc1", time: str = "0:05") -> None:
+        self.set_job(job_id, state="RUNNING", node=node, time=time, reason="None")
+
+    def finish(self, job_id: str, state: str = "COMPLETED", exit_code: str = "0:0", elapsed: str = "00:10:00",
+               node: str = "hpc1", accounted: bool = True, memory: str = "57.90 GB", cpu: str = "15:50:00") -> None:
+        seff = SEFF_TEXT.format(job_id=job_id, state=state, cpu=cpu, wall=elapsed, memory=memory)
+        self.set_job(job_id, state=state, exit_code=exit_code, elapsed=elapsed, node=node, in_queue=False,
+                     accounted=accounted, seff=seff)
+
+    def calls(self, command: Optional[str] = None) -> list[list[str]]:
+        calls = self.read()["calls"]
+        return [call for call in calls if command is None or call[0] == command]
+
+    def clear_calls(self) -> None:
+        self.update(calls=[])
+
+
+@pytest.fixture
+def fake_slurm(tmp_path, monkeypatch):
+    """Fake sbatch/squeue/sinfo/scancel/sacct/seff first on PATH, sharing one state file (POSIX only)."""
+    if sys.platform == "win32":
+        pytest.skip("the fake Slurm commands are shell scripts")
+    bin_dir = tmp_path / "fake-slurm-bin"
+    bin_dir.mkdir()
+    for name in SLURM_COMMANDS:
+        shim = bin_dir / name
+        shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" -I "{FAKE_SLURM}" {name} "$@"\n')
+        shim.chmod(0o755)
+    fake = FakeSlurm(tmp_path / "fake-slurm.json")
+    monkeypatch.setenv("FAKE_SLURM_STATE", str(fake.path))
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
+    return fake
