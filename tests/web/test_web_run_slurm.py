@@ -202,3 +202,31 @@ async def test_job_history_folds(user: User, slurm_project):
     assert "as-card-folded" in history.classes
     user.find(marker="fold-run-history").click()
     assert "as-card-folded" not in history.classes
+
+
+async def test_add_cases_to_the_running_job_on_the_other_node(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])  # node1
+    fake.run("101", node="hpc1")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    await user.should_see(marker="run-add")
+    assert _element(user, "add-partition").value == "node2"  # the node this job does not use
+    assert _element(user, "add-ntasks").value == "48"
+    assert _text(user, "add-cases") == "Add 1 case to the running job"  # A0 and A2 are busy
+    assert _text(user, "add-skipped") == "2 ticked cases are already queued or running in this job: skipped"
+    user.find(marker="add-cases").click()
+    await eventually(lambda: A4 in list_jobs(project_dir)[0].slurm, 10)
+    job = list_jobs(project_dir)[0]
+    assert len(list_jobs(project_dir)) == 1
+    assert (job.slurm[A4].job_id, job.slurm[A4].partition, job.slurm[A4].ntasks) == ("103", "node2", 48)
+    assert open_project(project_dir).run.slurm.partition is None  # not saved with the study
+    await eventually(lambda: _text(user, "add-cases") == "Add 0 cases to the running job", 5)
+    assert not _element(user, "add-cases").enabled
+
+
+async def test_no_add_block_for_a_local_job_or_without_a_job(user: User, slurm_project):
+    project_dir, _project, _fake = slurm_project
+    await _open(user, project_dir)
+    await user.should_not_see(marker="run-add")

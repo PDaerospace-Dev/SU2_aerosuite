@@ -102,7 +102,9 @@ class RunPage:
         self.shown: Optional[tuple] = None  # _snapshot() of the view on screen
         self.dialogs_open = 0  # a re-render while Cancel's confirm dialog awaits would orphan it
         self.cancelling = False  # this page's Cancel is running (other tabs see WATCHER.is_cancelling)
-        self.submitting = False  # a Slurm submit is running in a worker thread
+        self.submitting = False  # a Slurm submit (or adding cases) is running in a worker thread
+        self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
+        self.add_ntasks: Optional[int] = None  # None: that partition's default
         self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
         self.showing_cluster = False  # this page counts as a viewer of the Slurm poller's cluster panel
         self.cluster_shown: Optional[tuple] = None  # (cluster, snapshot) times on screen
@@ -203,6 +205,9 @@ class RunPage:
                             self._running(view)
                         else:
                             self._launch(selection, single=kind == "single")
+                    if view.active is not None and view.active.backend == "slurm" and kind != "single":
+                        with ui.column().classes("as-run-part w-full gap-2").mark("run-add"):
+                            self._add_block(view, selection)
                     with ui.column().classes("as-run-part w-full gap-2"):
                         ui.label("Checks").classes("as-run-head")
                         self._checks(view, selection)
@@ -285,6 +290,94 @@ class RunPage:
                 danger_button("Cancel job", on_click=self.confirm_cancel, icon="stop").classes("grow").mark("cancel")
             secondary_button("Monitor", on_click=lambda: ui.navigate.to(self._monitor_url(progress.current))).mark(
                 "run-monitor")
+
+    def _add_block(self, view: JobView, selection: _Selection) -> None:
+        """More cases into the running Slurm job, e.g. on the other node while it runs; the partition and tasks
+        are for this batch only."""
+        job = view.active
+        busy = WATCHER.slurm_runner.busy_cases(job)
+        addable = [name for name in selection.ticked if name not in busy]
+        skipped = len(selection.ticked) - len(addable)
+        partitions = self.settings.slurm.partitions
+        names = [p.name for p in partitions]
+        used = {job.slurm[name].partition for name in busy if name in job.slurm}
+        if self.add_partition not in names:
+            self.add_partition = next((name for name in names if name not in used), names[0] if names else None)
+        part = self.settings.slurm.partition(self.add_partition)
+        ntasks = self.add_ntasks or (part.default_ntasks if part else 1)
+        ui.label("Add cases").classes("as-run-head")
+        hint("Run more ticked cases in this job while it runs, e.g. on the other node").mark("add-note")
+        ui.select(names, value=self.add_partition, label="Partition",
+                  on_change=lambda e: self._set_add_partition(e.value)).classes("w-full").props("dense").mark(
+            "add-partition")
+        text_field("Tasks per case (MPI ranks)", ntasks, self._set_add_ntasks, mark="add-ntasks")
+        if part is not None and part.ntasks_warn_above and ntasks > part.ntasks_warn_above:
+            hint(f"{part.name} gains nothing above about {part.ntasks_warn_above} tasks").classes(
+                "as-hint-warning").mark("add-ntasks-note")
+        for note in memory_notes(self.directory, self.project, addable or None, self.add_partition, self.settings):
+            hint(note).mark("add-memory")
+        label = "Adding…" if self.submitting else f"Add {_plural(len(addable), 'case')} to the running job"
+        button = primary_button(label, icon="playlist_add", on_click=lambda: self.add_cases(addable)).classes(
+            "w-full").mark("add-cases")
+        button.set_enabled(bool(addable) and not self.submitting)
+        if skipped:
+            count = f"{skipped} ticked case{' is' if skipped == 1 else 's are'}"
+            hint(f"{count} already queued or running in this job: skipped").mark("add-skipped")
+        elif not selection.ticked:
+            hint("Tick the cases to add").mark("add-skipped")
+
+    def _set_add_partition(self, name: str) -> None:
+        if name != self.add_partition:
+            self.add_partition, self.add_ntasks = name, None
+            self.render()
+
+    def _set_add_ntasks(self, text: str) -> Optional[str]:
+        try:
+            value = int(text.strip())
+        except ValueError:
+            return f"{text!r} is not a whole number"
+        if value < 1:
+            return "Tasks per case must be at least 1"
+        self.add_ntasks = value
+        self.render()
+        return None
+
+    def add_cases(self, cases: list) -> None:
+        if self.submitting or not cases:
+            return
+        self._load_settings()
+        options = slurm_options(self.project, self.settings, partition=self.add_partition, ntasks=self.add_ntasks)
+        view = WATCHER.state(self.directory, self.project)
+        if view.active is None or view.active.backend != "slurm":
+            ui.notify("The job has ended: submit the cases instead", type="warning")
+            self.render()
+            return
+        errors = [p for p in preflight(self.directory, self.project, "submit", cases=cases, options=options,
+                                       settings=self.settings)
+                  if p.severity == "error" and not p.message.startswith(f"Job {view.active.id} ")]
+        if errors:
+            ui.notify(errors[0].message, type="negative")
+            return
+        self.submitting = True
+        self.render()
+        continue_cases = [name for name in self.continue_cases if name in cases]
+        background_tasks.create(self._add_slurm(view.active.id, cases, continue_cases, options))
+
+    async def _add_slurm(self, job_id: str, cases: list, continue_cases: list, options: SlurmOptions) -> None:
+        try:
+            generate_configs(self.directory, self.project)  # as a submit: the current settings
+            await run.io_bound(WATCHER.add_cases, self.directory, self.project, job_id, cases, continue_cases,
+                               options)
+        except AeroSuiteError as exc:
+            ui.notify(str(exc), type="negative")
+        else:
+            ui.notify(f"Added {_plural(len(cases), 'case')} to the running job ({options.partition})",
+                      type="positive")
+        finally:
+            self.submitting = False
+        if not self.holder.is_deleted:
+            self.frame.refresh()
+            self.render()
 
     def _tick_clock(self) -> None:
         label = getattr(self, "clock_label", None)

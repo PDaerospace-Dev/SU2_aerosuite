@@ -134,3 +134,34 @@ def test_resubmit_without_a_slurm_job(ready_project):
     project_dir, _ = ready_project
     result = runner.invoke(app, ["resubmit", str(project_dir)])
     assert result.exit_code == 1 and "No Slurm job" in result.output
+
+
+def test_add_cases_to_the_running_job(study):
+    project_dir, fake = study
+    runner.invoke(app, ["run", str(project_dir), "--backend", "slurm", "--case", A0, "--case", A2])
+    fake.run("101")
+    result = runner.invoke(app, ["run", str(project_dir), "--add", "--partition", "node2"])
+    assert result.exit_code == 0, result.output
+    assert f"Skipped (already queued or running): {A0}, {A2}" in result.output
+    assert "Added 1 case(s) to job" in result.output and "node2, 48 tasks each (Slurm jobs 103)" in result.output
+    jobs = list_jobs(project_dir)
+    assert len(jobs) == 1 and jobs[0].slurm[A4].partition == "node2"
+    result = runner.invoke(app, ["run", str(project_dir), "--add"])
+    assert result.exit_code == 1 and "Nothing to add" in result.output
+
+
+def test_add_needs_a_running_slurm_job(study):
+    project_dir, fake = study
+    result = runner.invoke(app, ["run", str(project_dir), "--backend", "slurm", "--add"])
+    assert result.exit_code == 1 and "No Slurm job is running" in result.output
+    result = runner.invoke(app, ["run", str(project_dir), "--backend", "local", "--add"])
+    assert result.exit_code == 1 and "--add is for the Slurm backend" in result.output
+
+
+def test_run_only_some_cases(study):
+    project_dir, fake = study
+    result = runner.invoke(app, ["run", str(project_dir), "--backend", "slurm", "--case", A2])
+    assert result.exit_code == 0, result.output
+    assert list_jobs(project_dir)[0].cases == [A2]
+    result = runner.invoke(app, ["run", str(project_dir), "--case", "nope"])
+    assert result.exit_code == 1 and "Unknown case(s): nope" in result.output

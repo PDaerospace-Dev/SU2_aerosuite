@@ -182,7 +182,8 @@ sweep on this machine. Choose **Slurm** in the Run page's toggle (saved with the
 every study on the **Settings** page (gear in the top bar) or with `aerosuite settings set backend slurm`.
 
 ```bash
-aerosuite run ./study --backend slurm --partition node2 --ntasks 48 --time 12:00:00
+aerosuite run ./study --backend slurm --partition node1 --case M0p8_a0 --case M0p8_a2
+aerosuite run ./study --add --partition node2 --ntasks 48   # more cases into the running job, on node2
 aerosuite status ./study --watch     # Slurm job ids, nodes, pending reasons; one squeue per poll interval
 aerosuite cancel ./study             # scancel every unfinished case of the job
 aerosuite resubmit ./study           # the cases that ended NODE_FAIL or OUT_OF_MEMORY, in the same job
@@ -192,6 +193,8 @@ aerosuite settings                   # partitions, default tasks, memory limits,
 - Every case gets `runs/<case>/su2_job.sh` (one node, `--exclusive`, `srun --mpi=pmix SU2_CFD <case>.cfg`) and its
   output in `runs/<case>/slurm-<jobid>.out`; the folder records exactly how it ran (`sbatch su2_job.sh` there
   reruns it by hand, after removing a `--dependency` line).
+- While a Slurm job runs, the Run page's **Add cases** sends more ticked cases into it, e.g. to the other node; the
+  time limit for every job is set on the Settings page (`--time` overrides it for one run).
 - A case that restarts from another case of the same submit waits for it (`--dependency=afterok`); if that one
   fails, the case shows **Blocked** instead of waiting forever.
 - Studies must live under the shared root (`/data`): the other node cannot see anything else. Before submitting,

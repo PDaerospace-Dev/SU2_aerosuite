@@ -42,6 +42,10 @@ def run(
     ntasks: Annotated[Optional[int], typer.Option(min=1, help="Slurm tasks (MPI ranks) per case")] = None,
     time_limit: Annotated[Optional[str], typer.Option(
         "--time", help="Slurm time limit for this run only, e.g. 12:00:00 (default: the Settings page's)")] = None,
+    case: Annotated[Optional[list[str]], typer.Option(
+        "--case", help="Run only this case (repeat for several; default: every case)")] = None,
+    add: Annotated[bool, typer.Option(
+        "--add", help="Slurm: add the cases to the running job (e.g. on another partition) instead of a new job")] = False,
 ) -> None:
     """Start the sweep and return: in the background here (local) or as Slurm jobs (slurm)."""
     project = engine_project.open_project(directory)
@@ -58,6 +62,14 @@ def run(
         typer.echo(f"Error: {', '.join(slurm_given)} {'is' if len(slurm_given) == 1 else 'are'} for the Slurm "
                    "backend; for a local run use -n (MPI partitions)", err=True)
         raise typer.Exit(1)
+    if add and chosen != "slurm":
+        typer.echo("Error: --add is for the Slurm backend (a local run is one sweep at a time)", err=True)
+        raise typer.Exit(1)
+    if case:
+        unknown = [name for name in case if name not in {c.name for c in project.cases}]
+        if unknown:
+            typer.echo(f"Error: Unknown case(s): {', '.join(unknown)}", err=True)
+            raise typer.Exit(1)
     if chosen == "slurm" and partitions is not None:
         typer.echo("Error: -n is for the local backend; for Slurm use --ntasks (tasks per case)", err=True)
         raise typer.Exit(1)
@@ -77,19 +89,48 @@ def run(
     if changed:
         engine_project.save_project(directory, project)
     options = slurm_options(project, settings, time_limit=time_limit) if chosen == "slurm" else None
-    problems = preflight(directory, project, "run", options=options, settings=settings)
+    if add:
+        _add_to_running_job(directory, project, case, options, settings)
+        return
+    problems = preflight(directory, project, "run", cases=case, options=options, settings=settings)
     print_problems(problems)
     if has_errors(problems):
         raise typer.Exit(1)
     if chosen == "local":
-        job = LocalRunner().submit(directory, project)
+        job = LocalRunner().submit(directory, project, cases=case)
         typer.echo(f"Started job {job.id}: {len(job.cases)} cases, log {Path(directory) / job.log_path}")
     else:
-        job = runner_for("slurm").submit(directory, project, options=options)
+        job = runner_for("slurm").submit(directory, project, cases=case, options=options)
         ids = ", ".join(job.slurm[name].job_id for name in job.cases)
         typer.echo(f"Submitted job {job.id}: {len(job.cases)} cases to Slurm partition {options.partition}, "
                    f"{options.ntasks} tasks each (Slurm jobs {ids}); log {Path(directory) / job.log_path}")
     typer.echo(f"Follow it with: aerosuite status {directory} --watch")
+
+
+def _add_to_running_job(directory, project, cases, options, settings) -> None:
+    runner = runner_for("slurm")
+    job = next((job for job in list_jobs(directory) if job.is_active and job.backend == "slurm"), None)
+    if job is None:
+        typer.echo("Error: No Slurm job is running for this study; run without --add.", err=True)
+        raise typer.Exit(1)
+    job = runner.refresh(directory, job)
+    busy = runner.busy_cases(job)
+    wanted = [c.name for c in project.cases if (not cases or c.name in cases) and c.name not in busy]
+    skipped = [name for name in (cases or [c.name for c in project.cases]) if name in busy]
+    if skipped:
+        typer.echo(f"Skipped (already queued or running): {', '.join(skipped)}")
+    if not wanted:
+        typer.echo(f"Error: Nothing to add: every chosen case is queued or running in job {job.id}.", err=True)
+        raise typer.Exit(1)
+    problems = [p for p in preflight(directory, project, "run", cases=wanted, options=options, settings=settings)
+                if not p.message.startswith(f"Job {job.id} ")]
+    print_problems(problems)
+    if has_errors(problems):
+        raise typer.Exit(1)
+    job = runner.add_cases(directory, project, job, wanted, options=options)
+    ids = ", ".join(job.slurm[name].job_id for name in wanted)
+    typer.echo(f"Added {len(wanted)} case(s) to job {job.id} on {options.partition}, {options.ntasks} tasks each "
+               f"(Slurm jobs {ids})")
 
 
 FAILURE_LINES = 10

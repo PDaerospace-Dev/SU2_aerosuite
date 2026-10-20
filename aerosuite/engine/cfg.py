@@ -216,7 +216,7 @@ def run_control_text(cases: Sequence[Case]) -> str:
 def generate_configs(project_dir: Path, project: Project) -> list[Path]:
     """Write configs/<case>.cfg for every case, plus run_control.txt and cases.json."""
     lock = active_lock(project_dir)
-    if lock:
+    if lock and lock.get("backend") != "slurm":  # a Slurm case runs from its own copy in runs/<case>/
         # The running sweep reads each cfg only when its case starts.
         raise GenerationError(
             f"Job {lock['job_id']} is still running for this project; "

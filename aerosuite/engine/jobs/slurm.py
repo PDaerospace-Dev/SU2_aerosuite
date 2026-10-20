@@ -32,7 +32,7 @@ from ..results import HISTORY_FILE, check_convergence, read_history
 from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
 from .executors import SlurmOptions, slurm_options
-from .plan import RESTART_DIR, prepare_job
+from .plan import RESTART_DIR, _referenced_case, prepare_job
 from .runner import FINAL_CASE_STATES, CaseState, JobRecord, JobState, SlurmCase, new_job_id, sweep_environment
 from .store import JOBS_DIR, active_lock, clear_lock, load_job, save_job, write_lock
 
@@ -228,17 +228,7 @@ class SlurmRunner:
                   (f", time limit {options.time_limit}" if options.time_limit else ""))
         previous: Optional[str] = None
         for name, option, ref in lines:
-            depends_on = None
-            solution = None
-            if option == "previous" and previous is not None:
-                depends_on = previous
-            elif option == "from_case" and ref:
-                depends_on = ref[:-4] if ref.endswith(".cfg") else ref
-            elif option == "custom" and ref:
-                solution = ref
-            if depends_on is not None:
-                target_cfg = _read(configs / f"{depends_on}.cfg")
-                solution = str(project_dir / RUNS_DIR / depends_on / _restart_name(target_cfg))
+            depends_on, solution = self._restart_source(project_dir, configs, previous, option, ref)
             try:
                 self._prepare_case(project_dir, configs, name, solution)
                 self._sbatch(project_dir, project, job, name, options, settings.slurm, depends_on,
@@ -251,8 +241,10 @@ class SlurmRunner:
         save_job(project_dir, job)
         return job
 
-    def _prepare_case(self, project_dir: Path, configs: Path, name: str, solution: Optional[str]) -> None:
-        """Empty runs/<case>/ and write the job's config into it (SOLUTION_FILENAME when it restarts)."""
+    def _prepare_case(self, project_dir: Path, configs: Path, name: str, solution: Optional[str],
+                      restart: bool = False) -> None:
+        """Empty runs/<case>/ and write the job's config into it (SOLUTION_FILENAME when it restarts; `restart` also
+        sets RESTART_SOL= YES, for a case that waits for one still running)."""
         folder = project_dir / RUNS_DIR / name
         try:
             if folder.exists():
@@ -260,7 +252,8 @@ class SlurmRunner:
             folder.mkdir(parents=True)
             text = (configs / f"{name}.cfg").read_text(encoding="utf-8")
             if solution is not None:
-                text = apply_parameters(text, {"SOLUTION_FILENAME": solution})
+                text = apply_parameters(text, {"SOLUTION_FILENAME": solution, **({"RESTART_SOL": "YES"} if restart
+                                                                                   else {})})
             (folder / f"{name}.cfg").write_text(text, encoding="utf-8", newline="\n")
         except OSError as exc:
             raise JobError(f"Cannot prepare {folder}: {exc}") from exc
@@ -289,6 +282,111 @@ class SlurmRunner:
         self._log(project_dir, job, f"{name} -> Slurm job {slurm_id} on {options.partition}, {options.ntasks} tasks"
                   + (f", after {after} ({depends_on})" if after else ""))
         save_job(project_dir, job)
+
+    # -- adding cases to a running job ------------------------------------------------------------------------
+
+    def busy_cases(self, job: JobRecord) -> set[str]:
+        """The cases queued or running in `job`: they cannot be added again."""
+        return {name for name in job.cases if name in job.slurm
+                and job.case_status.get(name) in (CaseState.PENDING, CaseState.RUNNING)}
+
+    @_serialized
+    def add_cases(self, project_dir: Path, project: Project, job: JobRecord, cases: Sequence[str],
+                  continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
+        """Submit more cases inside the running job `job` (e.g. to the other partition while it runs).
+
+        Cases already queued or running in it are skipped; one that finished, failed or was cancelled in it runs
+        again (its earlier Slurm id kept in `attempts`). An added case that restarts from a case still queued or
+        running in the job waits for it (afterok), as within one submit. A failed sbatch cancels only this batch.
+        """
+        project_dir = Path(project_dir).resolve()
+        job = self._reload(project_dir, job)
+        if job.backend != self.backend or not job.is_active:
+            raise JobError(f"Job {job.id} is not running: submit the cases instead")
+        busy = self.busy_cases(job)
+        order = [case.name for case in project.cases]
+        wanted = [name for name in order if name in set(cases) and name not in busy]
+        if not wanted:
+            raise JobError(f"Every chosen case is already queued or running in job {job.id}")
+        settings = self._settings()
+        options = options or slurm_options(project, settings)
+        number = 2
+        while (project_dir / JOBS_DIR / job.id / f"add-{number}").exists():
+            number += 1
+        configs = prepare_job(project_dir, project, f"{job.id}/add-{number}", wanted, continue_cases)
+        lines = _control_lines(configs / RUN_CONTROL_FILE)
+        by_name = {case.name: case for case in project.cases}
+        continued = set(continue_cases)
+        waits = {}  # added case -> the case still running in this job whose solution it restarts from
+        for name, option, _ref in lines:
+            if option in ("none", "custom") and name not in continued:
+                target = _referenced_case(project_dir, by_name[name], order)
+                if target in busy:
+                    waits[name] = target
+        self._log(project_dir, job, f"Adding {len(lines)} case(s) to Slurm partition {options.partition}, "
+                                    f"{options.ntasks} tasks each")
+        submitted: list[str] = []
+        previous: Optional[str] = None
+        for name, option, ref in lines:
+            depends_on, solution = self._restart_source(project_dir, configs, previous, option, ref)
+            if name in waits:
+                depends_on = waits[name]
+                target_cfg = _read(project_dir / RUNS_DIR / depends_on / f"{depends_on}.cfg")
+                solution = str(project_dir / RUNS_DIR / depends_on / _restart_name(target_cfg))
+            old = job.slurm.get(name)
+            attempts = [*old.attempts, old.job_id] if old is not None else []
+            if name not in job.cases:
+                job.cases.append(name)
+            try:
+                self._prepare_case(project_dir, configs, name, solution, restart=name in waits)
+                self._sbatch(project_dir, project, job, name, options, settings.slurm, depends_on,
+                             note=f"restarts from {depends_on}" if depends_on else "", attempts=attempts)
+            except JobError as exc:
+                self._abandon_batch(project_dir, job, [line[0] for line in lines], submitted, name, str(exc))
+                raise
+            submitted.append(job.slurm[name].job_id)
+            previous = name
+        job.state = JobState.RUNNING
+        save_job(project_dir, job)
+        return job
+
+    def _restart_source(self, project_dir: Path, configs: Path, previous: Optional[str], option: str,
+                        ref: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+        """(the case of this batch to wait for, the solution file) for one run_control.txt line."""
+        depends_on = None
+        solution = None
+        if option == "previous" and previous is not None:
+            depends_on = previous
+        elif option == "from_case" and ref:
+            depends_on = ref[:-4] if ref.endswith(".cfg") else ref
+        elif option == "custom" and ref:
+            solution = ref
+        if depends_on is not None:
+            target_cfg = _read(configs / f"{depends_on}.cfg")
+            solution = str(project_dir / RUNS_DIR / depends_on / _restart_name(target_cfg))
+        return depends_on, solution
+
+    def _abandon_batch(self, project_dir: Path, job: JobRecord, batch: list[str], submitted: list[str],
+                       failed_case: str, message: str) -> None:
+        """Adding cases failed part-way: cancel this batch's jobs only; the rest of the job runs on."""
+        if submitted:
+            try:
+                sl.run_sync(sl.scancel_args(submitted))
+            except sl.SlurmUnavailable as exc:
+                self._log(project_dir, job, f"Could not cancel {', '.join(submitted)}: {exc}")
+        for name in batch:
+            if name in job.slurm and job.slurm[name].job_id in submitted:
+                job.slurm[name].state = "CANCELLED"
+                job.failure_tail[name] = f"Cancelled: {failed_case} could not be submitted.\n{message}"
+            else:
+                job.failure_tail[name] = f"Not submitted.\n{message}"
+            job.case_status[name] = CaseState.FAILED
+        self._log(project_dir, job, f"Adding cases failed: {message}")
+        if all(job.case_status.get(name) in FINAL_CASE_STATES for name in job.cases):
+            ok = all(job.case_status[name] in OK_STATES for name in job.cases)
+            self._end(project_dir, job, JobState.DONE if ok else JobState.FAILED)
+        else:
+            save_job(project_dir, job)
 
     def _abandon(self, project_dir: Path, job: JobRecord, failed_case: str, message: str) -> None:
         """A submit failed part-way: cancel what was submitted, fail the job, release the lock."""
@@ -510,7 +608,8 @@ class SlurmRunner:
         job.finished = datetime.now()
         save_job(project_dir, job)
         clear_lock(project_dir, job.id)
-        shutil.rmtree(project_dir / JOBS_DIR / job.id / RESTART_DIR, ignore_errors=True)
+        for folder in [project_dir / JOBS_DIR / job.id, *sorted((project_dir / JOBS_DIR / job.id).glob("add-*"))]:
+            shutil.rmtree(folder / RESTART_DIR, ignore_errors=True)
         self._log(project_dir, job, f"Job {job.id} ended: {state.value}")
 
     # -- stats ------------------------------------------------------------------------------------------------

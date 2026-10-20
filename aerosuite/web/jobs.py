@@ -132,6 +132,17 @@ class JobWatcher:
             return job
         return self.runner.submit(directory, project, cases=list(cases), continue_cases=list(continue_cases))
 
+    def add_cases(self, project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
+                  continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
+        """Submit more cases inside the running Slurm job `job_id` (see SlurmRunner.add_cases)."""
+        directory = Path(project_dir).resolve()
+        job = next((job for job in self._view(directory, project).overview.jobs if job.id == job_id), None)
+        if job is None or job.backend != "slurm":
+            raise JobError(f"No Slurm job {job_id} in this project")
+        job = self.slurm_runner.add_cases(directory, project, job, list(cases), list(continue_cases), options)
+        self.slurm_watch.track(directory, job.id)
+        return job
+
     def resubmit(self, project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
                  options: Optional[SlurmOptions] = None) -> JobRecord:
         """Submit NODE_FAIL / OUT_OF_MEMORY cases of a Slurm job again (see SlurmRunner.resubmit)."""
