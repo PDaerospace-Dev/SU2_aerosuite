@@ -304,6 +304,10 @@ a.as-step:hover { background: #f6f8fa; }
 .as-queue-what { flex-direction: column; align-items: flex-start !important; gap: 0; }
 .as-table-compact .as-td.as-slurm-cell { white-space: normal; gap: 8px; }
 .as-small { font-size: 11.5px; }
+/* a field with its label to the left of the box (Sweep page) */
+.as-side-field { gap: 12px; }
+.as-side-label { flex: none; width: 11.5rem; font-weight: 500; color: var(--as-text); }
+@media (max-width: 700px) { .as-side-field { flex-wrap: wrap; } .as-side-label { width: 100%; } }
 .as-machine-usage { border-top: 1px solid var(--as-hairline); padding-top: 8px; }
 .as-usage { white-space: pre-line; font-size: 11.5px; }
 .as-status-bar { height: 10px; border-radius: 5px; overflow: hidden; gap: 2px; }

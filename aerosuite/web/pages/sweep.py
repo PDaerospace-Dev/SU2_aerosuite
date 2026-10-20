@@ -17,7 +17,8 @@ from ..layout import ProjectFrame, open_session
 from ..picker import pick_path
 from ..run_view import case_groups, layout
 from ..sweep_view import case_formula, detect_rule, restart_text, rule_restarts, values_text
-from ..ui_kit import banner, card, card_head, field, flat_button, hint, sci, secondary_button, table, td, td_box, th
+from ..ui_kit import (banner, card, card_head, field, flat_button, hint, sci, secondary_button, table, td, td_box,
+                      th, titled)
 
 RESTART_OPTIONS = ["none", "previous", "custom"]
 RULE_TEXT = [  # (rule, marker, what the tile says, the small print)
@@ -65,6 +66,7 @@ def register() -> None:
                 _case_table(frame, after, state)
             count = len(frame.session.project.cases)
             holders["tab-cases"].text = f"Cases {count}"
+            holders["check-cases"].set_visibility(count > 0)
 
         def render_problems() -> None:
             # Same reasoning as `render_cases`: tests read the Generate button's `.enabled`
@@ -108,6 +110,9 @@ def register() -> None:
                         holders["made"] = ui.column().classes("w-full gap-2")
                 with card("What this makes"):
                     holders["summary"] = ui.column().classes("w-full gap-2")
+                    holders["check-cases"] = secondary_button(
+                        "Check cases", icon="view_list", on_click=lambda: show("cases")).mark("check-cases")
+                    titled(holders["check-cases"], "Every case and how it restarts (the Cases tab)")
             with card(flush=True) as pane:
                 holders["pane-cases"] = holders["cases"] = pane
             render_cases()
@@ -127,7 +132,7 @@ def _sweep_fields(frame: ProjectFrame, after: Callable[[], None]) -> None:
                     label, values_text(getattr(sweep, name)),
                     lambda text, n=name: frame.save(
                         lambda p: update_sweep(p, **{n: parse_value_list(text)}), then=after),
-                    mark=f"sweep-{name}", placeholder="e.g. 0.6, 0.8  or  -4:12:2 (from:to:step)",
+                    mark=f"sweep-{name}", placeholder="e.g. 0.6, 0.8  or  -4:12:2 (from:to:step)", side_label=True,
                 )
         with ui.column().classes("gap-1 w-full"):
             if frame.session.project.settings.freestream.mode == "altitude":
@@ -136,16 +141,17 @@ def _sweep_fields(frame: ProjectFrame, after: Callable[[], None]) -> None:
                     lambda text: frame.save(lambda p: update_sweep(
                         p, altitudes_km=parse_value_list(text) if text.strip() else []), then=after),
                     mark="sweep-altitudes", placeholder="e.g. 0, 5, 11  or  0:12:3 (from:to:step)",
+                    side_label=True,
                 )
                 hint("each case is named with its altitude, e.g. 11km").mark("sweep-altitude-note")
             else:
                 text_field("Altitude label", sweep.altitude,
                            lambda text: frame.save(lambda p: update_sweep(p, altitude=text.strip()), then=after),
-                           mark="sweep-altitude")
+                           mark="sweep-altitude", side_label=True)
         with ui.column().classes("gap-1 w-full"):
             text_field("Base name", sweep.naming.base_name,
                        lambda text: frame.save(lambda p: update_sweep(p, base_name=text.strip()), then=after),
-                       mark="sweep-base-name")
+                       mark="sweep-base-name", side_label=True)
         with ui.row().classes("items-center gap-4"):
             ui.label("Name cases with").classes("as-label")
             for flag, label in NAMING:

@@ -446,3 +446,33 @@ async def test_a_huge_range_is_refused_at_once(user: User, ready_project):
     user.find(marker="sweep-alpha").clear().type("0:1e9:1").trigger("blur")
     await user.should_see("makes more than 1000 values")
     assert open_project(project_dir).sweep.alpha == [0.0, 2.0, 4.0]
+
+
+async def test_flight_condition_labels_sit_beside_their_boxes(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    for name, label in (("mach", "Mach"), ("alpha", "Angle of attack α (deg)"), ("beta", "Sideslip β (deg)"),
+                        ("base-name", "Base name")):
+        box = _element(user, f"sweep-{name}")
+        assert _element(user, f"sweep-{name}-label").text == label
+        assert box.props.get("label") in (None, "")  # not inside the box
+        assert _element(user, f"sweep-{name}-label").parent_slot.parent is box.parent_slot.parent  # same row
+    assert _element(user, "sweep-mach").props.get("placeholder", "").startswith("e.g. 0.6, 0.8")
+
+
+async def test_check_cases_opens_the_cases_tab(user: User, ready_project):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    assert _element(user, "check-cases").visible
+    user.find(marker="check-cases").click()
+    assert "as-tab-on" in _element(user, "sweep-tab-cases").classes
+    await user.should_see(marker="case-M0p8_a0_b0")
+
+
+async def test_no_check_cases_button_without_cases(user: User, ready_project):
+    project_dir, project = ready_project
+    project.sweep.mach, project.cases = [], []
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    await user.should_see(marker="sweep-none")
+    await user.should_not_see(marker="check-cases")
