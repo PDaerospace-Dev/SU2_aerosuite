@@ -1,3 +1,4 @@
+import pytest
 import os
 import sys
 
@@ -127,18 +128,56 @@ def test_has_errors():
     assert not has_errors([Problem("warning", "w")])
 
 
-def test_sweep_python_inside_aerosuite_env_is_a_warning(ready_project, monkeypatch):
+def _fake_python(folder, name, ok):
+    """A stand-in interpreter: exits 0, or fails like a Python whose SU2 needs numpy."""
+    path = folder / name
+    path.write_text("#!/bin/sh\n" + ("exit 0\n" if ok else
+                                      "echo 'Traceback (most recent call last):' >&2\n"
+                                      "echo \"ModuleNotFoundError: No module named 'numpy'\" >&2\nexit 1\n"))
+    path.chmod(0o755)
+    return str(path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the fake interpreters are shell scripts")
+def test_the_bundled_sweep_needs_a_python_that_imports_su2(ready_project, monkeypatch, tmp_path):
+    from aerosuite.engine import preflight as preflight_module
+
     project_dir, project = ready_project
     monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    monkeypatch.setattr(preflight_module, "_import_checks", {})
     generate_configs(project_dir, project)
-    project.run.sweep_python = sys.executable
-    problems = preflight(project_dir, project, "run")
-    assert not has_errors(problems)
-    assert _messages(problems, "warning") == [
-        f"The sweep script would run under AeroSuite's own Python ({sys.executable}); "
-        "SU2 is normally importable only from the system Python "
-        "— set run.sweep_python to that interpreter"
-    ]
+    project.run.sweep_script = ""  # the bundled script imports SU2
+    project.run.sweep_python = _fake_python(tmp_path, "broken-python", ok=False)
+    errors = _messages(preflight(project_dir, project, "run"), "error")
+    assert errors == [f"The sweep's Python ({project.run.sweep_python}) cannot import SU2: "
+                      "ModuleNotFoundError: No module named 'numpy'"]
+    project.run.sweep_python = _fake_python(tmp_path, "good-python", ok=True)
+    assert not has_errors(preflight(project_dir, project, "run"))
+    project.run.sweep_python = sys.executable  # AeroSuite's own: no longer a warning by itself
+    project.run.sweep_script = str(project_dir / "custom.py")  # a custom script is not checked
+    (project_dir / "custom.py").write_text("")
+    assert preflight(project_dir, project, "run") == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the fake interpreter is a shell script")
+def test_the_import_check_is_cached(monkeypatch, tmp_path):
+    from aerosuite.engine import preflight as preflight_module
+
+    monkeypatch.setattr(preflight_module, "_import_checks", {})
+    calls = []
+    real = preflight_module.subprocess.run
+
+    def counting(*args, **kwargs):
+        calls.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(preflight_module.subprocess, "run", counting)
+    monkeypatch.setenv("SU2_RUN", str(tmp_path))
+    python = _fake_python(tmp_path, "broken-python", ok=False)
+    first = preflight_module.su2_import_error(python)
+    assert first == "ModuleNotFoundError: No module named 'numpy'"
+    assert preflight_module.su2_import_error(python) == first
+    assert len(calls) == 1
 
 
 def test_configs_out_of_date_with_sweep_is_a_warning(ready_project, monkeypatch):

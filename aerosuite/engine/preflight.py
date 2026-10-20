@@ -5,6 +5,8 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Literal, Optional, Sequence
@@ -12,7 +14,6 @@ from typing import TYPE_CHECKING, Iterable, Literal, Optional, Sequence
 from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE, case_freestream
 from .freestream import FREESTREAM_KEYS, freestream_setup_errors
 from .jobs.runner import (
-    is_aerosuite_python,
     resolve_sweep_python,
     sweep_environment,
     sweep_script_path,
@@ -207,14 +208,39 @@ def _environment_problems(project: Project) -> list[Problem]:
     search_path = sweep_environment().get("PATH", "")
     if shutil.which(resolved, path=search_path) is None and not Path(resolved).is_file():
         problems.append(Problem("error", f"Python for the sweep script not found: {python}"))
-    elif is_aerosuite_python(resolved):
-        problems.append(Problem(
-            "warning",
-            f"The sweep script would run under AeroSuite's own Python ({resolved}); "
-            "SU2 is normally importable only from the system Python "
-            "— set run.sweep_python to that interpreter",
-        ))
+    elif os.environ.get("SU2_RUN") and not project.run.sweep_script:  # a custom script may import SU2 its own way
+        error = su2_import_error(resolved)
+        if error:
+            problems.append(Problem("error", f"The sweep's Python ({resolved}) cannot import SU2: {error}"))
     return problems
+
+
+IMPORT_CHECK_SECONDS = 60.0  # the Run page draws its checks often: one try per interpreter per minute
+_IMPORT_CODE = "import os, sys; sys.path.append(os.environ['SU2_RUN']); import SU2"
+_import_checks: dict[tuple, tuple[float, Optional[str]]] = {}
+
+
+def su2_import_error(python: str) -> Optional[str]:
+    """Why `python` cannot import SU2 the way the sweep script does (SU2_RUN on sys.path), or None when it can.
+
+    The last line of the error, e.g. "ModuleNotFoundError: No module named 'numpy'". Cached for a minute."""
+    env = sweep_environment()
+    key = (python, env.get("SU2_RUN"), env.get("PYTHONPATH"))
+    now = time.monotonic()
+    cached = _import_checks.get(key)
+    if cached is not None and now - cached[0] < IMPORT_CHECK_SECONDS:
+        return cached[1]
+    try:
+        done = subprocess.run([python, "-c", _IMPORT_CODE], env=env, capture_output=True, text=True, timeout=30,
+                              stdin=subprocess.DEVNULL)
+        lines = [line.strip() for line in (done.stderr or done.stdout).splitlines() if line.strip()]
+        error = None if done.returncode == 0 else (lines[-1] if lines else f"exit code {done.returncode}")
+    except subprocess.TimeoutExpired:
+        error = "importing SU2 took longer than 30 s"
+    except OSError as exc:
+        error = str(exc)
+    _import_checks[key] = (now, error)
+    return error
 
 
 def preflight(project_dir: Path, project: Project, action: Literal["generate", "run", "submit"],

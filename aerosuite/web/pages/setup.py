@@ -1,17 +1,20 @@
 """Setup: four steps in one card (mesh, config template, study, run settings — on this machine or on Slurm), each
 showing what is set, and a panel on the right that stays in view: the project, what is ready and the next page."""
+import os
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator, Sequence
+import shutil
+from typing import Callable, Iterator, Optional, Sequence
 
 from nicegui import ui
 
 from ...engine import project as engine_project
 from ...engine.errors import ProjectError
 from ...engine.jobs.executors import backend_of
-from ...engine.jobs.runner import BUNDLED_SWEEP_SCRIPT, is_aerosuite_python, resolve_sweep_python
+from ...engine.jobs.runner import BUNDLED_SWEEP_SCRIPT, resolve_sweep_python
 from ...engine.machine import machine
 from ...engine.models import Project
+from ...engine.preflight import su2_import_error
 from ...engine.profiles import apply_profile, list_profiles, load_profile, save_profile
 from ...engine.settings import load_settings
 from ..fields import text_field
@@ -385,12 +388,16 @@ def _local_run_section(frame: ProjectFrame) -> None:
     @ui.refreshable
     def python_info() -> None:
         resolved = resolve_sweep_python(frame.session.project.run.sweep_python)
+        error = _sweep_import_error(frame)
         text = f"Runs as: {resolved}"
-        own = is_aerosuite_python(resolved)
-        if own:
-            text += "  ⚠ This is AeroSuite's own Python; SU2 is normally importable only from the system Python."
+        if frame.session.project.run.sweep_script:
+            text += " (custom sweep script: SU2 not checked)"
+        elif error:
+            text += f"  ⚠ It cannot import SU2: {error}"
+        elif os.environ.get("SU2_RUN"):
+            text += " · imports SU2"
         label = hint(text).mark("sweep-python-info")
-        if own:
+        if error:
             label.classes("as-hint-warning")
 
     @ui.refreshable
@@ -409,9 +416,8 @@ def _local_run_section(frame: ProjectFrame) -> None:
                 )
                 here = machine()
                 hint(f"This machine: {here.cores} cores, about {here.free_cores} free now").mark("partitions-machine")
-        # Rarely changed, so folded away -- unless the sweep would run under the wrong Python.
-        wrong_python = is_aerosuite_python(resolve_sweep_python(run.sweep_python))
-        with ui.expansion("Advanced · sweep Python and script", value=wrong_python).classes(
+        # Rarely changed, so folded away -- unless the sweep's Python cannot import SU2.
+        with ui.expansion("Advanced · sweep Python and script", value=bool(_sweep_import_error(frame))).classes(
                 "as-expansion w-full").mark("run-advanced"):
             with ui.element("div").classes("as-grid-2"):
                 with ui.column().classes("gap-1"):
@@ -431,3 +437,14 @@ def _local_run_section(frame: ProjectFrame) -> None:
                         mark="sweep-script", mono=True,
                     )
                     script_info()
+
+
+def _sweep_import_error(frame: ProjectFrame) -> Optional[str]:
+    """Why the bundled sweep script's Python cannot import SU2 (None when it can, or when that is not checked)."""
+    run = frame.session.project.run
+    if run.sweep_script or not os.environ.get("SU2_RUN"):
+        return None
+    resolved = resolve_sweep_python(run.sweep_python)
+    if shutil.which(resolved) is None and not Path(resolved).is_file():
+        return None  # "not found" is reported by the checks
+    return su2_import_error(resolved)

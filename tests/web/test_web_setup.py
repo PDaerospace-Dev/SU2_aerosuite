@@ -102,12 +102,25 @@ async def test_partitions_autosave_and_errors(user: User, ready_project):
     assert open_project(project_dir).run.partitions == 64
 
 
-async def test_sweep_python_warns_about_aerosuites_own_python(user: User, ready_project):
-    project_dir, _ = ready_project
+def _broken_python(folder):
+    path = folder / "broken-python"
+    path.write_text("#!/bin/sh\necho \"ModuleNotFoundError: No module named 'numpy'\" >&2\nexit 1\n")
+    path.chmod(0o755)
+    return str(path)
+
+
+async def test_sweep_python_that_cannot_import_su2_is_shown(user: User, ready_project, tmp_path, monkeypatch):
+    from aerosuite.engine import preflight as preflight_module
+
+    monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    monkeypatch.setattr(preflight_module, "_import_checks", {})
+    project_dir, project = ready_project
+    project.run.sweep_script = ""  # the bundled script
+    save_project(project_dir, project)
     await _open(user, project_dir)
-    user.find(marker="sweep-python").clear().type(sys.executable).trigger("blur")
-    await user.should_see("AeroSuite's own Python")
-    assert open_project(project_dir).run.sweep_python == sys.executable
+    user.find(marker="sweep-python").clear().type(_broken_python(tmp_path)).trigger("blur")
+    await user.should_see("It cannot import SU2: ModuleNotFoundError: No module named 'numpy'")
+    assert open_project(project_dir).run.sweep_python == str(tmp_path / "broken-python")
 
 
 async def test_sweep_script_blank_means_bundled(user: User, ready_project):
@@ -163,11 +176,19 @@ async def test_partitions_come_first_and_the_rest_is_advanced(user: User, ready_
     assert order == [_element(user, "partitions"), advanced]
 
 
-async def test_advanced_opens_by_itself_when_the_sweep_python_looks_wrong(user: User, ready_project):
-    project_dir, _ = ready_project  # the fixture's sweep Python is AeroSuite's own
+async def test_advanced_opens_by_itself_when_the_sweep_python_cannot_import_su2(user: User, ready_project, tmp_path,
+                                                                               monkeypatch):
+    from aerosuite.engine import preflight as preflight_module
+
+    monkeypatch.setenv("SU2_RUN", "/opt/su2/bin")
+    monkeypatch.setattr(preflight_module, "_import_checks", {})
+    project_dir, project = ready_project
+    project.run.sweep_script = ""
+    project.run.sweep_python = _broken_python(tmp_path)
+    save_project(project_dir, project)
     await _open(user, project_dir)
     assert _element(user, "run-advanced").value is True
-    await user.should_see("AeroSuite's own Python")
+    await user.should_see("It cannot import SU2")
 
 
 async def test_partitions_show_what_the_machine_has(user: User, ready_project, monkeypatch):
