@@ -13,6 +13,8 @@ FIELDS = [  # (key under slurm., label, hint)
     ("module_line", "Module line", "Run in the job script before SU2, e.g. module load mpi/openmpi-x86_64"),
     ("su2_bin", "SU2 bin folder", "Put first on PATH in the job script"),
     ("srun_command", "Launch command", "Followed by the case's .cfg, e.g. srun --mpi=pmix SU2_CFD"),
+    ("job_env", "Job environment", "Exported in the job script: NAME=value, separated by spaces "
+                                   "(OMPI_MCA_osc=^ucx silences Open MPI's harmless UCX warning)"),
     ("account", "Account", "Slurm -A; empty: none"),
     ("default_time_limit", "Default time limit", "Slurm -t, e.g. 12:00:00 or 2-00:00:00; empty: none"),
     ("gb_per_million_cells", "Memory per million cells (GB)", "For the pre-submit memory estimate"),

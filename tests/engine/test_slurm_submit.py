@@ -21,6 +21,8 @@ def test_job_script_matches_the_reference_script():
         "#SBATCH --exclusive", "#SBATCH -A pdas", "#SBATCH -o slurm-%j.out"]
     assert "module load mpi/openmpi-x86_64" in lines
     assert "export PATH=/opt/su2/bin:\"$PATH\"" in lines
+    assert "export OMPI_MCA_osc='^ucx'" in lines  # before srun, so every rank gets it
+    assert lines.index("export OMPI_MCA_osc='^ucx'") < lines.index("srun --mpi=pmix SU2_CFD M0p8_a2.cfg")
     assert 'cd "$SLURM_SUBMIT_DIR"' in lines
     assert "srun --mpi=pmix SU2_CFD M0p8_a2.cfg" in lines
     assert lines[-3:] == ["code=$?", 'echo "AEROSUITE_EXIT $code $(date -Is)"', "exit $code"]
@@ -164,3 +166,15 @@ def test_sbatch_missing(slurm_study, tmp_path, monkeypatch):
     with pytest.raises(JobError, match="sbatch was not found on PATH"):
         runner.submit(project_dir, project, cases=[A0])
     assert active_lock(project_dir) is None
+
+
+def test_job_environment_is_exported_quoted():
+    from aerosuite.engine.settings import AppSettings, set_value
+
+    slurm = set_value(AppSettings(), "slurm.job_env", "OMPI_MCA_osc=^ucx UCX_LOG_LEVEL=error EMPTY=").slurm
+    lines = job_script("s", "c", "c.cfg", OPTIONS, slurm, "j").splitlines()
+    assert ["export OMPI_MCA_osc='^ucx'", "export UCX_LOG_LEVEL=error", "export EMPTY=''"] == [
+        line for line in lines if line.startswith("export ") and "PATH" not in line]
+    none = set_value(AppSettings(), "slurm.job_env", "").slurm
+    assert [line for line in job_script("s", "c", "c.cfg", OPTIONS, none, "j").splitlines()
+            if line.startswith("export ")] == ['export PATH=/opt/su2/bin:"$PATH"']

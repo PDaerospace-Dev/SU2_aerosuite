@@ -29,7 +29,7 @@ from ..errors import JobError
 from ..models import Project
 from ..restarts import DEFAULT_RESTART_NAME, RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
-from ..settings import AppSettings, SlurmSettings, current_settings
+from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
 from .executors import SlurmOptions, slurm_options
 from .plan import RESTART_DIR, prepare_job
@@ -82,9 +82,9 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
     for value in (slurm.module_line, slurm.su2_bin, slurm.srun_command, comment):
         if "\n" in value or "\r" in value:
             raise JobError("Settings for the job script must be single lines")
-    lines += [comment,
-              slurm.module_line,
-              f"export PATH={shlex.quote(slurm.su2_bin)}:\"$PATH\"",
+    lines += [comment, slurm.module_line]
+    lines += [f"export {name}={shlex.quote(value)}" for name, value in env_pairs(slurm.job_env)]
+    lines += [f"export PATH={shlex.quote(slurm.su2_bin)}:\"$PATH\"",
               'cd "$SLURM_SUBMIT_DIR"',
               'echo "AeroSuite: Slurm job $SLURM_JOB_ID on $(hostname), $SLURM_NTASKS ranks, start $(date -Is)"',
               f"{slurm.srun_command} {shlex.quote(cfg_name)}",
@@ -138,6 +138,30 @@ def _iterations(history: Path) -> Optional[int]:
             except (TypeError, ValueError):
                 break
     return len(df)
+
+
+TIME_COLUMN = "Time(sec)"  # SU2's WALL_TIME history output: seconds per iteration, then (same name) their average
+
+
+def _su2_seconds_per_iter(history: Path) -> Optional[float]:
+    """The mean of SU2's own per-iteration wall time (the first Time(sec) column), or None without one.
+
+    Unlike elapsed / iterations it leaves out reading and partitioning the mesh and writing the solution, which
+    dominate a short run."""
+    try:
+        df = read_history(history) if history.is_file() else None
+    except Exception:
+        return None
+    if df is None or df.empty:
+        return None
+    positions = [i for i, name in enumerate(df.columns) if name == TIME_COLUMN]
+    if not positions:
+        return None
+    try:
+        value = float(df.iloc[:, positions[0]].mean())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 and value == value else None
 
 
 def case_stats(project_dir: Path, case: str) -> Optional[dict]:
@@ -515,6 +539,7 @@ class SlurmRunner:
         folder = project_dir / RUNS_DIR / name
         elapsed = sl.parse_duration(sc.elapsed) if sc.elapsed else None
         iterations = _iterations(folder / HISTORY_FILE)
+        su2 = _su2_seconds_per_iter(folder / HISTORY_FILE)
         wall = (stats.wall_s if stats and stats.wall_s else None) or elapsed
         cpu = None
         if stats is not None and stats.cpu_utilized_s is not None and wall and sc.ntasks:
@@ -522,7 +547,8 @@ class SlurmRunner:
         data = {
             "job_id": sc.job_id, "partition": sc.partition, "node": sc.node, "ntasks": sc.ntasks,
             "state": sc.state, "exit_code": sc.exit_code, "elapsed_s": elapsed, "iterations": iterations,
-            "s_per_iter": elapsed / iterations if elapsed and iterations else None,
+            "s_per_iter": su2 if su2 is not None else (elapsed / iterations if elapsed and iterations else None),
+            "s_per_iter_source": "su2" if su2 is not None else "elapsed",
             "peak_memory_gb": stats.memory_gb if stats else None, "cpu_use_per_rank": cpu,
             "attempts": list(sc.attempts),
         }

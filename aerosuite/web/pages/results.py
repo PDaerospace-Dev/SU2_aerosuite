@@ -40,7 +40,8 @@ POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
 FILTERED = ("Config", "Mach", "Altitude", "Temperature", "Alpha", "Beta")  # the Filters panel's variables
 COST_TIPS = {  # the Cost columns (cases run on Slurm): from sacct and seff
     "Elapsed": "Wall time of the Slurm job (sacct)",
-    "s/iter": "Elapsed time / iterations run, including reading and partitioning the mesh",
+    "s/iter": "Seconds per iteration from SU2's own timer (WALL_TIME in HISTORY_OUTPUT); without it, elapsed time / "
+              "iterations, which includes reading the mesh and writing the solution",
     "Peak memory": "The job's total memory at its peak (seff: Memory Utilized)",
     "CPU use": "CPU time / (wall time × tasks): 100% = every rank busy all the time",
     "Node": "Where it ran", "Tasks": "MPI ranks",

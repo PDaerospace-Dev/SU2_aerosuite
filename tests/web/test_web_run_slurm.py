@@ -187,3 +187,18 @@ async def test_a_blocked_case_shows_why(user: User, slurm_project, eventually):
     user.find(marker=f"status-{A2}").click()
     await eventually(lambda: bool(user.find(marker=f"tail-{A2}").elements))
     assert f"Not run: {A0} ended FAILED" in _text(user, f"tail-{A2}")
+
+
+async def test_job_history_folds(user: User, slurm_project):
+    project_dir, project, _fake = slurm_project
+    runner_for("slurm").submit(project_dir, project, cases=[A0])
+    await _open(user, project_dir)
+    with user:
+        _element(user, "run-tabs").set_value("history")
+    await user.should_see(marker="fold-run-history")
+    history = _element(user, "fold-run-history").parent_slot.parent.parent_slot.parent
+    assert "as-card-folded" not in history.classes
+    user.find(marker="fold-run-history").click()
+    assert "as-card-folded" in history.classes
+    user.find(marker="fold-run-history").click()
+    assert "as-card-folded" not in history.classes

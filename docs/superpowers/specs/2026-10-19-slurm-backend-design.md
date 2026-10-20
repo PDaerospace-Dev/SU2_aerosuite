@@ -67,6 +67,8 @@ AppSettings
     module_line: str = "module load mpi/openmpi-x86_64"
     su2_bin: str = "/opt/su2/bin"
     srun_command: str = "srun --mpi=pmix SU2_CFD"
+    job_env: str = "OMPI_MCA_osc=^ucx"           # exported in the script; silences Open MPI 5's per-rank
+                                                 # "OSC UCX component priority" error (checked on hpc1 2026-10-20)
     poll_seconds: float = 12 (5…120)
     default_time_limit: str = ""                 # "" = no -t; else Slurm syntax, e.g. "12:00:00", "2-00:00:00"
     account: str = "pdas"                        # "" = no -A
@@ -317,7 +319,10 @@ When a case reaches a final state the poller (or the CLI's refresh) writes `runs
 ```
 
 - `elapsed_s` from sacct; `iterations` = last minus first iteration in `history.csv`, plus one; `s_per_iter` =
-  elapsed / iterations (wall time including mesh reading and partitioning, said in the column's tooltip).
+  the mean of SU2's own per-iteration time (the first `Time(sec)` column, from WALL_TIME), else elapsed /
+  iterations (`s_per_iter_source`: `su2` / `elapsed`). Changed 2026-10-20 after the first cluster test: on a
+  50-iteration X07 run elapsed / iterations gave 7.84 s against SU2's 4.85 s (mesh reading, partitioning and a
+  2.6 GB ASCII solution dominate a short run).
 - `peak_memory_gb` = seff "Memory Utilized"; `cpu_use_per_rank` = CPU Utilized / (elapsed × ntasks). When `seff` is
   missing or fails, these two are empty and the rest still written.
 

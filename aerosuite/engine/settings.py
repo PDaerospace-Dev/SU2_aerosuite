@@ -29,6 +29,20 @@ class SettingsError(AeroSuiteError):
     """A setting has a value AeroSuite cannot use."""
 
 
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def env_pairs(text: str) -> list[tuple[str, str]]:
+    """'A=1 B=x' -> [('A', '1'), ('B', 'x')]; ValueError for anything that is not NAME=value."""
+    pairs = []
+    for item in text.split():
+        name, sep, value = item.partition("=")
+        if not sep or not _ENV_NAME_RE.match(name):
+            raise ValueError(f"job environment must be NAME=value pairs separated by spaces, not {item!r}")
+        pairs.append((name, value))
+    return pairs
+
+
 def valid_time_limit(text: str) -> bool:
     """True for "" (no limit) and Slurm's --time formats, e.g. "30", "12:00:00", "2-00:00:00"."""
     return text == "" or bool(_TIME_RE.match(text))
@@ -67,6 +81,9 @@ class SlurmSettings(BaseModel):
     module_line: str = "module load mpi/openmpi-x86_64"
     su2_bin: str = "/opt/su2/bin"
     srun_command: str = "srun --mpi=pmix SU2_CFD"
+    # Exported in the job script, NAME=value separated by spaces. OMPI_MCA_osc=^ucx: Open MPI 5 prints one "OSC UCX
+    # component priority" error per rank at start-up otherwise (harmless; checked on hpc1 2026-10-20).
+    job_env: str = "OMPI_MCA_osc=^ucx"
     poll_seconds: float = Field(default=12.0, ge=5, le=120)
     default_time_limit: str = ""  # "" = no -t
     account: str = "pdas"  # "" = no -A
@@ -90,6 +107,12 @@ class SlurmSettings(BaseModel):
     def _account(cls, value: str) -> str:
         if value and not _NAME_RE.match(value):
             raise ValueError(f"account {value!r} must be letters, digits, '_', '.' or '-'")
+        return value
+
+    @field_validator("job_env")
+    @classmethod
+    def _env(cls, value: str) -> str:
+        env_pairs(value)  # raises ValueError
         return value
 
     @field_validator("module_line", "su2_bin", "srun_command")

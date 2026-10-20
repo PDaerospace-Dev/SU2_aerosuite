@@ -137,3 +137,15 @@ def test_set_value_invalid_value():
         set_value(AppSettings(), "slurm.partitions.node1.default_ntasks", "0")
     with pytest.raises(SettingsError, match="backend"):
         set_value(AppSettings(), "backend", "pbs")
+
+
+def test_job_environment_setting():
+    from aerosuite.engine.settings import env_pairs
+
+    assert AppSettings().slurm.job_env == "OMPI_MCA_osc=^ucx"
+    settings = set_value(AppSettings(), "slurm.job_env", "A=1 B_2=x")
+    assert settings.slurm.job_env == "A=1 B_2=x"
+    assert env_pairs("A=1\nB=x;rm") == [("A", "1"), ("B", "x;rm")]  # values are shell-quoted in the script
+    for bad in ("A", "1A=2", "A-B=1", "=1"):
+        with pytest.raises(SettingsError, match="NAME=value"):
+            set_value(AppSettings(), "slurm.job_env", bad)

@@ -265,3 +265,27 @@ def test_stats_without_seff(slurm_study, history_writer):
     stats = json.loads((project_dir / "runs" / A0 / "slurm_stats.json").read_text())
     assert stats["elapsed_s"] == 300 and stats["peak_memory_gb"] is None and stats["cpu_use_per_rank"] is None
     assert not load_job(project_dir, job.id).slurm[A0].stats_pending
+
+
+def test_s_per_iter_comes_from_su2s_own_timer(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = _submit(slurm_study, cases=[A0])
+    folder = project_dir / "runs" / A0
+    rows = ['"Inner_Iter","Time(sec)","Time(sec)","rms[Rho]","CL","CD","CMy"']
+    rows += [f"{i},{4.0 + (i % 2)},{4.5},{-3 - 0.01 * i},0.5,0.02,-0.01" for i in range(50)]
+    (folder / "history.csv").write_text("\n".join(rows) + "\n")
+    fake.finish("101", elapsed="00:06:32")  # 392 s, of which SU2 iterated 50 x 4.5 s
+    runner.refresh(project_dir, job)
+    stats = case_stats(project_dir, A0)
+    assert stats["s_per_iter"] == pytest.approx(4.5) and stats["s_per_iter_source"] == "su2"
+    assert stats["elapsed_s"] == 392 and stats["iterations"] == 50
+
+
+def test_s_per_iter_falls_back_to_elapsed_without_a_timer(slurm_study, history_writer):
+    project_dir, project, runner, fake = slurm_study
+    job = _submit(slurm_study, cases=[A0])
+    history_writer(project_dir / "runs" / A0, STEADY)  # no Time(sec) column
+    fake.finish("101", elapsed="00:10:00")
+    runner.refresh(project_dir, job)
+    stats = case_stats(project_dir, A0)
+    assert stats["s_per_iter"] == 20 and stats["s_per_iter_source"] == "elapsed"

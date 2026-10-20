@@ -671,8 +671,7 @@ class RunPage:
         self.render()
 
     def _history(self, view: JobView) -> None:
-        with card(flush=True):
-            card_head("Job history")
+        with card("Job history", flush=True, fold="run-history"):
             if not view.overview.jobs:
                 ui.label("No jobs yet.").classes("as-muted px-4 pb-4").mark("history-none")
                 return

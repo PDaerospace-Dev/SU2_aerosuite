@@ -256,6 +256,11 @@ a.as-step:hover { background: #f6f8fa; }
 .as-log-state { font-size: 12px; color: #9fb0c8; }
 .as-log-close { color: #9fb0c8; }
 .as-log-body { flex: 1 1 auto; width: 100%; height: calc(100% - 40px); }
+/* the log's scroll bars always show (Quasar hides them until hover), wide enough to grab */
+.as-log-body .q-scrollarea__thumb { opacity: .55 !important; background: #9fb0c8; border-radius: 4px; }
+.as-log-body .q-scrollarea__thumb--v { width: 9px !important; right: 2px; }
+.as-log-body .q-scrollarea__thumb--h { height: 9px !important; bottom: 2px; }
+.as-log-body .q-scrollarea__thumb:hover { opacity: .9 !important; }
 .as-log-open { padding-bottom: 44vh; }
 .as-log-text { white-space: pre; font-family: var(--as-mono); font-size: 12px; line-height: 1.45;
   padding: 10px 14px 16px; }
