@@ -95,7 +95,7 @@ class SlurmRun(BaseModel):
     """How this project's cases are submitted to Slurm; None keeps the server settings' default."""
     partition: Optional[str] = None
     ntasks: Optional[int] = Field(default=None, ge=1)
-    time_limit: Optional[str] = None  # "" = no limit
+    time_limit: Optional[str] = None  # no longer used (the Settings page's limit applies); kept so old files load
 
 
 class RunSettings(BaseModel):

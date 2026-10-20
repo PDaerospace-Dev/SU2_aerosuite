@@ -34,9 +34,10 @@ def test_slurm_options_resolve_given_then_project_then_settings():
         "node1", 96, "", True, "pdas")
     assert slurm_options(project, settings, partition="node2").ntasks == 48
     project.run.slurm.partition = "node2"
-    project.run.slurm.time_limit = "1:00:00"
+    project.run.slurm.time_limit = "1:00:00"  # ignored: the settings' limit applies
     options = slurm_options(project, settings)
-    assert (options.partition, options.ntasks, options.time_limit) == ("node2", 48, "1:00:00")
+    assert (options.partition, options.ntasks, options.time_limit) == ("node2", 48, "")
+    assert slurm_options(project, settings, time_limit="1:00:00").time_limit == "1:00:00"  # one run
     project.run.slurm.ntasks = 32
     assert slurm_options(project, settings).ntasks == 32
     assert slurm_options(project, settings, ntasks=16, time_limit="").ntasks == 16

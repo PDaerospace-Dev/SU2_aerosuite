@@ -1,11 +1,11 @@
-"""A study's Slurm options as fields — partition, tasks per case, time limit — saved with the project. Used by the
-Setup page's Run settings step and the Run page's launch panel."""
+"""A study's Slurm options as fields — partition and tasks per case, saved with the project — and the time limit,
+which the Settings page sets for every study. Used by the Setup page's Run settings step and the Run page."""
 from typing import Callable, Optional
 
 from nicegui import ui
 
 from ..engine.jobs.executors import slurm_options
-from ..engine.settings import AppSettings, valid_time_limit
+from ..engine.settings import AppSettings
 from .fields import text_field
 from .session import parse_int
 from .ui_kit import hint
@@ -51,15 +51,6 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
             on_change()
         return message
 
-    def set_time_limit(text: str) -> Optional[str]:
-        text = text.strip()
-        if not valid_time_limit(text):
-            return f"{text!r} is not a Slurm time limit such as 12:00:00 or 2-00:00:00"
-        message = frame.save(lambda p: setattr(p.run.slurm, "time_limit", text))
-        if message is None:
-            on_change()
-        return message
-
     box = ui.element("div").classes("as-grid-3 w-full") if columns else ui.column().classes("w-full gap-2")
     with box:
         with ui.column().classes("gap-1 w-full"):
@@ -81,6 +72,7 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
             if warn:
                 label.classes("as-hint-warning")
         with ui.column().classes("gap-1 w-full"):
-            text_field("Time limit", options.time_limit, set_time_limit, mark=f"{mark}-time-limit",
-                       placeholder="none, or e.g. 12:00:00")
-            hint("Slurm stops a case that runs longer (TIMEOUT); empty: no limit").mark(f"{mark}-time-note")
+            ui.label("Time limit").classes("as-stat-label")
+            ui.label(options.time_limit or "none").classes("as-stat-value").mark(f"{mark}-time-limit")
+            hint("Set for every study on the Settings page (gear, top right); Slurm stops a case that runs "
+                 "longer (TIMEOUT)").mark(f"{mark}-time-note")

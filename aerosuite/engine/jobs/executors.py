@@ -56,13 +56,12 @@ class SlurmOptions:
 
 def slurm_options(project: Project, settings: AppSettings, partition: Optional[str] = None,
                   ntasks: Optional[int] = None, time_limit: Optional[str] = None) -> SlurmOptions:
-    """Given values, else the project's, else the settings' defaults (tasks: the partition's default)."""
+    """Given values, else the project's, else the settings' defaults (tasks: the partition's default). The time limit
+    is the settings' one unless given for this run (a study does not keep its own)."""
     slurm = settings.slurm
     chosen = partition or project.run.slurm.partition or slurm.default_partition
     part = slurm.partition(chosen)
     tasks = ntasks or project.run.slurm.ntasks or (part.default_ntasks if part else 1)
-    if time_limit is None:
-        time_limit = project.run.slurm.time_limit
     if time_limit is None:
         time_limit = slurm.default_time_limit
     return SlurmOptions(chosen, tasks, time_limit, slurm.exclusive, slurm.account)

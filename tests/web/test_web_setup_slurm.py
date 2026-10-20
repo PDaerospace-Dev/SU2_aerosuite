@@ -49,7 +49,7 @@ async def test_switching_to_slurm_shows_its_fields_and_saves(user: User, ready_p
     assert open_project(project_dir).run.backend == "local"
 
 
-async def test_partition_tasks_and_time_limit(user: User, ready_project):
+async def test_partition_tasks_and_the_settings_time_limit(user: User, ready_project):
     project_dir, project = ready_project
     project.run.backend = "slurm"
     save_project(project_dir, project)
@@ -62,9 +62,18 @@ async def test_partition_tasks_and_time_limit(user: User, ready_project):
     await _commit(user, "setup-ntasks", "96")
     await user.should_see("node2 gains nothing above about 48 tasks")
     assert open_project(project_dir).run.slurm.ntasks == 96
-    await _commit(user, "setup-time-limit", "soon")
-    await user.should_see("'soon' is not a Slurm time limit")
-    assert open_project(project_dir).run.slurm.time_limit is None
-    await _commit(user, "setup-time-limit", "12:00:00")
-    await user.should_see("Slurm · node2 · 96 tasks per case · limit 12:00:00")
-    assert open_project(project_dir).run.slurm.time_limit == "12:00:00"
+    assert _text(user, "setup-time-limit") == "none"  # shown, set on the Settings page only
+    await user.should_not_see(marker="setup-time-limit-error")
+
+
+async def test_the_time_limit_comes_from_the_settings(user: User, ready_project):
+    from aerosuite.engine.settings import AppSettings, save_settings, set_value
+
+    project_dir, project = ready_project
+    project.run.backend = "slurm"
+    project.run.slurm.time_limit = "1:00:00"  # an old per-study value: ignored now
+    save_project(project_dir, project)
+    save_settings(set_value(AppSettings(), "slurm.default_time_limit", "2-00:00:00"))
+    await user.open(project_url("setup", project_dir))
+    assert _text(user, "setup-time-limit") == "2-00:00:00"
+    assert _text(user, "ready-run") == "Slurm · node1 · 96 tasks per case · limit 2-00:00:00"

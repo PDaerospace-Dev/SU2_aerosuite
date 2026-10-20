@@ -28,9 +28,10 @@ def test_run_with_slurm_options_submits_and_saves_them(study):
     assert "Slurm jobs 101, 102, 103" in result.output
     project = open_project(project_dir)
     assert project.run.backend == "slurm"
-    assert (project.run.slurm.partition, project.run.slurm.ntasks, project.run.slurm.time_limit) == (
-        "node2", 48, "1:00:00")
+    assert (project.run.slurm.partition, project.run.slurm.ntasks) == ("node2", 48)
+    assert project.run.slurm.time_limit is None  # --time is for this run only
     assert fake.job("101")["partition"] == "node2" and fake.job("101")["ntasks"] == "48"
+    assert "#SBATCH -t 1:00:00" in (project_dir / "runs" / "M0p8_a0_b0" / "su2_job.sh").read_text()
 
 
 def test_another_partition_uses_its_own_default_tasks(study):

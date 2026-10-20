@@ -40,7 +40,8 @@ def run(
         help="local (mpirun on this machine) or slurm (one batch job per case); saved with the project")] = None,
     partition: Annotated[Optional[str], typer.Option(help="Slurm partition, e.g. node2")] = None,
     ntasks: Annotated[Optional[int], typer.Option(min=1, help="Slurm tasks (MPI ranks) per case")] = None,
-    time_limit: Annotated[Optional[str], typer.Option("--time", help="Slurm time limit, e.g. 12:00:00")] = None,
+    time_limit: Annotated[Optional[str], typer.Option(
+        "--time", help="Slurm time limit for this run only, e.g. 12:00:00 (default: the Settings page's)")] = None,
 ) -> None:
     """Start the sweep and return: in the background here (local) or as Slurm jobs (slurm)."""
     project = engine_project.open_project(directory)
@@ -73,11 +74,9 @@ def run(
                 slurm.ntasks = None
         if ntasks is not None and ntasks != slurm.ntasks:
             slurm.ntasks, changed = ntasks, True
-        if time_limit is not None and time_limit != slurm.time_limit:
-            slurm.time_limit, changed = time_limit, True
     if changed:
         engine_project.save_project(directory, project)
-    options = slurm_options(project, settings) if chosen == "slurm" else None
+    options = slurm_options(project, settings, time_limit=time_limit) if chosen == "slurm" else None
     problems = preflight(directory, project, "run", options=options, settings=settings)
     print_problems(problems)
     if has_errors(problems):
