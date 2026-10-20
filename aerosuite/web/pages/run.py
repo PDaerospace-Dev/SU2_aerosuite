@@ -24,6 +24,7 @@ from ...engine.study_results import study_results
 from ..cluster_view import (can_resubmit, case_slurm_text, node_reasons, outage_text, own_jobs, partition_lines,
                             queue_lines, suggested_partition)
 from ..fields import text_field
+from ..slurm_fields import slurm_fields
 from ..jobs import WATCHER, JobView, job_progress
 from ..layout import ProjectFrame, open_session, project_url
 from ..run_view import ATTENTION, case_conditions, case_groups, duration_text, layout, status_counts, time_left
@@ -258,17 +259,7 @@ class RunPage:
 
     def _slurm_fields(self) -> None:
         """Partition, tasks per case and time limit (saved with the project); always one node."""
-        options = self.options
-        names = [p.name for p in self.settings.slurm.partitions]
-        if options.partition not in names:
-            names.append(options.partition)
-        ui.select(names, value=options.partition, label="Partition",
-                  on_change=lambda e: self._set_partition(e.value)).classes("w-full").props("dense").mark(
-            "run-partition")
-        text_field("Tasks per case (MPI ranks)", options.ntasks, self._set_ntasks, mark="run-ntasks")
-        text_field("Time limit", options.time_limit, self._set_time_limit, mark="run-time-limit",
-                   placeholder="none, or e.g. 12:00:00")
-        hint("1 node per case" + (", exclusive" if options.exclusive else "")).mark("run-node-note")
+        slurm_fields(self.frame, self.settings, self.render, mark="run")
 
     def _running(self, view: JobView) -> None:
         """The running job: how far it is, the case running now, elapsed and a rough time left, Cancel."""
@@ -320,36 +311,6 @@ class RunPage:
         if message is not None:
             ui.notify(message, type="negative")
         self.render()
-
-    def _set_partition(self, name: str) -> None:
-        if name == self.options.partition:
-            return
-
-        def change(p) -> None:
-            p.run.slurm.partition = name
-            p.run.slurm.ntasks = None  # each partition has its own default
-
-        message = self.frame.save(change)
-        if message is not None:
-            ui.notify(message, type="negative")
-        self.render()
-
-    def _set_ntasks(self, text: str) -> Optional[str]:
-        message = self.frame.save(lambda p: setattr(p.run.slurm, "ntasks", parse_int(text, "Tasks per case")))
-        if message is None:
-            self.render()
-        return message
-
-    def _set_time_limit(self, text: str) -> Optional[str]:
-        from ...engine.settings import valid_time_limit
-
-        text = text.strip()
-        if not valid_time_limit(text):
-            return f"{text!r} is not a Slurm time limit such as 12:00:00 or 2-00:00:00"
-        message = self.frame.save(lambda p: setattr(p.run.slurm, "time_limit", text))
-        if message is None:
-            self.render()
-        return message
 
     def _set_partitions(self, text: str) -> Optional[str]:
         message = self.frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Cores per case")))

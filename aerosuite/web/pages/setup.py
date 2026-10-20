@@ -1,5 +1,5 @@
-"""Setup: four steps in one card (mesh, config template, study, run settings), each showing what is set, and a panel
-on the right that stays in view: the project, what is ready and the next page."""
+"""Setup: four steps in one card (mesh, config template, study, run settings — on this machine or on Slurm), each
+showing what is set, and a panel on the right that stays in view: the project, what is ready and the next page."""
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Iterator, Sequence
@@ -8,14 +8,17 @@ from nicegui import ui
 
 from ...engine import project as engine_project
 from ...engine.errors import ProjectError
+from ...engine.jobs.executors import backend_of
 from ...engine.jobs.runner import BUNDLED_SWEEP_SCRIPT, is_aerosuite_python, resolve_sweep_python
 from ...engine.machine import machine
 from ...engine.models import Project
 from ...engine.profiles import apply_profile, list_profiles, load_profile, save_profile
+from ...engine.settings import load_settings
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session, project_url
 from ..picker import pick_path
 from ..session import parse_int
+from ..slurm_fields import run_text, slurm_fields
 from ..status import visible_steps
 from ..sweep_choice import sweep_radio
 from ..ui_kit import banner, card, field, hint, primary_button, secondary_button
@@ -51,7 +54,7 @@ def register() -> None:
                     with _step(3, STEP_TITLES[2]):
                         _study_section(frame, panel, body.refresh)
                     with _step(4, STEP_TITLES[3]):
-                        _run_section(frame)
+                        _run_section(frame, panel)
                 side = ui.column().classes("as-run-panel gap-0").mark("setup-panel")
             panel()
 
@@ -98,6 +101,8 @@ def _panel(frame: ProjectFrame) -> None:
         count = len(project.cases)
         study = f"Sweep · {count} case{'' if count == 1 else 's'}" if project.sweep.enabled else "Single case"
         _ready("ready-study", True, study + (f" · profile {project.profile}" if project.profile else ""))
+        settings, _warnings = load_settings()
+        _ready("ready-run", True, run_text(project, settings, backend_of(project, settings)))
     steps = visible_steps(project)
     keys = [key for key, _ in steps]
     following = steps[keys.index("setup") + 1] if "setup" in keys and keys.index("setup") + 1 < len(steps) else None
@@ -336,7 +341,45 @@ def _template_section(frame: ProjectFrame, changed: Callable[[], None]) -> None:
         summary()
 
 
-def _run_section(frame: ProjectFrame) -> None:
+def _run_section(frame: ProjectFrame, changed: Callable[[], None]) -> None:
+    """Where the cases run: this machine (MPI partitions, the sweep's Python and script) or Slurm (partition, tasks,
+    time limit), as the study chooses; the same choice as the Run page's toggle."""
+    holder = ui.column().classes("w-full gap-3").mark("run-section")
+
+    def draw() -> None:
+        settings, _warnings = load_settings()
+        backend = backend_of(frame.session.project, settings)
+        holder.clear()
+        with holder:
+            with ui.row().classes("items-center gap-3"):
+                ui.label("Run jobs on").classes("as-label")
+                ui.toggle({"local": "This machine (mpirun)", "slurm": "Slurm"}, value=backend,
+                          on_change=lambda e: set_backend(e.value)).props("dense no-caps unelevated").mark(
+                    "setup-backend")
+            if backend == "slurm":
+                with ui.column().classes("w-full gap-2").mark("slurm-settings"):
+                    slurm_fields(frame, settings, redraw, mark="setup", columns=True)
+                    hint("Settings for the whole cluster (shared root, module line, SU2 folder, memory per cell, "
+                         "partitions) are on the Settings page: the gear at the top right.").mark("setup-slurm-more")
+            else:
+                _local_run_section(frame)
+
+    def redraw() -> None:
+        draw()
+        changed()
+
+    def set_backend(backend: str) -> None:
+        if backend == backend_of(frame.session.project, load_settings()[0]):
+            return
+        message = frame.save(lambda p: setattr(p.run, "backend", backend))
+        if message is not None:
+            ui.notify(message, type="negative")
+        redraw()
+
+    draw()
+
+
+def _local_run_section(frame: ProjectFrame) -> None:
     run = frame.session.project.run
 
     @ui.refreshable
