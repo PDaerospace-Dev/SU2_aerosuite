@@ -272,7 +272,7 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
     problems += sweep_problems(project, project_dir)
     problems += _marker_problems(project)
     lock = active_lock(project_dir)
-    if lock:
+    if lock and not (action == "generate" and lock.get("backend") == "slurm"):  # Slurm cases run from copies
         problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))
     if action == "run":
         problems += _config_state_problems(project_dir, project)

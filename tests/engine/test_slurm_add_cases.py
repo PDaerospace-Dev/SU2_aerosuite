@@ -131,3 +131,8 @@ def test_configs_can_be_regenerated_while_a_slurm_job_runs(slurm_study):
     project_dir, project, runner, fake = slurm_study
     runner.submit(project_dir, project, cases=[A0])
     assert generate_configs(project_dir, project)  # the running case uses runs/<case>/<case>.cfg
+    from aerosuite.engine.preflight import preflight
+
+    running = [p.message for p in preflight(project_dir, project, "generate") if p.severity == "error"]
+    assert running == []  # the Sweep page's Generate stays available
+    assert any("still running" in p.message for p in preflight(project_dir, project, "submit"))
