@@ -99,3 +99,21 @@ def test_the_record_index_rereads_a_study_only_when_its_jobs_change(slurm_study,
     runner.add_cases(project_dir, project, index.lookup(project_dir, "101")[0], [A2])
     assert index.lookup(project_dir, "102")[1] == A2 and len(calls) == 2
     assert index.lookup(project_dir, "999") is None
+
+
+def test_study_of_reads_project_json_once_until_it_changes(slurm_study, monkeypatch):
+    import os
+
+    from aerosuite.engine import cluster
+
+    project_dir = slurm_study[0]
+    reads = []
+    real = cluster.json.loads
+    monkeypatch.setattr(cluster.json, "loads", lambda text: reads.append(1) or real(text))
+    folder = str(project_dir / "runs" / A0)
+    assert study_of(folder, f"study/{A0}") == project_dir
+    assert study_of(folder, f"study/{A0}") == project_dir
+    assert len(reads) == 1
+    stamp = (project_dir / "project.json").stat().st_mtime_ns + 1_000_000
+    os.utime(project_dir / "project.json", ns=(stamp, stamp))
+    assert study_of(folder, f"study/{A0}") == project_dir and len(reads) == 2

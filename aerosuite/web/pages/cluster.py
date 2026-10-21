@@ -59,6 +59,8 @@ class ClusterPage:
         self.dialogs_open = 0
         self.shown: Optional[tuple] = None
         self.good = None  # the last snapshot Slurm answered: shown, greyed, while it does not
+        self.good_cluster = None  # likewise the last node list
+        self.nodes_note = None
         WATCH.show_page()
         ui.context.client.on_delete(WATCH.hide_page)  # not on_disconnect: a brief socket drop reconnects
         self.dialog_host = ui.element("div")  # dialogs live here: render() clears only the holder
@@ -67,16 +69,24 @@ class ClusterPage:
         ui.timer(POLL_SECONDS, self.poll)
 
     def _data(self) -> tuple:
+        """What the page shows, as a value: the page is drawn again only when it changes (the poll times are
+        updated in place)."""
         snapshot, cluster, recent = WATCH.snapshot, WATCH.cluster, WATCH.recent
         if snapshot is not None and snapshot.ok:
             self.good = snapshot
+        if cluster is not None and cluster.error is None and cluster.nodes:
+            self.good_cluster = cluster
         queue = self.good.queue if self.good is not None else {}
         rows, more = my_jobs(queue, recent.rows if recent is not None else {}, WATCH.user, INDEX, MAX_ROWS)
         for row in rows:  # a study never opened here: the poller keeps its record current from now on
             if row.active and row.study is not None and row.job_id is not None:
                 WATCH.track(row.study, row.job_id)
-        return (cluster.taken if cluster else None, snapshot.taken if snapshot else None,
-                recent.taken if recent else None, tuple(rows), more, self.kind, self.study)
+        tone, tip = cluster_status(snapshot, cluster)
+        outage = tip if tone == "red" else None
+        groups = tuple((name, default, tuple(nodes)) for name, default, nodes in node_groups(self.good_cluster))
+        lines = tuple(cluster_queue(self.good, WATCH.user))
+        accounting_down = recent is not None and recent.error is not None
+        return (outage, groups, lines, tuple(rows), more, accounting_down, self.kind, self.study)
 
     def poll(self) -> None:
         if self.dialogs_open:
@@ -84,34 +94,38 @@ class ClusterPage:
         data = self._data()
         if data != self.shown:
             self.shown = data
-            self.render(data[3], data[4])
+            self.render(data)
+        elif self.nodes_note is not None and not self.nodes_note.is_deleted:
+            self.nodes_note.text = self._nodes_text(data[1], data[0] is not None)
 
-    def render(self, rows: tuple, more: int) -> None:
-        snapshot, cluster, recent = WATCH.snapshot, WATCH.cluster, WATCH.recent
-        tone, tip = cluster_status(snapshot, cluster)
-        self.down = tone == "red"
+    def render(self, data: tuple) -> None:
+        outage, groups, lines, rows, more, accounting_down, _kind, _study = data
+        self.down = outage is not None
         self.holder.clear()
         with self.holder:
             if self.down:
-                banner("error", f"{tip}. Showing the last known state, as of {_time(WATCH.last_ok)}.").mark(
+                banner("error", f"{outage}. Showing the last known state, as of {_time(WATCH.last_ok)}.").mark(
                     "cluster-outage")
-            self._nodes(cluster)
-            self._jobs(list(rows), more, recent)
-            self._queue(self.good)
+            self._nodes(groups)
+            self._jobs(list(rows), more, accounting_down)
+            self._queue(lines)
+
+    def _nodes_text(self, groups: tuple, down: bool) -> str:
+        if not groups:
+            return "Asking Slurm…"
+        nodes = [node for _p, _d, members in groups for node in members]
+        total, used = sum(n.total for n in nodes), sum(n.allocated for n in nodes)
+        stamp = self.good_cluster.taken if self.good_cluster is not None else None
+        when = f"as of {_time(stamp)}" if down else f"updated {_time(stamp)}"
+        return f"{len(nodes)} node{'' if len(nodes) == 1 else 's'} · {used} / {total} CPUs in use · {when}"
 
     # -- nodes ------------------------------------------------------------------------------------------------
 
-    def _nodes(self, cluster) -> None:
+    def _nodes(self, groups: tuple) -> None:
         """One compact card per node, the default partition's first; a drained or down node is tinted red."""
-        groups = node_groups(cluster)
         with ui.row().classes("items-baseline w-full gap-2").mark("nodes-card"):
-            total = sum(n.total for _p, _d, nodes in groups for n in nodes)
-            used = sum(n.allocated for _p, _d, nodes in groups for n in nodes)
-            count = sum(len(nodes) for _p, _d, nodes in groups)
             ui.label("Nodes").classes("as-card-title")
-            ui.label(f"{count} node{'' if count == 1 else 's'} · {used} / {total} CPUs in use · updated "
-                     f"{_time(cluster.taken if cluster else None)}" if groups else "Asking Slurm…").classes(
-                "as-muted").mark("nodes-summary")
+            self.nodes_note = ui.label(self._nodes_text(groups, self.down)).classes("as-muted").mark("nodes-summary")
         with ui.element("div").classes("as-node-grid w-full"):
             for partition, default, nodes in groups:
                 for node in nodes:
@@ -155,8 +169,7 @@ class ClusterPage:
 
     # -- queue ------------------------------------------------------------------------------------------------
 
-    def _queue(self, snapshot) -> None:
-        lines = cluster_queue(snapshot, WATCH.user)
+    def _queue(self, lines: tuple) -> None:
         mine = sum(1 for line in lines if line.own)
         subtitle = f"{len(lines)} job{'' if len(lines) == 1 else 's'}, all users · {mine} yours · yours highlighted"
         with self._section("queue", "Queue", subtitle, "queue-card") as (_head, opened):
@@ -187,7 +200,7 @@ class ClusterPage:
 
     # -- my jobs ----------------------------------------------------------------------------------------------
 
-    def _jobs(self, rows: list, more: int, recent) -> None:
+    def _jobs(self, rows: list, more: int, accounting_down: bool) -> None:
         failed = len(filter_jobs(rows, "failed"))
         subtitle = (f"{len(rows)} · all studies · queued, running or ended in the last 7 days"
                     + (f" · {failed} failed" if failed else ""))
@@ -204,7 +217,7 @@ class ClusterPage:
                 if len(studies) > 1:
                     ui.select({None: "All studies", **{s: s for s in studies}}, value=self.study,
                               on_change=lambda e: self._set_study(e.value)).props("dense").mark("jobs-study")
-            if recent is not None and recent.error:
+            if accounting_down:
                 hint("Ended jobs need Slurm accounting, which does not answer; showing active cases only.").classes(
                     "as-hint-warning px-4").mark("jobs-accounting")
             shown = filter_jobs(rows, self.kind, self.study)

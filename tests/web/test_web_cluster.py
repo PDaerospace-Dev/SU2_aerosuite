@@ -201,3 +201,30 @@ async def test_the_log_dialog_stays_open_and_follows_new_output(user: User, clus
     await asyncio.sleep(2.5)
     out.write_text(out.read_text() + "|   13|  -4.2|\n")
     await eventually(lambda: "|   13|  -4.2|" in _text(user, "log-dialog-text"), 5)
+
+
+async def test_the_page_is_not_redrawn_when_nothing_visible_changed(user: User, cluster_study, monkeypatch):
+    import asyncio
+
+    from aerosuite.web.pages import cluster as cluster_page
+
+    renders = []
+    real = cluster_page.ClusterPage.render
+    monkeypatch.setattr(cluster_page.ClusterPage, "render", lambda self, *a: renders.append(1) or real(self, *a))
+    await _open(user)
+    count = len(renders)
+    for _ in range(2):  # new polls, same cluster
+        await WATCH.poll_once()
+        await asyncio.sleep(2.2)
+    assert len(renders) == count
+
+
+async def test_an_outage_keeps_the_last_known_nodes(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="node-card-hpc1").elements), 5)
+    fake.update(controller_down=True)
+    await WATCH.poll_once()
+    await eventually(lambda: bool(user.find(marker="cluster-outage").elements), 5)
+    assert _element(user, "node-card-hpc1") is not None
+    assert "as of" in _text(user, "nodes-summary")

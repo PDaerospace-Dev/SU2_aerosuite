@@ -38,13 +38,32 @@ def study_of(workdir: str, name: str) -> Optional[Path]:
     if found is None:
         return None
     study, _study_name, case = found
-    try:
-        data = json.loads((study / PROJECT_FILE).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(data, dict) or job_name(str(data.get("name", "")), case) != name:
+    project_name = _project_name(study)
+    if project_name is None or job_name(project_name, case) != name:
         return None
     return study
+
+
+_PROJECT_NAMES: dict[Path, tuple[int, Optional[str]]] = {}  # study folder -> (project.json mtime, its name)
+
+
+def _project_name(study: Path) -> Optional[str]:
+    """The study's name from its project.json, read again only when the file changes (pages ask every 2 s)."""
+    path = study / PROJECT_FILE
+    try:
+        stamp = path.stat().st_mtime_ns
+    except OSError:
+        return None
+    cached = _PROJECT_NAMES.get(study)
+    if cached is not None and cached[0] == stamp:
+        return cached[1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        name = str(data.get("name", "")) if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        name = None
+    _PROJECT_NAMES[study] = (stamp, name)
+    return name
 
 
 class RecordIndex:
