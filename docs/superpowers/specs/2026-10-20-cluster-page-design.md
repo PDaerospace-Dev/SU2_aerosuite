@@ -1,7 +1,7 @@
 # AeroSuite — Cluster page (phase 1) — Design Spec
 
 **Date:** 2026-10-20
-**Status:** Draft for review
+**Status:** Implemented (layout D: compact node cards, collapsible My jobs and Queue)
 **Builds on:** `2026-10-19-slurm-backend-design.md` (the Slurm backend, its poller and job records). Branch
 `feat/slurm-backend`.
 

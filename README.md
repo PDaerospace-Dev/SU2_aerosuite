@@ -186,6 +186,7 @@ aerosuite run ./study --backend slurm --partition node1 --case M0p8_a0 --case M0
 aerosuite run ./study --add --partition node2 --ntasks 48   # more cases into the running job, on node2
 aerosuite status ./study --watch     # Slurm job ids, nodes, pending reasons; one squeue per poll interval
 aerosuite cancel ./study             # scancel every unfinished case of the job
+aerosuite cancel ./study --case M0p8_a2   # one case; the others go on
 aerosuite resubmit ./study           # the cases that ended NODE_FAIL or OUT_OF_MEMORY, in the same job
 aerosuite settings                   # partitions, default tasks, memory limits, module line, SU2 path, ...
 ```
@@ -200,9 +201,11 @@ aerosuite settings                   # partitions, default tasks, memory limits,
 - Studies must live under the shared root (`/data`): the other node cannot see anything else. Before submitting,
   AeroSuite estimates the memory from the mesh header (`NELEM` × 3.9 GB per million cells, configurable), warns when
   it is over the partition's limit and refuses on partitions set to block (node2).
-- The Run page shows the cluster (`sinfo`: CPUs busy per partition, drained or down nodes and why) and your queue
-  instead of this machine's cores. The Results page adds a **Cost** group per case (elapsed, s/iter, peak memory and
-  CPU use from `sacct`/`seff`) and the study's node-hours.
+- The **Cluster** page (top bar; its dot is green, amber for a drained or down node, red when Slurm does not answer)
+  shows every node as a compact card, then your AeroSuite cases on Slurm from every study — queued, running or ended in
+  the last 7 days — with Cancel (one case), Resubmit and Log, then everyone's queue; both lists fold. The Run page keeps
+  a one-line summary. The Results page adds a **Cost** group per case (elapsed, s/iter, peak memory and CPU use from
+  `sacct`/`seff`) and the study's node-hours.
 - The local backend (`mpirun` through the sweep script) is unchanged and stays the default.
 
 ### Over SSH

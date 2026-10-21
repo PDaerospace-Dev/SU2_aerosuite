@@ -21,6 +21,9 @@ into a CLAUDE.md.
 - Server settings in `~/.aerosuite/settings.json` (Settings page, `aerosuite settings`). The tests always use a
   temporary `AEROSUITE_HOME` (autouse fixture) and `tests/fixtures/fake_slurm.py` (fixture `fake_slurm`) so they never
   reach the real Slurm; the web tests also reset the server's poller between tests.
+- Cluster page (phase 1, spec `2026-10-20-cluster-page-design.md`, layout D chosen on the mockups canvas): next
+  phases are usage history (sacct over a period) and admin actions (drain/resume need Slurm Operator rights for
+  pdas-hpc1, not granted as of 2026-10-20).
 - Suite on hpc1: everything passes except 4 tests in `tests/engine/test_sweep_script.py`, which fail on `main` too:
   they import the real SU2 package from `/opt/su2/bin` instead of their stub.
 
