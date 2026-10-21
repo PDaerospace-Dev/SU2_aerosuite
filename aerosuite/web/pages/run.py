@@ -21,8 +21,9 @@ from ...engine.results import history_columns
 from ...engine.settings import AppSettings, load_settings
 from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
-from ..cluster_view import can_resubmit, case_slurm_text, suggested_partition, summary_line
+from ..cluster_view import can_resubmit, case_slurm_text, summary_line
 from ..fields import text_field
+from ..resubmit_dialog import resubmit_case
 from ..slurm_fields import slurm_fields
 from ..jobs import WATCHER, JobView, job_progress
 from ..layout import ProjectFrame, open_session, project_url
@@ -774,48 +775,11 @@ class RunPage:
 
     async def confirm_resubmit(self, job, case: str) -> None:
         """NODE_FAIL / OUT_OF_MEMORY: submit the case again (and the cases blocked behind it) in the same job."""
-        self._load_settings()
-        partitions = [p.name for p in self.settings.slurm.partitions]
-        limits = {p.name: p.memory_limit_mb for p in self.settings.slurm.partitions}
-        state = job.slurm[case].state
-        chosen = {"partition": suggested_partition(job, case, partitions, limits)}
         self.dialogs_open += 1
         try:
-            with ui.dialog() as dialog, ui.card().classes("gap-3"):
-                ui.label(f"Resubmit {case}?").classes("as-strong")
-                why = ("It ran out of memory" if state == "OUT_OF_MEMORY" else "Its node failed")
-                ui.label(f"{why} on {job.slurm[case].partition} (Slurm job {job.slurm[case].job_id}). It runs "
-                         "again in the same job, with the cases waiting for its solution.").classes("as-muted")
-                if chosen["partition"] != job.slurm[case].partition:
-                    hint(f"Suggested: {chosen['partition']}, which has more memory.").mark("resubmit-suggestion")
-                ui.select(partitions, value=chosen["partition"], label="Partition",
-                          on_change=lambda e: chosen.update(partition=e.value)).classes("w-full").mark(
-                    "resubmit-partition")
-                with ui.row().classes("w-full justify-end gap-2"):
-                    secondary_button("Keep it failed", on_click=lambda: _answer(dialog, False)).mark("resubmit-keep")
-                    primary_button("Resubmit", on_click=lambda: _answer(dialog, True)).mark("resubmit-confirm")
-            confirmed = await dialog
+            await resubmit_case(self.directory, self.project, job, case)
         finally:
             self.dialogs_open -= 1
-        if not confirmed:
-            return
-        partition = chosen["partition"]
-        same = partition == job.slurm[case].partition
-        options = slurm_options(self.project, self.settings, partition=partition,
-                                ntasks=job.slurm[case].ntasks if same else None,
-                                time_limit=job.slurm[case].time_limit)
-        errors = [p for p in preflight(self.directory, self.project, "run", cases=[case], options=options,
-                                       settings=self.settings)
-                  if p.severity == "error" and not p.message.startswith(f"Job {job.id} ")]
-        if errors:
-            ui.notify(errors[0].message, type="negative")
-            return
-        try:
-            await run.io_bound(WATCHER.resubmit, self.directory, self.project, job.id, [case], options)
-        except AeroSuiteError as exc:
-            ui.notify(str(exc), type="negative")
-        else:
-            ui.notify(f"Resubmitted {case} to {partition}", type="positive")
         if not self.holder.is_deleted:
             self.frame.refresh()
             self.render()
