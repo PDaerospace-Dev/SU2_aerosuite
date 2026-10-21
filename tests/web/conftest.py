@@ -49,3 +49,13 @@ def eventually():
             await asyncio.sleep(0.02)
 
     return wait
+
+
+@pytest.fixture(autouse=True)
+def no_real_slurm(monkeypatch):
+    """hpc1 has the real sinfo on PATH: the Cluster button (and its polling) appears only with the fake Slurm."""
+    import os
+
+    from aerosuite.web import slurm_watch
+
+    monkeypatch.setattr(slurm_watch, "slurm_available", lambda: "FAKE_SLURM_STATE" in os.environ)

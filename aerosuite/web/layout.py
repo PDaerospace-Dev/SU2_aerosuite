@@ -74,6 +74,36 @@ def _brand() -> None:
         ui.label("AeroSuite").classes("as-logo-text")
 
 
+def _cluster_button() -> None:
+    """The top bar's Cluster button: a dot for the cluster's health and the number of your running jobs."""
+    from . import slurm_watch
+    from .cluster_view import cluster_status, running_count
+
+    if not slurm_watch.slurm_available():
+        return
+    watch = slurm_watch.WATCH
+    with ui.button(color=None, on_click=lambda: ui.navigate.to("/cluster")).props("flat dense no-caps").classes(
+            "as-topbar-icon as-topbar-labelled").mark("cluster"):
+        dot = ui.element("span").classes("as-cluster-dot as-dot-grey").mark("cluster-dot")
+        ui.label("Cluster")
+        count = ui.label("").classes("as-cluster-count").mark("cluster-count")
+    watch.show_cluster()
+    ui.context.client.on_disconnect(watch.hide_cluster)
+
+    def update() -> None:
+        if dot.is_deleted:
+            return
+        tone, tip = cluster_status(watch.snapshot, watch.cluster)
+        dot.classes(replace=f"as-cluster-dot as-dot-{tone}")
+        dot.props["title"] = tip
+        dot.update()
+        running = running_count(watch.snapshot, watch.user)
+        count.text = f"· {running}" if running else ""
+
+    update()
+    ui.timer(2.0, update)
+
+
 def _settings_button() -> None:
     """The top bar's gear: the server-wide settings (backend, Slurm)."""
     ui.button(icon="settings", color=None, on_click=lambda: ui.navigate.to("/settings")).props(
@@ -106,6 +136,7 @@ def header() -> None:
     with ui.row().classes("as-topbar w-full"):
         _brand()
         ui.space()
+        _cluster_button()
         _calculators_button()
         _settings_button()
         _help_button()
@@ -188,6 +219,7 @@ class ProjectFrame:
             self._job.props('tabindex=0 role=button').on("keydown.enter", lambda: self.log.open())
             self._job.set_visibility(False)
             ParaViewMenu(self)
+            _cluster_button()
             _calculators_button(self)
             _settings_button()
             _help_button()

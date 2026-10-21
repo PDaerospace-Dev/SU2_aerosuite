@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -22,6 +23,11 @@ from ..engine.settings import current_settings
 SEFF_PER_POLL = 4
 RECENT_SECONDS = 300.0  # the 7-day sacct: at most this often, and only while a Cluster page is open
 log = logging.getLogger("aerosuite.slurm")
+
+
+def slurm_available() -> bool:
+    """Slurm's commands are installed here (the Cluster button and page are shown only then)."""
+    return shutil.which("sinfo") is not None
 
 
 class SlurmWatch:

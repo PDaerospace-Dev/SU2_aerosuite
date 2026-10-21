@@ -300,6 +300,10 @@ a.as-step:hover { background: #f6f8fa; }
 .as-run-panel .as-banner, .as-run-panel .as-warn-group { font-size: 12.5px; }
 .as-machine { gap: 18px; row-gap: 8px; }
 .as-cluster-bad { background: #ffebe9; border-radius: 6px; padding: 4px 6px; }
+.as-cluster-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 7px; }
+.as-dot-green { background: #2da44e; } .as-dot-amber { background: #d4a72c; }
+.as-dot-red { background: #cf222e; } .as-dot-grey { background: #8c959f; }
+.as-cluster-count { margin-left: 4px; color: #9fb0c8; }
 .as-table-compact.as-queue .as-td { white-space: normal; }
 .as-queue-what { flex-direction: column; align-items: flex-start !important; gap: 0; }
 .as-table-compact .as-td.as-slurm-cell { white-space: normal; gap: 8px; }
