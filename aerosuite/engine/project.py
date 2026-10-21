@@ -12,8 +12,8 @@ from typing import Callable, Optional
 from pydantic import ValidationError
 
 from . import models
-from .cfg import extract_markers, read_template
-from .errors import ProjectError, TemplateError
+from .cfg import build_cases, extract_markers, names_from_template, read_template, stale_case_name
+from .errors import GenerationError, ProjectError, TemplateError
 from .models import Mesh, Project
 from .restarts import RUNS_DIR
 
@@ -209,6 +209,32 @@ def set_template(directory: Path, project: Project, source: Path) -> None:
             previous.unlink()
         except OSError:
             pass  # a stale copy left behind is harmless; project.json names the one in use
+    try:
+        _follow_template(project, target.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError):
+        pass  # preflight reports an unreadable template
+
+
+def _follow_template(project: Project, text: str) -> None:
+    """An aircraft study's single case is named from the template's Mach, AoA and β: rename it with the text."""
+    if names_from_template(project) and project.cases:
+        try:
+            project.cases = build_cases(project, text)
+        except GenerationError:  # every naming component switched off: preflight reports it
+            pass
+
+
+def follow_template(directory: Path, project: Project) -> bool:
+    """Rename the single case after a template edited outside AeroSuite; returns whether it changed (the caller
+    saves)."""
+    try:
+        text = read_template(directory, project)
+    except TemplateError:
+        return False
+    if stale_case_name(project, text) is None:
+        return False
+    _follow_template(project, text)
+    return True
 
 
 def set_mesh(project: Project, mesh_path: Path) -> None:
@@ -258,4 +284,5 @@ def set_template_text(project_dir: Path, project: Project, text: str) -> list[st
     except OSError as exc:
         raise TemplateError(f"Cannot write {path}: {exc}") from exc
     project.template = path.name
+    _follow_template(project, text)
     return template_warnings(text)

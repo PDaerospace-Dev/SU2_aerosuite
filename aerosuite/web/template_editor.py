@@ -6,9 +6,10 @@ from typing import Callable, Optional
 from nicegui import ui
 
 from ..engine.errors import AeroSuiteError
-from ..engine.project import read_template_text, set_template_text, template_file_name
+from ..engine.project import read_template_text
 from ..engine.reference import RefOption, keys_in
 from .layout import ProjectFrame
+from .template_edit import save_template_text
 
 ADDED_HEADING = "% --- added from reference ---"
 SAVE_DELAY = 1.0  # seconds after the last keystroke
@@ -74,19 +75,9 @@ class TemplateEditor:
         # The template file is independent of project.json: write it directly (an engine function,
         # not a raw filesystem write) instead of through frame.save, so an unrelated outside
         # change to project.json cannot refuse this save or force a reload that drops the text.
-        frame = self.frame
-        name = template_file_name(frame.session.project)
-        needs_field_update = frame.session.project.template != name
-        try:
-            warnings = set_template_text(frame.session.directory, frame.session.project, text)
-        except AeroSuiteError as exc:
-            return str(exc)
-        if needs_field_update:
-            message = frame.save(lambda p: setattr(p, "template", name))
-            if message is not None:
-                return message
-        else:
-            frame.refresh()
+        message, warnings = save_template_text(self.frame, text)
+        if message is not None:
+            return message
         self.state["saved_text"] = text
         self.on_saved(warnings)
         return None

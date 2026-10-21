@@ -137,7 +137,7 @@ def test_an_aircraft_studys_badge_carries_the_template_and_generate(ready_projec
     project_dir, project = ready_project
     project.profile = "x07"
     project.sweep.enabled = False
-    project.cases = build_cases(project)
+    project.cases = build_cases(project, (project_dir / TEMPLATE_FILE).read_text())  # named from its Mach
     assert step_badges(project_dir, project)["aircraft"] == "todo"  # not generated yet
     generate_configs(project_dir, project)
     assert step_badges(project_dir, project)["aircraft"] == "done"

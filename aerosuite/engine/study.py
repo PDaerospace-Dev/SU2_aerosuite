@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from .cfg import build_cases
+from .cfg import build_cases, template_or_none
 from .errors import ProjectError, TemplateError
 from .models import Project
 from .profiles import apply_profile, load_profile
@@ -46,6 +46,6 @@ def create_study(
     if not project.sweep.enabled:
         # With the sweep on, an empty Mach list would build_cases into a fake Mach-0 case
         # instead of the empty, todo state a new study should start in.
-        project.cases = build_cases(project)
+        project.cases = build_cases(project, template_or_none(directory, project))
     save_project(directory, project)
     return project

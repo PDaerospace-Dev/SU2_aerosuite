@@ -16,7 +16,7 @@ from typing import Callable, Optional
 
 from pydantic import BaseModel, Field, ValidationError
 
-from .cfg import build_cases
+from .cfg import build_cases, template_or_none
 from .errors import ProjectError
 from .models import Mesh, Naming, Project, RunSettings, Settings, SweepSpec
 from .naming import format_value
@@ -207,7 +207,7 @@ def apply_profile(project_dir: Path, project: Project, profile: Profile, *, copy
     # The profile's naming or altitude may rename the cases, or its sweep define them; an empty sweep
     # stays empty (no fake Mach-0 case).
     if project.cases or (project.sweep.enabled and project.sweep.mach):
-        project.cases = build_cases(project)
+        project.cases = build_cases(project, template_or_none(project_dir, project))
 
 
 def save_profile(project_dir: Path, project: Project, profile_id: str, name: str,

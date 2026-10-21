@@ -17,11 +17,21 @@ from ..engine.settings import load_settings
 from .app import ProjectDir, app, engine_errors, print_problems
 
 
+def _open_following_template(directory: Path):
+    """The project, its single aircraft case renamed (and saved) if the template's Mach, AoA or β changed."""
+    project = engine_project.open_project(directory)
+    old = [case.name for case in project.cases]
+    if engine_project.follow_template(directory, project):
+        engine_project.save_project(directory, project)
+        typer.echo(f"The template's flight condition changed: case {old[0]} is now {project.cases[0].name}")
+    return project
+
+
 @app.command()
 @engine_errors
 def generate(directory: ProjectDir) -> None:
     """Check the project, then write configs/<case>.cfg, run_control.txt and cases.json."""
-    project = engine_project.open_project(directory)
+    project = _open_following_template(directory)
     problems = preflight(directory, project, "generate")
     print_problems(problems)
     if has_errors(problems):
@@ -48,7 +58,7 @@ def run(
         "--add", help="Slurm: add the cases to the running job (e.g. on another partition) instead of a new job")] = False,
 ) -> None:
     """Start the sweep and return: in the background here (local) or as Slurm jobs (slurm)."""
-    project = engine_project.open_project(directory)
+    project = _open_following_template(directory)
     settings, warnings = load_settings()
     for warning in warnings:
         typer.echo(f"Warning: {warning}", err=True)

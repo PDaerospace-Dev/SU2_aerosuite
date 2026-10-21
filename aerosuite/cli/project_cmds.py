@@ -10,7 +10,7 @@ from typing import Annotated, List, Optional
 import typer
 
 from ..engine import project as engine_project
-from ..engine.cfg import build_cases, case_freestream, read_template, settings_parameters
+from ..engine.cfg import build_cases, case_freestream, read_template, settings_parameters, template_or_none
 from ..engine.editing import (KEEP, parse_key_value, parse_value_list, rebuild_if_changed, set_altitudes,
                               set_freestream, set_parameter, unset_parameter, update_sweep)
 from ..engine.errors import AeroSuiteError, ProjectError, TemplateError
@@ -275,7 +275,7 @@ def edit(directory: ProjectDir) -> None:
             typer.echo("No changes.")
             return
         if project.sweep != original.sweep:
-            project.cases = build_cases(project)
+            project.cases = build_cases(project, template_or_none(directory, project))
             typer.echo(f"The sweep changed; cases rebuilt ({len(project.cases)}).")
         elif rebuild_if_changed(project):
             typer.echo(f"The case names changed; cases rebuilt ({len(project.cases)}).")

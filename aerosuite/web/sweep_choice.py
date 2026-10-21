@@ -3,7 +3,7 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
-from ..engine.cfg import build_cases
+from ..engine.cfg import build_cases, template_or_none
 from .layout import ProjectFrame
 
 LONG = {True: "Sweep · a grid of Mach, α and β cases", False: "Single case · the template as it is"}
@@ -13,7 +13,7 @@ SHORT = {True: "Sweep", False: "Single case"}
 def set_sweep(frame: ProjectFrame, on: bool, then: Optional[Callable[[], None]] = None) -> None:
     def change(p) -> None:
         p.sweep.enabled = on
-        p.cases = build_cases(p)
+        p.cases = build_cases(p, template_or_none(frame.session.directory, p))
 
     message = frame.save(change, then=then)
     if message:

@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Literal, Optional, Sequence
 
-from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE, case_freestream
+from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE, STALE_NAME, case_freestream, stale_case_name
 from .freestream import FREESTREAM_KEYS, freestream_setup_errors
 from .jobs.runner import (
     resolve_sweep_python,
@@ -172,8 +172,18 @@ def sweep_problems(project: Project, project_dir: Optional[Path] = None) -> list
             + "; change the base name or the altitude label"
         ))
     problems += _freestream_problems(project, project_dir)
+    problems += _case_name_problems(project, project_dir)
     problems += _restart_problems(project, project_dir)
     return problems
+
+
+def _case_name_problems(project: Project, project_dir: Optional[Path]) -> list[Problem]:
+    """An aircraft single case whose name no longer follows the template (edited outside AeroSuite)."""
+    template = _template_text(project, project_dir)
+    renamed = stale_case_name(project, template) if template is not None else None
+    if renamed is None:
+        return []
+    return [Problem("error", STALE_NAME.format(old=project.cases[0].name, new=renamed))]
 
 
 def _config_state_problems(project_dir: Path, project: Project) -> list[Problem]:

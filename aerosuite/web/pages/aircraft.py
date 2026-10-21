@@ -3,7 +3,8 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
-from ...engine.cfg import case_freestream, read_template, render_case, settings_parameters, template_case_values
+from ...engine.cfg import (case_freestream, read_template, render_case, settings_parameters, stale_case_name,
+                           template_case_values, template_or_none)
 from ...engine.editing import MARKER_PREFIX, set_freestream, set_parameter, unset_parameter
 from ...engine.errors import AeroSuiteError, ProjectError
 from ...engine.models import Project
@@ -11,7 +12,7 @@ from ...engine.naming import format_value
 from ...engine.profiles import load_profile
 from ...engine.reference import RefOption, keys_in
 from ..fields import text_field
-from ...engine.project import template_file_name, template_warnings
+from ...engine.project import follow_template, template_file_name, template_warnings
 from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session, project_url
 from ..session import parse_optional_int, parse_optional_number
@@ -62,6 +63,7 @@ def register() -> None:
                 banner("info", "This project has no aircraft profile. Choose one in Setup "
                        "to use the Aircraft Aero form.").mark("aircraft-none")
                 return
+            _follow_template(frame)
             _build(frame, state, reload_body)
 
         with frame.content:
@@ -171,6 +173,17 @@ MODE_HINTS = {
 }
 
 
+def _follow_template(frame: ProjectFrame) -> None:
+    """Rename the single case when the template's Mach, AoA or β changed outside AeroSuite."""
+    project = frame.session.project
+    template = template_or_none(frame.session.directory, project)
+    if template is None or stale_case_name(project, template) is None:
+        return
+    message = frame.save(lambda p: follow_template(frame.session.directory, p))
+    if message:
+        ui.notify(message, type="negative")
+
+
 def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
     with card() as whole:
         with card_head("Freestream"):
@@ -205,6 +218,9 @@ def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], 
             hint(MODE_HINTS[fs.mode]).mark("freestream-mode-hint")
             with ui.element("div").classes("as-grid-3"):  # the flight condition, then the air it flies in
                 _conditions(frame, both)
+            cases = frame.session.project.cases
+            if not sweep_on and cases:  # named like a sweep case, from these values and the altitude
+                ui.label(f"Case name: {cases[0].name}").classes("as-mono as-muted").mark("freestream-case-name")
             if fs.mode == "manual":
                 with ui.element("div").classes("as-grid-3"):
                     for label, name in (("Temperature (K)", "temperature_K"), ("Reynolds number", "reynolds"),

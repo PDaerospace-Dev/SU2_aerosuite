@@ -240,12 +240,12 @@ async def test_preview_and_reference_are_tabs_on_the_right(user: User, ready_pro
 
 
 def _single_x07(project_dir):
-    from aerosuite.engine.cfg import build_cases
+    from aerosuite.engine.cfg import build_cases, read_template
 
     _with_x07(project_dir)
     project = open_project(project_dir)
     project.sweep.enabled = False
-    project.cases = build_cases(project)
+    project.cases = build_cases(project, read_template(project_dir, project))
     save_project(project_dir, project)
 
 
@@ -271,6 +271,29 @@ async def test_a_single_case_sets_mach_in_the_template(user: User, ready_project
     user.find(marker="freestream-mach").clear().type("0").trigger("blur")
     await user.should_see("Mach must be greater than 0")
     assert "MACH_NUMBER= 0.55" in (project_dir / "template.cfg").read_text()
+
+
+async def test_the_case_name_follows_the_mach_and_shows_on_the_card(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    await _open(user, project_dir)
+    assert "M0p3" in _element(user, "freestream-case-name").text
+    user.find(marker="freestream-mach").clear().type("0.55").trigger("blur")
+    [case] = open_project(project_dir).cases
+    assert case.name.startswith("M0p55") and case.mach == 0.55
+    assert _element(user, "freestream-case-name").text == f"Case name: {case.name}"
+    assert f"BREAKDOWN_FILENAME= {case.name}_FB.dat" in _preview(user)
+
+
+async def test_opening_the_page_renames_a_case_left_behind_by_an_outside_edit(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    path = project_dir / "template.cfg"
+    path.write_text(path.read_text().replace("MACH_NUMBER= 0.3", "MACH_NUMBER= 1.5"))
+    await _open(user, project_dir)
+    [case] = open_project(project_dir).cases
+    assert case.name.startswith("M1p5")
+    assert _element(user, "freestream-case-name").text == f"Case name: {case.name}"
 
 
 async def test_a_single_case_sets_aoa_and_sideslip_in_the_template(user: User, ready_project):

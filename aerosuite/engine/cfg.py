@@ -114,6 +114,18 @@ def case_parameters(project: Project, case: Case) -> dict[str, str]:
     return params
 
 
+STALE_NAME = ("The case is named {old}, but the template's Mach, AoA and β now make it {new}; "
+              "open the Aircraft page to rename it")
+
+
+def template_or_none(project_dir: Path, project: Project) -> Optional[str]:
+    """The template text, or None when it cannot be read (preflight reports that itself)."""
+    try:
+        return read_template(project_dir, project)
+    except TemplateError:
+        return None
+
+
 def read_template(project_dir: Path, project: Project) -> str:
     path = Path(project_dir) / project.template
     try:
@@ -152,23 +164,18 @@ def case_freestream(project: Project, template: str) -> list[CaseFreestream]:
     return rows
 
 
-def build_cases(project: Project) -> list[Case]:
+def build_cases(project: Project, template: Optional[str] = None) -> list[Case]:
     """Expand the sweep into cases (altitude outermost, then Mach, alpha, beta), keeping the restart choices
     of cases that still exist (same name, or same altitude/Mach/alpha/beta under a new name, or the same
     Mach/alpha/beta in a single-altitude sweep when only one old case has them, e.g. after changing the
-    altitude)."""
-    sweep, naming = project.sweep, project.sweep.naming
+    altitude). With the sweep off, an aircraft study's one case is named like a sweep case from `template`'s
+    Mach, AoA and β (the case's own when no template is given: only the naming or altitude changed)."""
+    sweep = project.sweep
     previous = {case.name: case for case in project.cases}
     # A case whose name changed (e.g. the altitude label or a naming option) keeps its restart setup.
     by_values = {(case.altitude_km, case.mach, case.alpha, case.beta): case for case in project.cases}
     if not sweep.enabled:
-        name = single_case_name(project)
-        old = previous.get(name)
-        return [Case(
-            name=name, mach=0.0, alpha=0.0, beta=0.0,
-            restart=old.restart if old else "none",
-            restart_ref=old.restart_ref if old else None,
-        )]
+        return [_single_case(project, template, previous, by_values)]
     altitudes: list[Optional[float]] = (list(sweep.altitudes_km) or [None]) if sweeps_altitude(project) else [None]
     count = len(altitudes) * max(1, len(sweep.mach)) * max(1, len(sweep.alpha)) * max(1, len(sweep.beta))
     if count > MAX_CASES:
@@ -182,16 +189,7 @@ def build_cases(project: Project) -> list[Case]:
         for mach in sweep.mach or [0.0]:
             for alpha in sweep.alpha or [0.0]:
                 for beta in sweep.beta or [0.0]:
-                    name = case_name(
-                        mach, alpha, beta,
-                        altitude=label_for(project, altitude),
-                        base_name=naming.base_name,
-                        include_mach=naming.include_mach,
-                        include_alpha=naming.include_alpha,
-                        include_beta=naming.include_beta,
-                        include_altitude=naming.include_altitude,
-                        include_base=naming.include_base,
-                    )
+                    name = _sweep_name(project, mach, alpha, beta, altitude)
                     old = (previous.get(name) or by_values.get((altitude, mach, alpha, beta))
                            or by_flight.get((mach, alpha, beta)))
                     cases.append(Case(
@@ -200,6 +198,56 @@ def build_cases(project: Project) -> list[Case]:
                         restart_ref=old.restart_ref if old else None,
                     ))
     return cases
+
+
+def _sweep_name(project: Project, mach: float, alpha: float, beta: float, altitude: Optional[float]) -> str:
+    naming = project.sweep.naming
+    return case_name(
+        mach, alpha, beta,
+        altitude=label_for(project, altitude),
+        base_name=naming.base_name,
+        include_mach=naming.include_mach,
+        include_alpha=naming.include_alpha,
+        include_beta=naming.include_beta,
+        include_altitude=naming.include_altitude,
+        include_base=naming.include_base,
+    )
+
+
+def names_from_template(project: Project) -> bool:
+    """Whether the one case is named from the template's flight condition: an aircraft study with the sweep off."""
+    return not project.sweep.enabled and project.profile is not None
+
+
+def _single_case(project: Project, template: Optional[str], previous: dict, by_values: dict) -> Case:
+    only = project.cases[0] if len(project.cases) == 1 else None  # the case this one replaces
+    if not names_from_template(project):  # a general study: the template as it is, named after the project
+        name = single_case_name(project)
+        old = previous.get(name)
+        return Case(name=name, mach=0.0, alpha=0.0, beta=0.0, restart=old.restart if old else "none",
+                    restart_ref=old.restart_ref if old else None)
+    if template is not None:
+        mach, alpha, beta = template_case_values(template)
+    else:
+        mach, alpha, beta = (only.mach, only.alpha, only.beta) if only else (0.0, 0.0, 0.0)
+    fs = project.settings.freestream
+    altitude = fs.altitude_km if fs.mode == "altitude" else None
+    name = _sweep_name(project, mach, alpha, beta, altitude)
+    old = previous.get(name) or by_values.get((altitude, mach, alpha, beta)) or only
+    return Case(name=name, mach=mach, alpha=alpha, beta=beta, altitude_km=altitude,
+                restart=old.restart if old else "none", restart_ref=old.restart_ref if old else None)
+
+
+def stale_case_name(project: Project, template: str) -> Optional[str]:
+    """The name the template's Mach, AoA and β now give the one case, when it is not the case's (the template
+    was edited outside AeroSuite); else None."""
+    if not names_from_template(project) or len(project.cases) != 1:
+        return None
+    try:
+        name = _single_case(project, template, {}, {}).name
+    except GenerationError:  # no naming component: preflight reports the naming
+        return None
+    return name if name != project.cases[0].name else None
 
 
 def run_control_text(cases: Sequence[Case]) -> str:
@@ -237,15 +285,18 @@ def generate_configs(project_dir: Path, project: Project) -> list[Path]:
             + ", ".join(no_ref)
         )
     template = read_template(project_dir, project)
+    renamed = stale_case_name(project, template)
+    if renamed:
+        raise GenerationError(STALE_NAME.format(old=project.cases[0].name, new=renamed))
     out_dir = Path(project_dir) / CONFIGS_DIR
     if project.sweep.enabled:
         index = {c.name: {"mach": c.mach, "alpha": c.alpha, "beta": c.beta} for c in project.cases}
-        for case in project.cases:
-            if case.altitude_km is not None:
-                index[case.name]["altitude_km"] = case.altitude_km
     else:
         mach, alpha, beta = template_case_values(template)
         index = {c.name: {"mach": mach, "alpha": alpha, "beta": beta} for c in project.cases}
+    for case in project.cases:
+        if case.altitude_km is not None:
+            index[case.name]["altitude_km"] = case.altitude_km
     written = []
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
