@@ -116,6 +116,11 @@ def freestream_values(fs: Freestream, mach: float, altitude_km=_FROM_SETTINGS) -
     return FreestreamValues(isa["temperature"], isa["pressure"], isa["reynolds_number"], fs.reynolds_length)
 
 
+def pressure_text(pressure_Pa: float) -> str:
+    """The pressure as the config writes it: 6 figures, which keeps 0.03 Pa at 100 km."""
+    return format_value(float(f"{pressure_Pa:.6g}"))
+
+
 def freestream_for(settings: Settings, mach: float, altitude_km=_FROM_SETTINGS) -> Optional[dict[str, str]]:
     """The per-case config lines in altitude mode (None in manual mode). Pressure as well as the Reynolds number,
     so the case runs at the altitude with either INIT_OPTION."""
@@ -124,7 +129,7 @@ def freestream_for(settings: Settings, mach: float, altitude_km=_FROM_SETTINGS) 
     values = freestream_values(settings.freestream, mach, altitude_km)
     return {
         "FREESTREAM_TEMPERATURE": format_value(round(values.temperature_K, 3)),
-        "FREESTREAM_PRESSURE": format_value(float(f"{values.pressure_Pa:.6g}")),  # 6 figures: 0.03 Pa at 100 km
+        "FREESTREAM_PRESSURE": pressure_text(values.pressure_Pa),
         "REYNOLDS_NUMBER": format_value(round(values.reynolds)),
         "REYNOLDS_LENGTH": format_value(values.reynolds_length),
     }

@@ -179,6 +179,7 @@ async def test_the_summary_spans_the_swept_altitudes(user: User, ready_project):
     await _open(user, project_dir)
     assert _element(user, "freestream-altitudes-sweep").value == "0, 11"
     await user.should_see("216.65 K … 288.15 K")
+    await user.should_see("22632 Pa … 101325 Pa")
     await user.should_see(marker="freestream-summary")
 
 

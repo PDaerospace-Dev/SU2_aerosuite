@@ -25,7 +25,7 @@ def test_set_altitude_mode_renames_cases_and_show_lists_reynolds(tmp_path):
     assert "_11km_" in project.cases[0].name
     shown = runner.invoke(app, ["show", str(folder)]).output
     assert "Altitudes: 11 km" in shown and "Freestream: from altitude, Reynolds length 6 m" in shown
-    assert "Re=27193793" in shown and "Re=36258390" in shown
+    assert "Re=27193793  p=22632.1 Pa" in shown and "Re=36258390  p=22632.1 Pa" in shown
 
 
 def test_the_typed_label_is_refused_in_altitude_mode(tmp_path):

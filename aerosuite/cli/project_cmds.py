@@ -14,7 +14,7 @@ from ..engine.cfg import build_cases, case_freestream, read_template, settings_p
 from ..engine.editing import (KEEP, parse_key_value, parse_value_list, rebuild_if_changed, set_altitudes,
                               set_freestream, set_parameter, unset_parameter, update_sweep)
 from ..engine.errors import AeroSuiteError, ProjectError, TemplateError
-from ..engine.freestream import naming_altitude, sweeps_altitude
+from ..engine.freestream import naming_altitude, pressure_text, sweeps_altitude
 from ..engine.jobs.runner import BUNDLED_SWEEP_SCRIPT
 from ..engine.models import Project
 from ..engine.naming import format_value
@@ -70,7 +70,8 @@ def describe(project_dir: Path, project: Project) -> list[str]:
             template = read_template(project_dir, project)
         except AeroSuiteError:
             template = ""
-        reynolds = {row.name: f"  Re={round(row.values.reynolds)}" if row.values else "  Re=—"
+        reynolds = {row.name: f"  Re={round(row.values.reynolds)}  p={pressure_text(row.values.pressure_Pa)} Pa"
+                    if row.values else "  Re=—"
                     for row in case_freestream(project, template)}
     lines.append(f"Cases ({len(project.cases)}):")
     for case in project.cases:

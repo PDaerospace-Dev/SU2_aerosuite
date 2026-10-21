@@ -6,6 +6,7 @@ from typing import Any, Callable, Iterator, Literal, Optional, Sequence
 from nicegui import ui
 
 from ..engine.jobs.overview import NOT_RUN
+from ..engine.naming import format_value
 
 Tone = Literal["done", "running", "failed", "unconverged", "pending", "cancelled"]
 BannerKind = Literal["info", "warning", "error", "success"]
@@ -241,6 +242,11 @@ def sci(value: float) -> str:
         mantissa, exponent = text.split("e")
         text = f"{mantissa}e{int(exponent)}"
     return text
+
+
+def pascals(value: float) -> str:
+    """A pressure for tables: whole pascals, or 3 figures below 100 Pa: 22632.1 -> '22632 Pa', 0.0232 -> '0.0232 Pa'."""
+    return f"{format_value(round(value)) if value >= 100 else sci(value)} Pa"
 
 
 def stat(label: str, value: str) -> ui.label:

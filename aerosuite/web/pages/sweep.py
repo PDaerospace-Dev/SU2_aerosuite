@@ -17,7 +17,7 @@ from ..layout import ProjectFrame, open_session
 from ..picker import pick_path
 from ..run_view import case_groups, layout
 from ..sweep_view import case_formula, detect_rule, restart_text, rule_restarts, values_text
-from ..ui_kit import (banner, card, card_head, field, flat_button, hint, sci, secondary_button, table, td, td_box,
+from ..ui_kit import (banner, card, card_head, field, flat_button, hint, pascals, sci, secondary_button, table, td, td_box,
                       th, titled)
 
 RESTART_OPTIONS = ["none", "previous", "custom"]
@@ -212,9 +212,9 @@ def _summary(frame: ProjectFrame) -> None:
     names = cases[0].name if len(cases) == 1 else f"{cases[0].name} … {cases[-1].name}"
     ui.label(f"Names: {names}").classes("as-mono as-muted").mark("sweep-names")
     freestream = _freestream(frame)
-    columns = "minmax(4rem, 1fr)" + (" repeat(3, minmax(5rem, 1fr))" if altitude_mode else "") + " minmax(4rem, .6fr)"
+    columns = "minmax(4rem, 1fr)" + (" repeat(4, minmax(5rem, 1fr))" if altitude_mode else "") + " minmax(4rem, .6fr)"
     with table(columns).classes("as-table-compact").mark("sweep-summary"):
-        for heading in ["Mach"] + (["Altitude", "Temperature", "Reynolds"] if altitude_mode else []) + ["Cases"]:
+        for heading in ["Mach"] + (["Altitude", "Temperature", "Pressure", "Reynolds"] if altitude_mode else []) + ["Cases"]:
             th(heading)
         by_name = {case.name: case for case in cases}
         for group in case_groups(cases):
@@ -225,6 +225,7 @@ def _summary(frame: ProjectFrame) -> None:
                 values = row.values if row is not None else None
                 td("—" if first.altitude_km is None else f"{format_value(first.altitude_km)} km")
                 td(f"{format_value(round(values.temperature_K, 2))} K" if values else "—")
+                td(pascals(values.pressure_Pa) if values else "—")
                 td(sci(values.reynolds) if values else "—")
             td(str(len(group.names)))
 
@@ -275,8 +276,8 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None], state: dict) -> 
     columns += " repeat(3, minmax(3rem, .35fr))"
     headings = ["Case"] + (["Alt (km)"] if altitude_mode else []) + ["Mach", "α", "β"]
     if altitude_mode:
-        columns += " minmax(6rem, .5fr) minmax(6rem, .5fr)"
-        headings += ["Temperature", "Reynolds"]
+        columns += " repeat(3, minmax(6rem, .5fr))"
+        headings += ["Temperature", "Pressure", "Reynolds"]
     columns += " minmax(18rem, 2.4fr) 6rem"
     headings += ["Restart", ""]
 
@@ -301,6 +302,7 @@ def _case_table(frame: ProjectFrame, after: Callable[[], None], state: dict) -> 
             found = freestream.get(case.name)
             values = found.values if found is not None else None
             td(f"{format_value(round(values.temperature_K, 2))} K" if values else "—").mark(f"temp-{case.name}")
+            td(pascals(values.pressure_Pa) if values else "—").mark(f"p-{case.name}")
             td(sci(values.reynolds) if values else "—").mark(f"re-{case.name}")
         differs = case.name in differing
         editing = state["editing"] == case.name

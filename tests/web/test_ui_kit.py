@@ -58,3 +58,10 @@ from aerosuite.web.ui_kit import sci
 def test_sci_is_three_significant_figures_with_a_plain_exponent():
     assert (sci(34769586), sci(26077190), sci(0.00226), sci(5.134e-06), sci(216.65)) == (
         "3.48e7", "2.61e7", "0.00226", "5.13e-6", "217")
+
+
+def test_pascals_are_whole_or_three_figures_below_100():
+    from aerosuite.web.ui_kit import pascals
+
+    assert (pascals(101325.0), pascals(22632.1), pascals(99.94), pascals(0.0232195)) == (
+        "101325 Pa", "22632 Pa", "99.9 Pa", "0.0232 Pa")

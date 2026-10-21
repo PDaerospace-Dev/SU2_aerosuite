@@ -19,8 +19,8 @@ from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
 from ..template_editor import TemplateEditor, carry_unsaved
 from ..template_edit import write_template_params
-from ..ui_kit import (banner, card, card_head, field, fold_button, hint, sci, secondary_button, stat, table, td, td_box,
-                      th, warning_group)
+from ..ui_kit import (banner, card, card_head, field, fold_button, hint, pascals, sci, secondary_button, stat, table,
+                      td, td_box, th, warning_group)
 
 # (label, settings group, field, kind) — kind: "float" | "int"
 NUMBER_FIELDS = {
@@ -286,7 +286,7 @@ def _mach(frame: ProjectFrame, after: Callable[[], None]) -> None:
 
 
 def _summary(frame: ProjectFrame) -> None:
-    """Temperature and the Reynolds range the cases get, or why they can't be computed."""
+    """The temperature, pressure and Reynolds ranges the cases get, or why they can't be computed."""
     project = frame.session.project
     try:
         template = read_template(frame.session.directory, project)
@@ -306,6 +306,9 @@ def _summary(frame: ProjectFrame) -> None:
         low, high = (f"{format_value(round(t, 2))} K" for t in (min(r.values.temperature_K for r in rows),
                                                                   max(r.values.temperature_K for r in rows)))
         stat("Temperature", low if low == high else f"{low} … {high}")
+        low, high = (pascals(p) for p in (min(r.values.pressure_Pa for r in rows),
+                                           max(r.values.pressure_Pa for r in rows)))
+        stat("Pressure", low if low == high else f"{low} … {high}")
         span = sci(reynolds[0]) if sci(reynolds[0]) == sci(reynolds[-1]) else f"{sci(reynolds[0])} … {sci(reynolds[-1])}"
         stat("Reynolds number", span)
         if project.sweep.enabled and len(project.sweep.altitudes_km) > 1:

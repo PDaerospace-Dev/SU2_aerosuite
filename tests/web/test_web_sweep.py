@@ -303,11 +303,12 @@ async def test_altitude_mode_shows_the_altitudes_and_per_case_values(user: User,
     await user.should_see(marker="sweep-altitude-note")
     await user.should_not_see(marker="sweep-altitude")  # no typed label in altitude mode
     name = project.cases[0].name
-    assert [label.text for label in _element(user, "sweep-summary").default_slot.children][5:] == [
-        "0.8", "11 km", "216.65 K", "3.63e7", "3"]
+    assert [label.text for label in _element(user, "sweep-summary").default_slot.children][6:] == [
+        "0.8", "11 km", "216.65 K", "22632 Pa", "3.63e7", "3"]
     _cases_tab(user)
     assert _element(user, f"alt-{name}").text == "11"
     assert _element(user, f"temp-{name}").text == "216.65 K"
+    assert _element(user, f"p-{name}").text == "22632 Pa"
     assert _element(user, f"re-{name}").text == "3.63e7"
 
 
