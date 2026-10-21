@@ -139,6 +139,7 @@ async def test_accounting_down_lists_active_cases_only(user: User, cluster_study
     await _open(user)
     await eventually(lambda: bool(user.find(marker="jobs-accounting").elements), 5)
     await user.should_see(marker="job-101")
+    assert _element(user, "queue-card").id < _element(user, "jobs-card").id  # Queue drawn above My jobs
 
 
 async def test_my_jobs_and_queue_fold_and_stay_folded(user: User, cluster_study, eventually):

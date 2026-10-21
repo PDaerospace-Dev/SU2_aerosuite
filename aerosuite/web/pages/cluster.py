@@ -128,8 +128,8 @@ class ClusterPage:
                 banner("error", f"{outage}. Showing the last known state, as of {_time(WATCH.last_ok)}.").mark(
                     "cluster-outage")
             self._nodes(groups)
-            self._jobs(list(rows), more, accounting_down)
             self._queue(lines)
+            self._jobs(list(rows), more, accounting_down)
 
     def _nodes_text(self, groups: tuple, down: bool) -> str:
         if not groups:
