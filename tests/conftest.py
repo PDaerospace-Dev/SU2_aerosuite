@@ -171,8 +171,6 @@ class FakeSlurm:
         self.write({
             "next_id": 101, "sbatch_count": 0, "sbatch_fail_after": None, "sbatch_suffix": "",
             "jobs": {}, "calls": [], "controller_down": False, "accounting_down": False,
-            "partitions": ["node1*|up|1|idle|0/192/0/192", "node2|up|1|idle|0/192/0/192"],
-            "reasons": [],
             "nodes": ["hpc1|node1*|idle|0/192/0/192|125000|101000|7.28|none",
                       "hpc2|node2|idle|0/192/0/192|62000|57000|3.38|none"],
         })

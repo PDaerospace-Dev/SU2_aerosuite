@@ -127,10 +127,7 @@ def scancel(state, args):
 def sinfo(state, args):
     if state.get("controller_down"):
         return fail("slurm_load_partitions: Unable to contact slurm controller (connect failure)")
-    if "-N" in args:
-        lines = state.get("nodes", [])
-    else:
-        lines = state["reasons"] if "-R" in args else state["partitions"]
+    lines = state.get("nodes", [])  # sinfo -N: one line per node
     for line in lines:
         sys.stdout.write(line + "\n")
     return 0

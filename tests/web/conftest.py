@@ -19,10 +19,12 @@ def fresh_slurm_watch():
 
     WATCH._tracked.clear()
     WATCH._viewers = 0
-    WATCH.snapshot = WATCH.cluster = WATCH.last_ok = None
+    WATCH._pages = 0
+    WATCH.snapshot = WATCH.cluster = WATCH.recent = WATCH.last_ok = None
     yield
     WATCH._tracked.clear()
     WATCH._viewers = 0
+    WATCH._pages = 0
 
 
 @pytest.fixture

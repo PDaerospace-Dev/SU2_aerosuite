@@ -54,40 +54,6 @@ async def test_one_squeue_and_one_sacct_for_every_project(two_studies):
     assert watch.snapshot.ok and watch.last_ok == watch.snapshot.taken
 
 
-async def test_sinfo_only_while_a_page_shows_the_cluster(two_studies):
-    _studies, _runner, watch, fake = two_studies
-    watch.show_cluster()
-    await watch.poll_once()
-    assert [call[0] for call in fake.calls()] == ["squeue", "sinfo"]
-    assert [p.name for p in watch.cluster.partitions] == ["node1", "node2"]
-    fake.update(partitions=["node1*|up|1|idle|0/192/0/192", "node2|up|1|drain|0/0/192/192"],
-                reasons=["hpc2|drain|bad DIMM"])
-    fake.clear_calls()
-    await watch.poll_once()
-    assert [call[0:2] for call in fake.calls()] == [["squeue", "-h"], ["sinfo", "-h"], ["sinfo", "-R"]]
-    assert watch.cluster.reasons["hpc2"].reason == "bad DIMM"
-    watch.hide_cluster()
-    fake.clear_calls()
-    await watch.poll_once()
-    assert fake.calls() == []
-
-
-async def test_controller_down_keeps_the_states(two_studies):
-    studies, runner, watch, fake = two_studies
-    directory, project = studies[0]
-    job = runner.submit(directory, project, cases=[A0])
-    watch.track(directory, job.id)
-    watch.show_cluster()
-    fake.run("101")
-    await watch.poll_once()
-    ok_time = watch.last_ok
-    fake.update(controller_down=True)
-    await watch.poll_once()
-    assert not watch.snapshot.ok and "Unable to contact" in watch.snapshot.error
-    assert watch.cluster.error is not None and watch.last_ok == ok_time
-    assert load_job(directory, job.id).case_status[A0] is CaseState.RUNNING
-
-
 async def test_seff_is_fetched_once_for_a_finished_case(two_studies, history_writer):
     studies, runner, watch, fake = two_studies
     directory, project = studies[0]
@@ -140,3 +106,68 @@ async def test_the_job_watcher_never_runs_slurm_commands_for_a_page(two_studies)
     cancelled = watcher.cancel(directory, project)
     assert cancelled.case_status == {A0: CaseState.CANCELLED, A2: CaseState.CANCELLED}
     assert fake.calls("scancel") == [["scancel", "101", "102"]]
+
+
+async def test_sinfo_per_node_only_while_the_cluster_button_is_shown(two_studies):
+    _studies, _runner, watch, fake = two_studies
+    watch.show_cluster()
+    await watch.poll_once()
+    assert [call[0:3] for call in fake.calls()] == [["squeue", "-h", "-o"], ["sinfo", "-h", "-N"]]
+    assert [n.node for n in watch.cluster.nodes] == ["hpc1", "hpc2"]
+    fake.update(nodes=["hpc1|node1*|idle|0/192/0/192|125000|101000|7.28|none",
+                       "hpc2|node2|drain|0/0/192/192|62000|57000|3.38|bad DIMM"])
+    await watch.poll_once()
+    assert watch.cluster.nodes[1].reason == "bad DIMM"
+    watch.hide_cluster()
+    fake.clear_calls()
+    await watch.poll_once()
+    assert fake.calls() == []
+
+
+async def test_recent_sacct_only_with_a_cluster_page_and_at_most_every_5_minutes(two_studies, monkeypatch):
+    from aerosuite.web import slurm_watch
+
+    _studies, _runner, watch, fake = two_studies
+    watch.show_page()
+    await watch.poll_once()
+    assert [call for call in fake.calls() if call[0] == "sacct" and "-S" in call]
+    fake.clear_calls()
+    await watch.poll_once()
+    assert not [call for call in fake.calls() if call[0] == "sacct"]  # within 300 s: not again
+    monkeypatch.setattr(slurm_watch, "RECENT_SECONDS", 0.0)
+    await watch.poll_once()
+    assert [call for call in fake.calls() if call[0] == "sacct" and "-S" in call]
+    watch.hide_page()
+    fake.clear_calls()
+    await watch.poll_once()
+    assert fake.calls() == []
+
+
+async def test_a_case_leaving_the_queue_refreshes_the_recent_history(two_studies):
+    studies, runner, watch, fake = two_studies
+    directory, project = studies[0]
+    job = runner.submit(directory, project, cases=[A0])
+    watch.track(directory, job.id)
+    watch.show_page()
+    await watch.poll_once()
+    fake.clear_calls()
+    fake.finish("101")
+    await watch.poll_once()
+    assert [call for call in fake.calls() if call[0] == "sacct" and "-S" in call]
+    assert watch.recent.rows["101"].state == "COMPLETED"
+
+
+async def test_controller_down_keeps_the_states(two_studies):
+    studies, runner, watch, fake = two_studies
+    directory, project = studies[0]
+    job = runner.submit(directory, project, cases=[A0])
+    watch.track(directory, job.id)
+    watch.show_cluster()
+    fake.run("101")
+    await watch.poll_once()
+    ok_time = watch.last_ok
+    fake.update(controller_down=True)
+    await watch.poll_once()
+    assert not watch.snapshot.ok and "Unable to contact" in watch.snapshot.error
+    assert watch.cluster.error is not None and watch.last_ok == ok_time
+    assert load_job(directory, job.id).case_status[A0] is CaseState.RUNNING

@@ -10,8 +10,6 @@ from aerosuite.engine.slurm import (
     parse_sacct,
     parse_sbatch,
     parse_seff,
-    parse_sinfo,
-    parse_sinfo_reasons,
     parse_squeue,
     run_async,
     run_sync,
@@ -68,20 +66,6 @@ def test_sacct_cancelled_by_and_out_of_memory():
     rows = parse_sacct("5|CANCELLED by 1000|0:15|00:01:00||hpc1\n6|OUT_OF_MEMORY|0:125|00:20:00||hpc2\n")
     assert rows["5"].state == "CANCELLED"
     assert (rows["6"].state, rows["6"].exit_code) == ("OUT_OF_MEMORY", "0:125")
-
-
-def test_sinfo_rows():
-    rows = parse_sinfo("node1*|up|1|idle|0/192/0/192\nnode2|up|1|drain|0/0/192/192\nnode2|up|1|mix|96/96/0/192\n")
-    assert [(r.name, r.default, r.state) for r in rows] == [
-        ("node1", True, "idle"), ("node2", False, "drain"), ("node2", False, "mix")]
-    assert (rows[0].allocated, rows[0].idle, rows[0].other, rows[0].total) == (0, 192, 0, 192)
-    assert [r.bad for r in rows] == [False, True, False]
-    assert parse_sinfo("node1|down|1|down*|0/0/192/192\n")[0].bad
-
-
-def test_sinfo_reasons():
-    reasons = parse_sinfo_reasons("hpc2|drain|memory test | by admin\n")
-    assert reasons["hpc2"].state == "drain" and reasons["hpc2"].reason == "memory test | by admin"
 
 
 def test_durations():
@@ -198,10 +182,7 @@ def test_fake_scancel_and_sinfo(fake_slurm, tmp_path):
     run_sync(slurm.sbatch_args("su2_job.sh"), cwd=str(_script(tmp_path / "a").parent))
     run_sync(slurm.scancel_args(["101"]))
     assert fake_slurm.job("101")["state"] == "CANCELLED"
-    rows = parse_sinfo(run_sync(slurm.sinfo_args()))
-    assert [r.name for r in rows] == ["node1", "node2"]
-    fake_slurm.update(reasons=["hpc2|drain|bad DIMM"])
-    assert parse_sinfo_reasons(run_sync(slurm.sinfo_reason_args()))["hpc2"].reason == "bad DIMM"
+    assert [n.node for n in parse_sinfo_nodes(run_sync(slurm.sinfo_nodes_args()))] == ["hpc1", "hpc2"]
 
 
 from aerosuite.engine.slurm import (  # noqa: E402  (next to the other imports when tidying)

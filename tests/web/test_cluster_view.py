@@ -1,38 +1,16 @@
+from pathlib import Path
+
+from aerosuite.engine.cluster import MyJob
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
-from aerosuite.engine.slurm import ClusterInfo, NodeReason, QueueRow, Snapshot, parse_sinfo
+from aerosuite.engine.slurm import ClusterInfo, QueueRow, Snapshot, parse_sinfo_nodes
 from aerosuite.web.cluster_view import (
-    can_resubmit,
-    case_slurm_text,
-    node_reasons,
-    outage_text,
-    own_jobs,
-    partition_lines,
-    queue_lines,
-    suggested_partition,
+    can_resubmit, case_slurm_text, cluster_queue, cluster_status, filter_jobs, job_state_text, job_studies,
+    node_groups, running_count, suggested_partition, summary_line,
 )
 
-
-def test_partition_lines_group_node_states():
-    rows = parse_sinfo("node1*|up|1|mix|96/96/0/192\nnode2|up|1|drain|0/0/192/192\n")
-    lines = partition_lines(rows)
-    assert [(l.name, l.default, l.nodes, l.bad) for l in lines] == [
-        ("node1", True, "1 mix", False), ("node2", False, "1 drain", True)]
-    assert lines[0].busy_percent == 50 and lines[0].cpus == "96 / 192 CPUs busy"
-
-
-def test_node_reasons():
-    cluster = ClusterInfo(reasons={"hpc2": NodeReason("hpc2", "drain", "bad DIMM")})
-    assert node_reasons(cluster) == ["hpc2 (drain): bad DIMM"]
-    assert node_reasons(None) == []
-
-
-def test_queue_lines_mark_this_studys_jobs():
-    snap = Snapshot(queue={"12": QueueRow("12", "RUNNING", "hpc1", "1:00", "hpc1"),
-                           "9": QueueRow("9", "PENDING", "", "0:00", "Resources")})
-    lines = queue_lines(snap, {"12": "M0p8_a2"})
-    assert [(l.job_id, l.what, l.own, l.reason) for l in lines] == [
-        ("9", "", False, "Resources"), ("12", "M0p8_a2", True, "")]
-    assert queue_lines(Snapshot(error="down"), {}) == []
+NODES = ("hpc1|node1*|alloc|192/0/0/192|125000|20000|96.1|none\n"
+         "hpc2|node2|drain|0/0/192/192|62000|57000|0.2|bad DIMM\n"
+         "hpc3|node2|idle|0/192/0/192|62000|60000|0.0|none\n")
 
 
 def _job(**slurm):
@@ -51,7 +29,6 @@ def test_case_slurm_text():
     assert case_slurm_text(job, "c") == "Slurm 102 · OUT_OF_MEMORY · exit 0:125"
     assert case_slurm_text(job, "d") == "Slurm 103"
     assert case_slurm_text(job, "zz") == "" and case_slurm_text(None, "a") == ""
-    assert own_jobs([job]) == {"100": "a", "101": "b", "102": "c", "103": "d"}
 
 
 def test_resubmit_rules():
@@ -62,28 +39,6 @@ def test_resubmit_rules():
     limits = {"node1": 122880, "node2": 62000}
     assert suggested_partition(job, "a", ["node1", "node2"], limits) == "node1"  # more memory
     assert suggested_partition(job, "b", ["node1", "node2"], limits) == "node2"  # same as before
-
-
-def test_outage_text():
-    assert outage_text(Snapshot(), None, None) == ""
-    text = outage_text(Snapshot(error="Unable to contact slurm controller"), None, 0.0)
-    assert text.startswith("Slurm controller unreachable") and "last known" in text
-    assert "last answer" in outage_text(Snapshot(error="x"), None, 1_800_000_000.0)
-    assert outage_text(None, ClusterInfo(error="sinfo failed"), None).endswith("States shown are the last known.")
-
-
-from pathlib import Path
-
-from aerosuite.engine.cluster import MyJob
-from aerosuite.engine.slurm import parse_sinfo_nodes
-from aerosuite.web.cluster_view import (
-    cluster_queue, cluster_status, filter_jobs, job_state_text, job_studies, node_groups, running_count,
-    summary_line,
-)
-
-NODES = ("hpc1|node1*|alloc|192/0/0/192|125000|20000|96.1|none\n"
-         "hpc2|node2|drain|0/0/192/192|62000|57000|0.2|bad DIMM\n"
-         "hpc3|node2|idle|0/192/0/192|62000|60000|0.0|none\n")
 
 
 def _cluster(text=NODES, error=None):

@@ -1,6 +1,6 @@
 """Run: the cases on the left (a case card, a list, or the list folded by Mach and altitude) and a panel on the
 right that stays in view: what will run and Submit (or the running job and Cancel), checks, the machine (or, with
-the Slurm backend, the cluster and the queue), the last job."""
+the Slurm backend, a one-line cluster summary), the last job."""
 from datetime import datetime
 from typing import NamedTuple, Optional
 from urllib.parse import quote
@@ -21,8 +21,7 @@ from ...engine.results import history_columns
 from ...engine.settings import AppSettings, load_settings
 from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
-from ..cluster_view import (can_resubmit, case_slurm_text, node_reasons, outage_text, own_jobs, partition_lines,
-                            queue_lines, suggested_partition)
+from ..cluster_view import can_resubmit, case_slurm_text, suggested_partition, summary_line
 from ..fields import text_field
 from ..slurm_fields import slurm_fields
 from ..jobs import WATCHER, JobView, job_progress
@@ -106,13 +105,10 @@ class RunPage:
         self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
         self.add_ntasks: Optional[int] = None  # None: that partition's default
         self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
-        self.showing_cluster = False  # this page counts as a viewer of the Slurm poller's cluster panel
-        self.cluster_shown: Optional[tuple] = None  # (cluster, snapshot) times on screen
         self.holder = ui.column().classes("as-content w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
         ui.timer(MACHINE_SECONDS, self._machine_values)
-        ui.context.client.on_disconnect(self._hide_cluster)
 
     @property
     def directory(self):
@@ -131,16 +127,6 @@ class RunPage:
         self.backend = backend_of(self.project, self.settings)
         self.options: Optional[SlurmOptions] = slurm_options(self.project, self.settings) if self.slurm else None
 
-    def _show_cluster(self, on: bool) -> None:
-        if on and not self.showing_cluster:
-            WATCHER.slurm_watch.show_cluster()
-        elif not on and self.showing_cluster:
-            WATCHER.slurm_watch.hide_cluster()
-        self.showing_cluster = on
-
-    def _hide_cluster(self) -> None:
-        self._show_cluster(False)
-
     def poll(self) -> None:
         if self.dialogs_open:
             return
@@ -150,7 +136,7 @@ class RunPage:
             return
         self._tick_clock()
         if getattr(self, "backend", "local") == "slurm":
-            self._cluster_values()  # redrawn only when the poller has something new
+            self._summary_values()  # the poller's latest; cheap
         if view.active is None and not self.was_active:
             return
         # Rebuild only when something shown changed: a rebuild every poll would collapse an open
@@ -172,7 +158,6 @@ class RunPage:
         self.was_active = view.active is not None
         self.shown = _snapshot(view)
         self._load_settings()
-        self._show_cluster(self.slurm)
         self.ticked &= {case.name for case in self.project.cases}  # the cases may have been rebuilt
         self.jobs_by_id = {job.id: job for job in view.overview.jobs}
         self.holder.clear()
@@ -215,7 +200,7 @@ class RunPage:
                     with ui.column().classes("as-run-part w-full gap-2"):
                         if self.slurm:
                             ui.label("Cluster").classes("as-run-head")
-                            self._cluster(view)
+                            self._cluster_summary()
                         else:
                             ui.label("Machine").classes("as-run-head")
                             self._machine()
@@ -466,7 +451,7 @@ class RunPage:
 
     def _machine_values(self) -> None:
         if getattr(self, "backend", "local") == "slurm":
-            self._cluster_values()
+            self._summary_values()
             return
         labels = getattr(self, "machine_labels", None)
         if not labels or labels["cores"].is_deleted:
@@ -482,62 +467,22 @@ class RunPage:
         self.machine_note.set_visibility(bool(note))
         self.machine_usage.text = "\n".join(usage_text(item) for item in usage()) or "nothing much"
 
-    def _cluster(self, view: JobView) -> None:
-        """The partitions (sinfo), drained or down nodes and why, and the queue (squeue --me); kept current from
-        the server's Slurm poller by the machine timer."""
-        self.own = own_jobs(view.overview.jobs)
-        self.cluster_box = ui.column().classes("w-full gap-2").mark("run-cluster")
-        self.cluster_shown = None
-        self._cluster_values()
+    def _cluster_summary(self) -> None:
+        """One line on the cluster (partitions, your jobs) and a link to the Cluster page; kept current by poll()."""
+        with ui.row().classes("items-baseline w-full no-wrap gap-2"):
+            self.summary_label = ui.label("").classes("as-muted").mark("run-cluster-summary")
+            ui.space()
+            ui.link("Cluster →", "/cluster").classes("no-wrap").mark("run-cluster-link")
+        self._summary_values()
 
-    def _cluster_values(self) -> None:
-        box = getattr(self, "cluster_box", None)
-        if box is None or box.is_deleted:
+    def _summary_values(self) -> None:
+        label = getattr(self, "summary_label", None)
+        if label is None or label.is_deleted:
             return
         watch = WATCHER.slurm_watch
-        cluster, snapshot = watch.cluster, watch.snapshot
-        key = (cluster.taken if cluster else None, snapshot.taken if snapshot else None, tuple(sorted(self.own)))
-        if key == self.cluster_shown:
-            return
-        self.cluster_shown = key
-        box.clear()
-        with box:
-            outage = outage_text(snapshot, cluster, watch.last_ok)
-            if outage:
-                banner("error", outage).mark("cluster-outage")
-            if cluster is None or (not cluster.partitions and not cluster.error):
-                hint("Asking Slurm…").mark("cluster-waiting")
-            for line in partition_lines(cluster.partitions if cluster else ()):
-                with ui.column().classes("w-full gap-0" + (" as-cluster-bad" if line.bad else "")).mark(
-                        f"cluster-{line.name}"):
-                    with ui.row().classes("items-baseline w-full no-wrap gap-2"):
-                        ui.label(line.name + (" (default)" if line.default else "")).classes("as-strong")
-                        ui.label(line.nodes if line.available == "up" else f"partition {line.available}").classes(
-                            "as-error-text" if line.bad else "as-muted").mark(f"cluster-{line.name}-state")
-                        ui.space()
-                        ui.label(line.cpus).classes("as-muted").mark(f"cluster-{line.name}-cpus")
-                    ui.linear_progress(line.busy_percent / 100, show_value=False).props("rounded size=6px")
-            for reason in node_reasons(cluster):
-                banner("error", reason).mark("cluster-reason")
-            ui.label("Queue").classes("as-run-head")
-            lines = queue_lines(snapshot, self.own)
-            if not lines:
-                hint("No jobs of yours in the queue" if snapshot is not None and snapshot.ok else "").mark(
-                    "queue-empty")
-            else:
-                with table("auto minmax(0, 1fr) auto").classes("as-table-compact as-queue w-full"):
-                    for heading in ("Job", "State", "Time"):
-                        th(heading)
-                    for line in lines:
-                        td(line.job_id, mono=True, strong=line.own).mark(f"queue-{line.job_id}")
-                        with td_box() as cell:
-                            cell.classes("as-queue-what")
-                            if line.what:
-                                ui.label(line.what).classes("as-mono as-strong")
-                            ui.label(f"{line.state} on {line.node}" if line.node else
-                                     (f"{line.state} ({line.reason})" if line.reason else line.state)).classes(
-                                "as-muted").mark(f"queue-{line.job_id}-state")
-                        td(line.time, mono=True)
+        text, bad = summary_line(watch.cluster, watch.snapshot, watch.user)
+        label.text = text
+        label.classes(replace="as-error-text" if bad else "as-muted")
 
     def _selection(self, view: JobView) -> _Selection:
         ticked = [case.name for case in self.project.cases if case.name in self.ticked]

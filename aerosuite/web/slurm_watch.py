@@ -20,6 +20,7 @@ from ..engine.jobs.store import load_job
 from ..engine.settings import current_settings
 
 SEFF_PER_POLL = 4
+RECENT_SECONDS = 300.0  # the 7-day sacct: at most this often, and only while a Cluster page is open
 log = logging.getLogger("aerosuite.slurm")
 
 
@@ -36,6 +37,10 @@ class SlurmWatch:
         self.cluster: Optional[sl.ClusterInfo] = None
         self.last_ok: Optional[float] = None  # time of the last poll Slurm answered
         self.polls = 0
+        self._pages = 0
+        self._recent_due = False
+        self.recent: Optional[sl.RecentJobs] = None
+        self.user = sl.current_user()
 
     # -- what to watch -------------------------------------------------------------------------------------
 
@@ -47,7 +52,7 @@ class SlurmWatch:
             self._poke()
 
     def show_cluster(self) -> None:
-        """A page shows the cluster panel: read sinfo too (until hide_cluster)."""
+        """A page shows the Cluster button (top bar): read sinfo -N too, until hide_cluster."""
         self._viewers += 1
         self._poke()
 
@@ -57,6 +62,19 @@ class SlurmWatch:
     @property
     def viewers(self) -> int:
         return self._viewers
+
+    def show_page(self) -> None:
+        """A Cluster page is open: read the recent history (sacct) too, until hide_page."""
+        self._pages += 1
+        self._recent_due = True
+        self._poke()
+
+    def hide_page(self) -> None:
+        self._pages = max(0, self._pages - 1)
+
+    @property
+    def pages(self) -> int:
+        return self._pages
 
     def _poke(self) -> None:
         if self._wake is not None:
@@ -86,17 +104,23 @@ class SlurmWatch:
         records = self._records()
         active = [(directory, job) for directory, job in records if job.is_active]
         runner = self._runner()
-        if active or self._viewers:
+        if active or self._viewers or self._pages:
             watched = [slurm_id for _directory, job in active for slurm_id in runner.watched_ids(job)]
             snapshot = await sl.snapshot_async(watched)
             self.snapshot = snapshot
             self.polls += 1
             if snapshot.ok:
                 self.last_ok = snapshot.taken
+                if any(slurm_id not in snapshot.queue for slurm_id in watched):
+                    self._recent_due = True  # a case left the queue: the history has something new
             for directory, job in active:
                 await asyncio.to_thread(runner.apply_snapshot, directory, job, snapshot)
-        if self._viewers:
-            self.cluster = await sl.cluster_async()
+        if self._viewers or self._pages:
+            self.cluster = await sl.nodes_async()
+        if self._pages and (self._recent_due or self.recent is None
+                            or time.time() - self.recent.taken >= RECENT_SECONDS):
+            self.recent = await sl.recent_async()
+            self._recent_due = False
         await self._fetch_seff(runner)
 
     async def _fetch_seff(self, runner) -> None:

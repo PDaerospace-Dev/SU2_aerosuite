@@ -21,8 +21,6 @@ from .errors import AeroSuiteError
 
 TIMEOUT = 20.0
 SACCT_FIELDS = "JobID,State,ExitCode,Elapsed,MaxRSS,NodeList"
-SINFO_FORMAT = "%P|%a|%D|%t|%C"
-SINFO_REASON_FORMAT = "%n|%t|%E"
 
 QUEUED_STATES = {"PENDING", "CONFIGURING", "REQUEUED", "REQUEUE_HOLD", "REQUEUE_FED", "RESIZING", "SUSPENDED",
                  "STOPPED"}
@@ -43,14 +41,6 @@ class SlurmUnavailable(AeroSuiteError):
 
 def sacct_args(job_ids: Iterable[str]) -> list[str]:
     return ["sacct", "-j", ",".join(job_ids), "-P", "-n", "-X", f"--format={SACCT_FIELDS}"]
-
-
-def sinfo_args() -> list[str]:
-    return ["sinfo", "-h", "-o", SINFO_FORMAT]
-
-
-def sinfo_reason_args() -> list[str]:
-    return ["sinfo", "-R", "-h", "-o", SINFO_REASON_FORMAT]
 
 
 def seff_args(job_id: str) -> list[str]:
@@ -75,30 +65,6 @@ class AcctRow:
     elapsed: str
     max_rss: str
     node: str
-
-
-@dataclass(frozen=True)
-class PartitionRow:
-    name: str
-    default: bool
-    available: str  # "up", "down", "drain", "inact"
-    nodes: int
-    state: str  # node state of this group: idle, mix, alloc, drain, down, ...
-    allocated: int
-    idle: int
-    other: int
-    total: int
-
-    @property
-    def bad(self) -> bool:
-        return self.available != "up" or self.state.rstrip("*~#!%$@^-").startswith(BAD_NODE_STATES)
-
-
-@dataclass(frozen=True)
-class NodeReason:
-    node: str
-    state: str
-    reason: str
 
 
 @dataclass(frozen=True)
@@ -132,33 +98,6 @@ def parse_sacct(text: str) -> dict[str, AcctRow]:
         job_id, state, exit_code, elapsed, max_rss, node = (part.strip() for part in parts[:6])
         rows[job_id] = AcctRow(job_id, state.split(" ")[0] if state else "", exit_code, elapsed, max_rss, node)
     return rows
-
-
-def parse_sinfo(text: str) -> list[PartitionRow]:
-    rows = []
-    for line in text.splitlines():
-        parts = line.strip().split("|")
-        if len(parts) != 5:
-            continue
-        name, available, nodes, state, cpus = (part.strip() for part in parts)
-        counts = cpus.split("/")
-        try:
-            allocated, idle, other, total = (int(count) for count in counts)
-            node_count = int(nodes)
-        except ValueError:
-            continue
-        rows.append(PartitionRow(name.rstrip("*"), name.endswith("*"), available, node_count, state,
-                                 allocated, idle, other, total))
-    return rows
-
-
-def parse_sinfo_reasons(text: str) -> dict[str, NodeReason]:
-    reasons = {}
-    for line in text.splitlines():
-        parts = line.strip().split("|", 2)
-        if len(parts) == 3 and parts[0]:
-            reasons[parts[0].strip()] = NodeReason(parts[0].strip(), parts[1].strip(), parts[2].strip())
-    return reasons
 
 
 _DURATION_RE = re.compile(r"^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$")
@@ -340,6 +279,14 @@ class RecentJobs:
     error: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class ClusterInfo:
+    """Every node (one sinfo -N)."""
+    taken: float = field(default_factory=time.time)
+    nodes: Sequence[NodeRow] = ()
+    error: Optional[str] = None
+
+
 async def recent_async(days: int = RECENT_DAYS, timeout: float = TIMEOUT) -> RecentJobs:
     taken = time.time()
     try:
@@ -466,26 +413,3 @@ async def snapshot_async(watched: Iterable[str], timeout: float = TIMEOUT) -> Sn
         return Snapshot(taken=taken, queue=queue, accounting_error=str(exc))
 
 
-@dataclass(frozen=True)
-class ClusterInfo:
-    """The partitions (one sinfo) and, when a node is drained or down, why (one sinfo -R)."""
-    taken: float = field(default_factory=time.time)
-    partitions: Sequence[PartitionRow] = ()
-    reasons: Mapping[str, NodeReason] = field(default_factory=dict)
-    error: Optional[str] = None
-    nodes: Sequence["NodeRow"] = ()
-
-
-async def cluster_async(timeout: float = TIMEOUT) -> ClusterInfo:
-    taken = time.time()
-    try:
-        partitions = parse_sinfo(await run_async(sinfo_args(), timeout=timeout))
-    except SlurmUnavailable as exc:
-        return ClusterInfo(taken=taken, error=str(exc))
-    reasons: Mapping[str, NodeReason] = {}
-    if any(row.bad for row in partitions):
-        try:
-            reasons = parse_sinfo_reasons(await run_async(sinfo_reason_args(), timeout=timeout))
-        except SlurmUnavailable:
-            reasons = {}
-    return ClusterInfo(taken=taken, partitions=partitions, reasons=reasons)

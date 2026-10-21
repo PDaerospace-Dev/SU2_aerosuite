@@ -40,25 +40,6 @@ async def _open(user, project_dir):
     await user.open(project_url("run", project_dir))
 
 
-async def test_slurm_mode_shows_the_cluster_and_the_slurm_fields(user: User, slurm_project):
-    project_dir, _project, fake = slurm_project
-    fake.update(partitions=["node1*|up|1|mix|96/96/0/192", "node2|up|1|idle|0/192/0/192"])
-    WATCH.show_cluster()
-    await WATCH.poll_once()
-    WATCH.hide_cluster()
-    await _open(user, project_dir)
-    await user.should_see("Cluster")
-    await user.should_not_see(marker="run-machine")
-    await user.should_not_see(marker="run-partitions")
-    assert _element(user, "run-backend").value == "slurm"
-    assert _element(user, "run-partition").value == "node1"
-    assert _element(user, "run-ntasks").value == "96"
-    assert _text(user, "cluster-node1-cpus") == "96 / 192 CPUs busy"
-    assert _text(user, "cluster-node2-state") == "1 idle"
-    assert _text(user, "submit") == "Submit 3 cases to Slurm"
-    assert WATCH.viewers == 1  # this page asks the poller for sinfo
-
-
 async def test_the_backend_toggle_is_saved_with_the_project(user: User, ready_project, tmp_path, fake_slurm):
     project_dir, _ = ready_project
     _settings(tmp_path)  # server default: local
@@ -66,13 +47,12 @@ async def test_the_backend_toggle_is_saved_with_the_project(user: User, ready_pr
     await user.should_see(marker="run-machine")
     with user:
         _element(user, "run-backend").set_value("slurm")
-    await user.should_see("Cluster")
+    await user.should_see(marker="run-cluster-summary")
     assert open_project(project_dir).run.backend == "slurm"
     with user:
         _element(user, "run-backend").set_value("local")
     await user.should_see(marker="run-machine")
     assert open_project(project_dir).run.backend == "local"
-    assert WATCH.viewers == 0
 
 
 async def test_another_partition_brings_its_own_tasks_and_the_warnings(user: User, slurm_project, tmp_path):
@@ -119,23 +99,6 @@ async def test_submit_then_follow_the_poller(user: User, slurm_project, eventual
     await eventually(lambda: _text(user, f"status-{A0}") == "RUNNING", 5)
     assert _text(user, f"slurm-{A0}") == "Slurm 101 · RUNNING on hpc1 · 0:42"
     assert _text(user, f"slurm-{A2}") == "Slurm 102 · PENDING (Resources)"
-
-
-async def test_drained_node_and_controller_down(user: User, slurm_project):
-    project_dir, _project, fake = slurm_project
-    fake.update(partitions=["node1*|up|1|idle|0/192/0/192", "node2|up|1|drain|0/0/192/192"],
-                reasons=["hpc2|drain|bad DIMM"])
-    WATCH.show_cluster()
-    await WATCH.poll_once()
-    await _open(user, project_dir)
-    assert _text(user, "cluster-node2-state") == "1 drain"
-    await user.should_see("hpc2 (drain): bad DIMM")
-    fake.update(controller_down=True)
-    await WATCH.poll_once()
-    WATCH.hide_cluster()
-    await _open(user, project_dir)
-    await user.should_see(marker="cluster-outage")
-    assert "Slurm controller unreachable" in _text(user, "cluster-outage")
 
 
 async def test_cancel_a_slurm_job(user: User, slurm_project, eventually):
@@ -230,3 +193,34 @@ async def test_no_add_block_for_a_local_job_or_without_a_job(user: User, slurm_p
     project_dir, _project, _fake = slurm_project
     await _open(user, project_dir)
     await user.should_not_see(marker="run-add")
+
+
+async def test_slurm_mode_shows_a_cluster_summary_and_the_slurm_fields(user: User, slurm_project):
+    project_dir, _project, fake = slurm_project
+    fake.update(nodes=["hpc1|node1*|mix|96/96/0/192|125000|101000|48.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.2|none"])
+    WATCH.show_cluster()
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    await user.should_not_see(marker="run-machine")
+    await user.should_not_see(marker="run-partitions")
+    assert _text(user, "run-cluster-summary") == "node1 96/192 busy · node2 free"
+    assert _element(user, "run-cluster-link").props["href"] == "/cluster"
+    assert _element(user, "run-backend").value == "slurm"
+    assert _element(user, "run-partition").value == "node1"
+    assert _element(user, "run-ntasks").value == "96"
+    assert _text(user, "submit") == "Submit 3 cases to Slurm"
+
+
+async def test_the_summary_turns_red_for_a_drained_node_or_an_outage(user: User, slurm_project, eventually):
+    project_dir, _project, fake = slurm_project
+    fake.update(nodes=["hpc1|node1*|idle|0/192/0/192|125000|101000|0.0|none",
+                       "hpc2|node2|drain|0/0/192/192|62000|57000|0.0|bad DIMM"])
+    WATCH.show_cluster()
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    summary = _element(user, "run-cluster-summary")
+    assert summary.text == "node1 free · node2 1 drain, 0/192 busy" and "as-error-text" in summary.classes
+    fake.update(controller_down=True)
+    await WATCH.poll_once()
+    await eventually(lambda: _text(user, "run-cluster-summary") == "Slurm controller unreachable", 5)
