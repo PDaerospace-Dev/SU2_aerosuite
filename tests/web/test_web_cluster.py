@@ -228,3 +228,56 @@ async def test_an_outage_keeps_the_last_known_nodes(user: User, cluster_study, e
     await eventually(lambda: bool(user.find(marker="cluster-outage").elements), 5)
     assert _element(user, "node-card-hpc1") is not None
     assert "as of" in _text(user, "nodes-summary")
+
+
+def _order(user, markers):
+    """The given markers in the order their elements appear on the page."""
+    found = []
+    for element in user.client.layout.descendants():
+        for marker in element._markers:
+            if marker in markers and marker not in found:
+                found.append(marker)
+    return found
+
+
+async def test_my_jobs_show_when_each_case_was_submitted_and_sort(user: User, cluster_study, eventually):
+    from datetime import datetime
+
+    from aerosuite.web.pages import cluster as cluster_page
+
+    cluster_page._SORT.update(key="submitted", descending=True)
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="job-102").elements), 5)
+    expected = datetime.fromtimestamp(job.slurm[A0].submitted).strftime("%d %b %H:%M")
+    assert _text(user, "job-101-submitted") == expected
+    assert _order(user, ["job-101", "job-102"]) == ["job-102", "job-101"]  # newest first
+    assert "↓" in _text(user, "sort-submitted")
+    user.find(marker="sort-case").click()
+    await eventually(lambda: _order(user, ["job-101", "job-102"]) == ["job-101", "job-102"], 5)  # A0 before A2
+    assert "↑" in _text(user, "sort-case") and "↓" not in _text(user, "sort-submitted")
+    user.find(marker="sort-case").click()
+    await eventually(lambda: _order(user, ["job-101", "job-102"]) == ["job-102", "job-101"], 5)
+    assert "↓" in _text(user, "sort-case")
+    await user.open("/cluster")  # the choice is kept while the server runs
+    await eventually(lambda: bool(user.find(marker="sort-case").elements), 5)
+    assert "↓" in _text(user, "sort-case")
+    cluster_page._SORT.update(key="submitted", descending=True)
+
+
+async def test_close_goes_back_to_the_page_you_came_from(user: User, cluster_study):
+    project_dir, _project, _fake = cluster_study
+    await user.open("/settings")
+    user.find(marker="cluster").click()  # the top-bar button remembers where you were
+    await user.should_see(marker="cluster-page")
+    user.find(marker="cluster-close").click()
+    await user.should_see(marker="settings-backend")
+
+
+async def test_close_never_leaves_aerosuite(user: User, cluster_study):
+    await user.open("/cluster?back=//evil.example/x")
+    await user.should_see(marker="cluster-page")
+    user.find(marker="cluster-close").click()
+    await user.should_not_see(marker="cluster-page")
+    await user.should_see(marker="recent-empty")  # the Projects page, not another site

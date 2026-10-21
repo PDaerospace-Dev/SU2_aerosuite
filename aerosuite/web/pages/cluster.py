@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from nicegui import run, ui
 
@@ -13,7 +14,7 @@ from ...engine.errors import AeroSuiteError
 from ...engine.jobs.store import load_job
 from ...engine.project import open_project
 from ..cluster_view import (JOB_KINDS, cluster_queue, cluster_status, filter_jobs, job_state_text, job_studies,
-                            node_groups)
+                            node_groups, sort_jobs, submitted_text)
 from ..jobs import WATCHER
 from ..layout import header, project_url
 from ..resubmit_dialog import resubmit_case
@@ -26,21 +27,40 @@ LOG_LINES = 200
 INDEX = RecordIndex()  # shared by every Cluster page: a study's records are read once per change
 KIND_LABELS = {"all": "All", "active": "Active", "failed": "Failed"}
 _COLLAPSED: set[str] = set()  # "jobs", "queue": sections the user folded, kept while the server runs
+_SORT = {"key": "submitted", "descending": True}  # My jobs' order, kept while the server runs
+SORTED_COLUMNS = {"Submitted": "submitted", "Study": "study", "Case": "case", "State": "state", "Elapsed": "elapsed"}
 
 
 def register() -> None:
     @ui.page("/cluster")
-    def cluster_page() -> None:
+    def cluster_page(back: str = "") -> None:
         header()
         with ui.column().classes("as-page w-full").mark("cluster-page"):
-            with ui.row().classes("as-crumbs w-full"):
+            with ui.row().classes("as-crumbs w-full items-center"):
                 ui.link("Projects", "/").classes("as-crumb-link").mark("crumb-projects")
                 ui.label("›").classes("as-crumb-sep")
                 ui.label("Cluster").classes("as-crumb-current").mark("crumb-page")
+                ui.space()
+                target = safe_back(back)
+                ui.button(icon="close", color=None, on_click=lambda: ui.navigate.to(target)).props(
+                    'flat round dense aria-label="Close"').tooltip("Back to the page you came from").mark(
+                    "cluster-close")
             if not slurm_watch.slurm_available():
                 banner("info", "Slurm is not installed on this machine.").mark("cluster-none")
                 return
             ClusterPage()
+
+
+def safe_back(back: str) -> str:
+    """Where Close goes: the page you came from when it is a page of AeroSuite, else Projects (never another site)."""
+    if back.startswith("/") and not back.startswith("//") and "\\" not in back and not back.startswith("/cluster"):
+        return back
+    return "/"
+
+
+def cluster_url(back: str) -> str:
+    """/cluster, remembering the page to go back to."""
+    return f"/cluster?back={quote(back, safe='')}"
 
 
 def _answer(dialog: ui.dialog, value: bool) -> None:
@@ -86,7 +106,8 @@ class ClusterPage:
         groups = tuple((name, default, tuple(nodes)) for name, default, nodes in node_groups(self.good_cluster))
         lines = tuple(cluster_queue(self.good, WATCH.user))
         accounting_down = recent is not None and recent.error is not None
-        return (outage, groups, lines, tuple(rows), more, accounting_down, self.kind, self.study)
+        return (outage, groups, lines, tuple(rows), more, accounting_down, self.kind, self.study,
+                _SORT["key"], _SORT["descending"])
 
     def poll(self) -> None:
         if self.dialogs_open:
@@ -99,7 +120,7 @@ class ClusterPage:
             self.nodes_note.text = self._nodes_text(data[1], data[0] is not None)
 
     def render(self, data: tuple) -> None:
-        outage, groups, lines, rows, more, accounting_down, _kind, _study = data
+        outage, groups, lines, rows, more, accounting_down = data[:6]
         self.down = outage is not None
         self.holder.clear()
         with self.holder:
@@ -220,20 +241,41 @@ class ClusterPage:
             if accounting_down:
                 hint("Ended jobs need Slurm accounting, which does not answer; showing active cases only.").classes(
                     "as-hint-warning px-4").mark("jobs-accounting")
-            shown = filter_jobs(rows, self.kind, self.study)
+            shown = sort_jobs(filter_jobs(rows, self.kind, self.study), _SORT["key"], _SORT["descending"])
             if not shown:
                 hint("No jobs").classes("px-4 pb-4").mark("jobs-none")
                 return
-            with table("minmax(7rem, .8fr) minmax(9rem, 1.2fr) auto minmax(10rem, 1.4fr) minmax(8rem, 1fr) auto "
+            with table("minmax(7.5rem, auto) minmax(7rem, .8fr) minmax(9rem, 1.2fr) auto minmax(10rem, 1.4fr) "
+                       "minmax(8rem, 1fr) auto "
                        "auto minmax(11rem, auto)").classes("as-table-compact w-full"):
-                for heading in ("Study", "Case", "Slurm job", "State", "Partition · node", "Elapsed", "Exit", ""):
-                    th(heading)
+                for heading in ("Submitted", "Study", "Case", "Slurm job", "State", "Partition · node", "Elapsed",
+                                "Exit", ""):
+                    self._heading(heading)
                 for row in shown:
                     self._job_row(row)
             if more:
                 hint(f"{more} older job{'' if more == 1 else 's'} not shown").classes("px-4 pb-4").mark("jobs-more")
 
+    def _heading(self, heading: str) -> None:
+        """A column title; the sortable ones are buttons: click to sort by it, again to reverse."""
+        key = SORTED_COLUMNS.get(heading)
+        if key is None:
+            th(heading)
+            return
+        arrow = (" ↓" if _SORT["descending"] else " ↑") if _SORT["key"] == key else ""
+        ui.button(heading + arrow, color=None, on_click=lambda k=key: self._set_sort(k)).props(
+            "flat dense no-caps align=left").classes("as-th as-sort-head").mark(f"sort-{key}")
+
+    def _set_sort(self, key: str) -> None:
+        if _SORT["key"] == key:
+            _SORT["descending"] = not _SORT["descending"]
+        else:
+            _SORT.update(key=key, descending=key == "submitted")  # newest first; the rest A→Z / shortest first
+        self.shown = None
+        self.poll()
+
     def _job_row(self, row) -> None:
+        td(submitted_text(row), mono=True).mark(f"job-{row.slurm_id}-submitted")
         with td_box():
             if row.study is not None:
                 ui.link(row.study_name, project_url("run", row.study)).mark(f"job-{row.slurm_id}-study")

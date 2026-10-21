@@ -82,7 +82,14 @@ def _cluster_button() -> None:
     if not slurm_watch.slurm_available():
         return
     watch = slurm_watch.WATCH
-    with ui.button(color=None, on_click=lambda: ui.navigate.to("/cluster")).props("flat dense no-caps").classes(
+    target = "/cluster"
+    try:  # remember this page, so the Cluster page's Close comes back here
+        url = ui.context.client.request.url
+        here = url.path + (f"?{url.query}" if url.query else "")
+        target = here if url.path == "/cluster" else f"/cluster?back={quote(here, safe='')}"
+    except (RuntimeError, AttributeError):
+        pass
+    with ui.button(color=None, on_click=lambda: ui.navigate.to(target)).props("flat dense no-caps").classes(
             "as-topbar-icon as-topbar-labelled").mark("cluster"):
         dot = ui.element("span").classes("as-cluster-dot as-dot-grey").mark("cluster-dot")
         ui.label("Cluster")

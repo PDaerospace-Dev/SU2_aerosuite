@@ -24,6 +24,7 @@ from ...engine.study_results import study_results
 from ..cluster_view import can_resubmit, case_slurm_text, summary_line
 from ..fields import text_field
 from ..resubmit_dialog import resubmit_case
+from .cluster import cluster_url
 from ..slurm_fields import slurm_fields
 from ..jobs import WATCHER, JobView, job_progress
 from ..layout import ProjectFrame, open_session, project_url
@@ -473,7 +474,8 @@ class RunPage:
         with ui.row().classes("items-baseline w-full no-wrap gap-2"):
             self.summary_label = ui.label("").classes("as-muted").mark("run-cluster-summary")
             ui.space()
-            ui.link("Cluster →", "/cluster").style("white-space: nowrap").mark("run-cluster-link")
+            ui.link("Cluster →", cluster_url(project_url("run", self.directory))).style("white-space: nowrap").mark(
+                "run-cluster-link")
         self._summary_values()
 
     def _summary_values(self) -> None:

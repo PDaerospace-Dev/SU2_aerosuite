@@ -205,7 +205,7 @@ async def test_slurm_mode_shows_a_cluster_summary_and_the_slurm_fields(user: Use
     await user.should_not_see(marker="run-machine")
     await user.should_not_see(marker="run-partitions")
     assert _text(user, "run-cluster-summary") == "node1 96/192 busy · node2 free"
-    assert _element(user, "run-cluster-link").props["href"] == "/cluster"
+    assert _element(user, "run-cluster-link").props["href"].startswith("/cluster?back=%2Frun%3Fproject%3D")
     assert _element(user, "run-backend").value == "slurm"
     assert _element(user, "run-partition").value == "node1"
     assert _element(user, "run-ntasks").value == "96"
