@@ -181,3 +181,23 @@ async def test_a_brief_disconnect_keeps_the_page_counted(user: User, cluster_stu
     for handler in list(user.client.delete_handlers):  # the tab is really gone
         user.client.safe_invoke(handler)
     assert (WATCH.viewers, WATCH.pages) == (0, 0)
+
+
+async def test_the_log_dialog_stays_open_and_follows_new_output(user: User, cluster_study, eventually):
+    import asyncio
+
+    project_dir, project, fake = cluster_study
+    runner_for("slurm").submit(project_dir, project, cases=[A0])
+    fake.run("101")
+    out = project_dir / "runs" / A0 / "slurm-101.out"
+    out.write_text("AeroSuite: Slurm job 101\n|   12|  -4.1|\n")
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="log-101").elements), 5)
+    user.find(marker="log-101").click()
+    await eventually(lambda: "|   12|  -4.1|" in _text(user, "log-dialog-text"), 5)
+    assert _element(user, "log-dialog-follow").value is True
+    fake.run("101", time="0:30")  # something on the page changes: it is drawn again
+    await WATCH.poll_once()
+    await asyncio.sleep(2.5)
+    out.write_text(out.read_text() + "|   13|  -4.2|\n")
+    await eventually(lambda: "|   13|  -4.2|" in _text(user, "log-dialog-text"), 5)

@@ -61,6 +61,7 @@ class ClusterPage:
         self.good = None  # the last snapshot Slurm answered: shown, greyed, while it does not
         WATCH.show_page()
         ui.context.client.on_delete(WATCH.hide_page)  # not on_disconnect: a brief socket drop reconnects
+        self.dialog_host = ui.element("div")  # dialogs live here: render() clears only the holder
         self.holder = ui.column().classes("w-full gap-4")
         self.poll()
         ui.timer(POLL_SECONDS, self.poll)
@@ -295,23 +296,29 @@ class ClusterPage:
         self.poll()
 
     def show_log(self, row) -> None:
+        """The case's slurm-<id>.out, re-read every 2 s while open; Follow keeps it scrolled to the end."""
         path = Path(row.study) / "runs" / row.case / f"slurm-{row.slurm_id}.out"
-        with ui.dialog().props("maximized=false") as dialog, ui.card().classes("w-[60rem] max-w-full"):
+        with self.dialog_host, ui.dialog() as dialog, ui.card().classes("w-[60rem] max-w-full"):
             with ui.row().classes("w-full items-center no-wrap"):
                 ui.label(f"{row.study_name} / {row.case} · {path.name}").classes("as-dialog-title grow")
-                ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense")
+                follow = ui.checkbox("Follow", value=True).props("dense").mark("log-dialog-follow")
+                ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense").mark(
+                    "log-dialog-close")
             with ui.scroll_area().classes("as-log-body").style("height: 60vh") as scroll:
                 text = ui.label("").classes("as-log-text").mark("log-dialog-text")
 
         def update() -> None:
-            text.text = _tail(path)
-            scroll.scroll_to(percent=1.0)
+            content = _tail(path)
+            if content != text.text:
+                text.text = content
+                if follow.value:
+                    scroll.scroll_to(percent=1.0)
 
         update()
-        timer = ui.timer(POLL_SECONDS, update)
+        with dialog:  # the timer lives with the dialog, not with the Log button the page may redraw
+            timer = ui.timer(POLL_SECONDS, update)
         dialog.on("hide", lambda: (timer.cancel(), dialog.delete()))
         dialog.open()
-
 
 def _tail(path: Path) -> str:
     try:
