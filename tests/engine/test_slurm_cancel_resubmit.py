@@ -168,3 +168,17 @@ def test_cancel_case_errors(slurm_study):
     with pytest.raises(JobError, match="Cannot cancel M0p8_a0_b0"):
         runner.cancel_case(project_dir, job, A0)
     assert load_job(project_dir, job.id).case_status[A0] is CaseState.PENDING
+
+
+def test_cancel_a_case_that_just_ended_in_slurm_keeps_its_result(slurm_study, history_writer):
+    project_dir, project, runner, fake = slurm_study
+    job = runner.submit(project_dir, project, cases=[A0, A2])
+    fake.run("101")
+    job = runner.refresh(project_dir, job)  # the record says RUNNING
+    history_writer(project_dir / "runs" / A0, STEADY)
+    fake.finish("101")  # Slurm finished it; no poll has seen that yet
+    fake.clear_calls()
+    job = runner.cancel_case(project_dir, job, A0)
+    assert fake.calls("scancel") == []
+    assert job.case_status[A0] is CaseState.CONVERGED
+    assert runner.refresh(project_dir, job).case_status[A0] is CaseState.CONVERGED

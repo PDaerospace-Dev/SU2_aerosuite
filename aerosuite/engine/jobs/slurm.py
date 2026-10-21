@@ -702,6 +702,13 @@ class SlurmRunner:
             raise JobError(f"{case} is not a Slurm case of job {job.id}")
         if not job.is_active or job.case_status.get(case) in FINAL_CASE_STATES:
             return job
+        # The record can lag Slurm by a poll: a job that already left the queue ended on its own, so take its real
+        # outcome instead of scancelling a finished job and calling it cancelled.
+        snap = sl.snapshot_sync(self.watched_ids(job))
+        if not snap.ok:
+            raise JobError(f"Cannot cancel {case} (Slurm job {sc.job_id}): {snap.error}")
+        if sc.job_id not in snap.queue:
+            return self.apply_snapshot(project_dir, job, snap)
         try:
             sl.run_sync(sl.scancel_args([sc.job_id]))
         except sl.SlurmUnavailable as exc:
