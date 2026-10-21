@@ -137,7 +137,7 @@ def parse_seff(text: str) -> SeffStats:
 SQUEUE_FORMAT = "%i|%T|%N|%M|%R|%u|%j|%Z"  # every user's jobs: id, state, node, time, reason, user, name, folder
 SINFO_NODES_FORMAT = "%N|%P|%t|%C|%m|%e|%O|%E"  # per node: partition, state, CPUs, memory, free, load, reason
 RECENT_DAYS = 7
-RECENT_FIELDS = "JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Start,End,WorkDir"
+RECENT_FIELDS = "JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Submit,Start,End,WorkDir"
 
 
 def squeue_args() -> list[str]:
@@ -253,6 +253,7 @@ class HistoryRow:
     start: str
     end: str
     workdir: str
+    submit: str = ""  # ISO time ("2026-10-20T17:39:12"), or "Unknown"
 
 
 def parse_sacct_recent(text: str) -> dict[str, HistoryRow]:
@@ -261,13 +262,13 @@ def parse_sacct_recent(text: str) -> dict[str, HistoryRow]:
     rows = {}
     for line in text.splitlines():
         parts = [part.strip() for part in line.strip().split("|")]
-        if len(parts) < 10 or not parts[0] or "." in parts[0]:
+        if len(parts) < 11 or not parts[0] or "." in parts[0]:
             continue
         job_id, workdir = parts[0], parts[-1]
-        name = "|".join(parts[1:-8])
-        state, exit_code, elapsed, node, partition, start, end = parts[-8:-1]
+        name = "|".join(parts[1:-9])
+        state, exit_code, elapsed, node, partition, submit, start, end = parts[-9:-1]
         rows[job_id] = HistoryRow(job_id, name, state.split(" ")[0], exit_code, elapsed, node, partition, start, end,
-                                  _folder(workdir))
+                                  _folder(workdir), submit)
     return rows
 
 

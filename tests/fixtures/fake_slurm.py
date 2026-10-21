@@ -95,7 +95,8 @@ def sacct(state, args):
             if job["in_queue"] or not job.get("accounted", True) or (job.get("user") or me) != me:
                 continue
             fields = [job_id, job.get("name", ""), job["state"], job["exit_code"], job["elapsed"], job["node"],
-                      job.get("partition", ""), job.get("start", ""), job.get("end", ""), job.get("cwd", "")]
+                      job.get("partition", ""), job.get("submit", ""), job.get("start", ""), job.get("end", ""),
+                      job.get("cwd", "")]
             sys.stdout.write("|".join(fields) + "\n")
         return 0
     ids = args[args.index("-j") + 1].split(",")

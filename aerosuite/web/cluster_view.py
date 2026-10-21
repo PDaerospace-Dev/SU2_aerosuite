@@ -10,7 +10,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 from ..engine.jobs.runner import JobRecord
 from ..engine.cluster import MyJob, study_of
 from ..engine.slurm import (FAILED_STATES, QUEUED_STATES, RESUBMITTABLE, RUNNING_STATES, ClusterInfo,
-                             Snapshot)
+                             Snapshot, parse_duration)
 
 
 def case_slurm_text(job: Optional[JobRecord], case: str) -> str:
@@ -195,3 +195,30 @@ def job_state_text(row: MyJob) -> str:
         return f"{text} · {row.reason}"  # why it waits: Dependency, Resources, Priority
     plain = {"COMPLETED", "RUNNING", "PENDING", "CANCELLED", "COMPLETING"}
     return text if row.slurm_state in plain or row.slurm_state == row.case_state else f"{text} ({row.slurm_state})"
+
+
+SORT_KEYS = ("submitted", "study", "case", "state", "elapsed")  # the My jobs columns that sort
+
+
+def submitted_text(row: MyJob) -> str:
+    """'21 Oct 09:42', or '—' when the submit time is unknown."""
+    return "—" if row.submitted is None else datetime.fromtimestamp(row.submitted).strftime("%d %b %H:%M")
+
+
+def _sort_value(row: MyJob, key: str):
+    if key == "submitted":
+        return row.submitted
+    if key == "study":
+        return row.study_name.lower()
+    if key == "case":
+        return row.case
+    if key == "state":
+        return job_state_text(row).lower()
+    return parse_duration(row.elapsed) if row.elapsed else None  # "elapsed"
+
+
+def sort_jobs(rows: Sequence[MyJob], key: str, descending: bool = False) -> list[MyJob]:
+    """My jobs sorted by one column; rows without a value for it (no date, no run time) come last either way."""
+    known = [row for row in rows if _sort_value(row, key) is not None]
+    unknown = [row for row in rows if _sort_value(row, key) is None]
+    return sorted(known, key=lambda row: _sort_value(row, key), reverse=descending) + unknown

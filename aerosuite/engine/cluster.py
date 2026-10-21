@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Optional
 
@@ -108,10 +109,19 @@ class MyJob:
     active: bool
     current_id: Optional[str]  # the case's current Slurm id (differs for an earlier attempt)
     resubmittable: bool
+    submitted: Optional[float] = None  # when it was submitted (time.time() seconds); None when unknown
 
     @property
     def earlier_attempt(self) -> bool:
         return self.current_id is not None and self.current_id != self.slurm_id
+
+
+def _timestamp(text: str) -> Optional[float]:
+    """Seconds since the epoch for Slurm's local ISO time ("2026-10-20T17:39:12"); None for "Unknown" or ""."""
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
 
 
 def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], user: str, index: RecordIndex,
@@ -120,12 +130,14 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
     more there were. Hand-written jobs (not in a study's runs/ folder under its study/case name) are left out."""
     seen: dict[str, tuple] = {}
     for job_id, row in recent.items():
-        seen[job_id] = (row.name, row.workdir, row.state, row.partition, row.node, row.elapsed, row.exit_code, "")
+        seen[job_id] = (row.name, row.workdir, row.state, row.partition, row.node, row.elapsed, row.exit_code, "",
+                        _timestamp(row.submit))
     for job_id, row in queue.items():  # the queue is newer than accounting
         if row.user == user:
-            seen[job_id] = (row.name, row.workdir, row.state, "", row.node, row.time, "", row.reason)
+            submitted = seen[job_id][8] if job_id in seen else None
+            seen[job_id] = (row.name, row.workdir, row.state, "", row.node, row.time, "", row.reason, submitted)
     rows = []
-    for job_id, (name, workdir, state, partition, node, elapsed, exit_code, reason) in seen.items():
+    for job_id, (name, workdir, state, partition, node, elapsed, exit_code, reason, submitted) in seen.items():
         found = aerosuite_case(workdir, name)
         if found is None:
             continue
@@ -140,10 +152,12 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
             current = sc.job_id
             partition = partition or sc.partition
             if sc.job_id == job_id:
+                submitted = sc.submitted or submitted
                 status = job.case_status.get(case)
                 case_state = status.value if status is not None else None
                 resubmittable = status is CaseState.FAILED and sc.state in RESUBMITTABLE
         rows.append(MyJob(job_id, study, study_name, case, state, case_state, job.id if job else None, partition,
-                          node, elapsed, exit_code, reason, state in ACTIVE_STATES, current, resubmittable))
+                          node, elapsed, exit_code, reason, state in ACTIVE_STATES, current, resubmittable,
+                          submitted))
     rows.sort(key=lambda row: (len(row.slurm_id), row.slurm_id), reverse=True)
     return rows[:limit], max(0, len(rows) - limit)

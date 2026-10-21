@@ -12,8 +12,8 @@ def _queue(job_id, folder, name, state="RUNNING", user=ME, node="hpc1"):
     return QueueRow(job_id, state, node, "1:00", node if state == "RUNNING" else "Priority", user, name, str(folder))
 
 
-def _ended(job_id, folder, name, state="COMPLETED", partition="node1"):
-    return HistoryRow(job_id, name, state, "0:0", "00:02:00", "hpc1", partition, "", "", str(folder))
+def _ended(job_id, folder, name, state="COMPLETED", partition="node1", submit=""):
+    return HistoryRow(job_id, name, state, "0:0", "00:02:00", "hpc1", partition, "", "", str(folder), submit)
 
 
 def test_aerosuite_case_and_study_of(slurm_study):
@@ -117,3 +117,18 @@ def test_study_of_reads_project_json_once_until_it_changes(slurm_study, monkeypa
     stamp = (project_dir / "project.json").stat().st_mtime_ns + 1_000_000
     os.utime(project_dir / "project.json", ns=(stamp, stamp))
     assert study_of(folder, f"study/{A0}") == project_dir and len(reads) == 2
+
+
+def test_each_row_knows_when_it_was_submitted(slurm_study):
+    from datetime import datetime
+
+    project_dir, project, runner, fake = slurm_study
+    job = runner.submit(project_dir, project, cases=[A0])
+    queue = {"101": _queue("101", project_dir / "runs" / A0, f"study/{A0}")}
+    [row] = my_jobs(queue, {}, ME, RecordIndex())[0]
+    assert row.submitted == job.slurm[A0].submitted  # from AeroSuite's record
+    elsewhere = {"7": _ended("7", "/gone/s/runs/c", "s/c", submit="2026-10-20T17:39:12")}
+    [row] = my_jobs({}, elsewhere, ME, RecordIndex())[0]
+    assert row.submitted == datetime(2026, 10, 20, 17, 39, 12).timestamp()  # from accounting
+    unknown = {"8": _ended("8", "/gone/s/runs/c", "s/c", submit="Unknown")}
+    assert my_jobs({}, unknown, ME, RecordIndex())[0][0].submitted is None

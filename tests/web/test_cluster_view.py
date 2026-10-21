@@ -114,3 +114,33 @@ def test_a_pending_job_says_why():
     queued = MyJob("8", Path("/d/s"), "s", "c", "PENDING", "PENDING", "j", "node1", "", "0:00", "", "None", True,
                    "8", False)
     assert job_state_text(queued) == "Pending"
+
+
+def _dated(slurm_id, study, case, state, elapsed, submitted):
+    return MyJob(slurm_id, Path(f"/d/{study}"), study, case, "COMPLETED", state, "j", "node1", "hpc1", elapsed,
+                 "0:0", "", False, slurm_id, False, submitted)
+
+
+def test_submitted_text():
+    from datetime import datetime
+
+    from aerosuite.web.cluster_view import submitted_text
+
+    assert submitted_text(_dated("1", "s", "c", "CONVERGED", "1:00", datetime(2026, 10, 21, 9, 42).timestamp())) == (
+        "21 Oct 09:42")
+    assert submitted_text(_dated("1", "s", "c", "CONVERGED", "1:00", None)) == "—"
+
+
+def test_sort_jobs_by_each_column():
+    from aerosuite.web.cluster_view import SORT_KEYS, sort_jobs
+
+    rows = [_dated("1", "b", "M0p8_a2", "FAILED", "10:00", 300.0), _dated("2", "a", "M0p8_a0", "CONVERGED", "1:02:00", 100.0),
+            _dated("3", "c", "M0p8_a4", "UNCONVERGED", "", None)]
+    ids = lambda key, descending: [r.slurm_id for r in sort_jobs(rows, key, descending)]
+    assert SORT_KEYS == ("submitted", "study", "case", "state", "elapsed")
+    assert ids("submitted", True) == ["1", "2", "3"]  # newest first; unknown dates last either way
+    assert ids("submitted", False) == ["2", "1", "3"]
+    assert ids("study", False) == ["2", "1", "3"]
+    assert ids("case", True) == ["3", "1", "2"]
+    assert ids("state", False) == ["2", "1", "3"]  # Converged, Failed, Unconverged
+    assert ids("elapsed", True) == ["2", "1", "3"]  # 1:02:00, 10:00; no time last

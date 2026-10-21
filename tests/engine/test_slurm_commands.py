@@ -193,10 +193,10 @@ from aerosuite.engine.slurm import (  # noqa: E402  (next to the other imports w
 # hpc1, 2026-10-20: sinfo -h -N -o "%N|%P|%t|%C|%m|%e|%O|%E"
 SINFO_N = "hpc1|node1*|idle|0/192/0/192|125000|101081|7.28|none\nhpc2|node2|drain|0/0/192/192|62000|57125|3.38|bad DIMM\n"
 # hpc1, 2026-10-20: sacct -S now-7days -X -n -P --format=JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Start,End,WorkDir
-SACCT_RECENT = ("33|test/M1p2_0km_a10|COMPLETED|0:0|00:02:56|hpc2|node2|2026-10-20T17:39:13|2026-10-20T17:42:09|"
-                "/data/benchmark/x07/test/runs/M1p2_0km_a10\n"
-                "20|test/M1p2_0km_a0|CANCELLED by 1000|0:0|00:01:50|hpc1|node1|2026-10-20T16:29:42|2026-10-20T16:31:32|"
-                "/data/benchmark/x07/test/runs/M1p2_0km_a0\n")
+SACCT_RECENT = ("33|test/M1p2_0km_a10|COMPLETED|0:0|00:02:56|hpc2|node2|2026-10-20T17:39:12|2026-10-20T17:39:13|"
+                "2026-10-20T17:42:09|/data/benchmark/x07/test/runs/M1p2_0km_a10\n"
+                "20|test/M1p2_0km_a0|CANCELLED by 1000|0:0|00:01:50|hpc1|node1|2026-10-20T16:29:41|2026-10-20T16:29:42|"
+                "2026-10-20T16:31:32|/data/benchmark/x07/test/runs/M1p2_0km_a0\n")
 
 
 def test_squeue_asks_for_every_user_with_name_and_folder():
@@ -224,11 +224,13 @@ def test_sinfo_nodes_from_hpc1():
 
 def test_sacct_recent_from_hpc1():
     assert sacct_recent_args() == ["sacct", "-S", "now-7days", "-X", "-n", "-P",
-                                   "--format=JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Start,End,WorkDir"]
+                                   "--format=JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Submit,Start,End,"
+                                   "WorkDir"]
     rows = parse_sacct_recent(SACCT_RECENT)
     assert rows["33"].name == "test/M1p2_0km_a10" and rows["33"].partition == "node2"
     assert rows["33"].workdir == "/data/benchmark/x07/test/runs/M1p2_0km_a10"
     assert rows["20"].state == "CANCELLED"
+    assert rows["33"].submit == "2026-10-20T17:39:12" and rows["33"].start == "2026-10-20T17:39:13"
 
 
 def test_current_user():
