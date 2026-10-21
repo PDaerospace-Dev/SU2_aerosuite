@@ -194,9 +194,12 @@ async def test_the_mode_is_a_toggle_in_the_card_head_and_the_inputs_share_one_ro
         toggle.set_value("altitude")
     await user.should_see(marker="freestream-altitudes-sweep")
     assert "ISA temperature and pressure of its altitude" in _element(user, "freestream-mode-hint").text
-    row = {_element(user, m).parent_slot.parent.parent_slot.parent.id
-           for m in ("freestream-mach-sweep", "freestream-altitudes-sweep", "freestream-reynolds_length")}
-    assert len(row) == 1  # Mach, altitudes and Reynolds length side by side
+    def row(*markers):
+        return {_element(user, m).parent_slot.parent.parent_slot.parent.id for m in markers}
+
+    conditions = row("freestream-mach-sweep", "freestream-alpha-sweep", "freestream-beta-sweep")
+    air = row("freestream-altitudes-sweep", "freestream-reynolds_length")
+    assert len(conditions) == 1 and len(air) == 1 and conditions != air  # Mach, AoA, β; then the air
     await user.should_see(marker="freestream-altitudes-link")
 
 
@@ -251,7 +254,10 @@ async def test_with_the_sweep_on_mach_comes_from_the_sweep(user: User, ready_pro
     _with_x07(project_dir)
     await _open(user, project_dir)
     assert _element(user, "freestream-mach-sweep").value == "0.8"
+    assert _element(user, "freestream-alpha-sweep").value == "0, 2, 4"
+    assert _element(user, "freestream-beta-sweep").value == "0"
     await user.should_not_see(marker="freestream-mach")
+    await user.should_not_see(marker="freestream-alpha")
 
 
 async def test_a_single_case_sets_mach_in_the_template(user: User, ready_project):
@@ -265,6 +271,21 @@ async def test_a_single_case_sets_mach_in_the_template(user: User, ready_project
     user.find(marker="freestream-mach").clear().type("0").trigger("blur")
     await user.should_see("Mach must be greater than 0")
     assert "MACH_NUMBER= 0.55" in (project_dir / "template.cfg").read_text()
+
+
+async def test_a_single_case_sets_aoa_and_sideslip_in_the_template(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    await _open(user, project_dir)
+    assert _element(user, "freestream-alpha").value == "0"  # the template's AOA
+    user.find(marker="freestream-alpha").clear().type("2.5").trigger("blur")
+    user.find(marker="freestream-beta").clear().type("-1").trigger("blur")
+    text = (project_dir / "template.cfg").read_text()
+    assert "AOA= 2.5" in text and "SIDESLIP_ANGLE= -1" in text
+    assert "AOA= 2.5" in _preview(user) and "SIDESLIP_ANGLE= -1" in _preview(user)
+    user.find(marker="freestream-alpha").clear().trigger("blur")
+    await user.should_see("AoA α (deg) needs a value")
+    assert "AOA= 2.5" in (project_dir / "template.cfg").read_text()
 
 
 async def test_the_mach_field_names_a_placeholder_that_wins(user: User, ready_project):

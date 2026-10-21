@@ -203,28 +203,27 @@ def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], 
         sweep_on = frame.session.project.sweep.enabled
         with box:
             hint(MODE_HINTS[fs.mode]).mark("freestream-mode-hint")
+            with ui.element("div").classes("as-grid-3"):  # the flight condition, then the air it flies in
+                _conditions(frame, both)
             if fs.mode == "manual":
-                with ui.element("div").classes("as-grid-4"):
-                    with ui.column().classes("gap-1"):
-                        _mach(frame, both)
+                with ui.element("div").classes("as-grid-3"):
                     for label, name in (("Temperature (K)", "temperature_K"), ("Reynolds number", "reynolds"),
                                         ("Reynolds length", "reynolds_length")):
                         with ui.column().classes("gap-1"):
                             _number_field(frame, hints, label, "freestream", name, "float", both)
                 if sweep_on:
-                    ui.link("Mach is set on the Sweep page →", project_url("sweep", frame.session.directory)).classes(
-                        "as-hint").mark("freestream-mach-link")
+                    ui.link("Mach, AoA and β are set on the Sweep page →",
+                            project_url("sweep", frame.session.directory)).classes("as-hint").mark(
+                        "freestream-mach-link")
                 return
             with ui.element("div").classes("as-grid-3"):
-                with ui.column().classes("gap-1"):
-                    _mach(frame, both)
                 with ui.column().classes("gap-1"):
                     _altitude(frame, number)
                 with ui.column().classes("gap-1"):
                     number("Reynolds length (m)", "reynolds_length", fs.reynolds_length,
                            "for the Reynolds number")
             if sweep_on:
-                ui.link("Mach and altitudes are set on the Sweep page →",
+                ui.link("Mach, AoA, β and altitudes are set on the Sweep page →",
                         project_url("sweep", frame.session.directory)).classes("as-hint").mark(
                     "freestream-altitudes-link")
             _summary(frame)
@@ -249,40 +248,56 @@ def _altitude(frame: ProjectFrame, number: Callable) -> None:
         "freestream-altitudes-sweep")
 
 
-def _mach(frame: ProjectFrame, after: Callable[[], None]) -> None:
-    """The Mach number(s): the Sweep page's with the sweep on (shown, not edited), else the template's
-    MACH_NUMBER (editable)."""
+# (template key, label, the sweep's list and the field's marker name)
+CONDITIONS = (("MACH_NUMBER", "Mach", "mach"), ("AOA", "AoA α (deg)", "alpha"),
+              ("SIDESLIP_ANGLE", "Sideslip β (deg)", "beta"))
+
+
+def _conditions(frame: ProjectFrame, after: Callable[[], None]) -> None:
+    """Mach, AoA and β, one column each: the Sweep page's lists with the sweep on (shown, not edited), else the
+    template's MACH_NUMBER, AOA and SIDESLIP_ANGLE (editable)."""
     project = frame.session.project
     if project.sweep.enabled:
-        shown = ", ".join(format_value(m) for m in project.sweep.mach) or "—"
-        field(ui.input("Mach", value=shown)).props("readonly").classes("w-full as-field-readonly").mark(
-            "freestream-mach-sweep")
+        for _key, label, name in CONDITIONS:
+            shown = ", ".join(format_value(v) for v in getattr(project.sweep, name)) or "—"
+            with ui.column().classes("gap-1"):
+                field(ui.input(label, value=shown)).props("readonly").classes("w-full as-field-readonly").mark(
+                    f"freestream-{name}-sweep")
         return
     try:
         template = read_template(frame.session.directory, project)
     except AeroSuiteError:
         template = ""
-    mach = template_case_values(template)[0] if template else None
+    values = template_case_values(template) if template else (None, None, None)
+    winning = settings_parameters(project.settings)
+    for (key, label, name), value in zip(CONDITIONS, values):
+        with ui.column().classes("gap-1"):
+            _template_number(frame, after, key, label, name, value, winning.get(key))
 
+
+def _template_number(frame: ProjectFrame, after: Callable[[], None], key: str, label: str, name: str,
+                     value: Optional[float], winning: Optional[str]) -> None:
+    """One of the single case's MACH_NUMBER, AOA and SIDESLIP_ANGLE, written into the template."""
     def commit(text: str) -> Optional[str]:
         try:
-            value = parse_optional_number(text, "Mach")
+            number = parse_optional_number(text, label)
         except ProjectError as exc:
             return str(exc)
-        if value is None or value <= 0:
+        if key == "MACH_NUMBER" and (number is None or number <= 0):
             return "Mach must be greater than 0"
-        message = write_template_params(frame, {"MACH_NUMBER": format_value(value)})
+        if number is None:
+            return f"{label} needs a value"
+        message = write_template_params(frame, {key: format_value(number)})
         if message is None:
             after()
         return message
 
-    text_field("Mach", "" if mach is None else format_value(mach), commit, mark="freestream-mach",
-               placeholder="MACH_NUMBER in the template")
-    winning = settings_parameters(project.settings).get("MACH_NUMBER")
+    text_field(label, "" if value is None else format_value(value), commit, mark=f"freestream-{name}",
+               placeholder=f"{key} in the template")
     if winning is not None:
-        hint(f"A MACH_NUMBER placeholder ({winning}) wins over this in the config; "
+        hint(f"A {key} placeholder ({winning}) wins over this in the config; "
              "remove it under Placeholders for this value to take effect").classes(
-            "as-hint-warning").mark("freestream-mach-wins")
+            "as-hint-warning").mark(f"freestream-{name}-wins")
 
 
 def _summary(frame: ProjectFrame) -> None:
