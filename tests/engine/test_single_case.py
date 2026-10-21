@@ -50,9 +50,16 @@ def test_sweep_off_renders_the_template_as_written(ready_project):
     project.settings.overrides = {"CFL_NUMBER": "5"}
     text = render_case(read_template(project_dir, project), project, project.cases[0])
     assert "MACH_NUMBER= 0.3" in text and "AOA= 0.0" in text
-    assert "BREAKDOWN_FILENAME" not in text
+    assert "BREAKDOWN_FILENAME= study_FB.dat" in text
     assert "CFL_NUMBER= 5" in text
     assert "MESH_FILENAME=" in text and "wing.su2" in text
+
+
+def test_sweep_off_replaces_a_stale_breakdown_name_from_the_template(ready_project):
+    project_dir, project = _single(ready_project)
+    template = read_template(project_dir, project) + "BREAKDOWN_FILENAME= M1p2_30km_a0_b10_FB.dat\n"
+    text = render_case(template, project, project.cases[0])
+    assert "BREAKDOWN_FILENAME= study_FB.dat" in text and "M1p2_30km" not in text
 
 
 def test_sweep_off_generate_indexes_values_from_the_template(ready_project):

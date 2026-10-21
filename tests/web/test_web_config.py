@@ -143,7 +143,7 @@ async def test_single_case_preview_checks_and_generate(user: User, ready_project
     _single(project_dir)
     await _open(user, project_dir)
     content = _element(user, "preview").content
-    assert "MACH_NUMBER= 0.3" in content and "BREAKDOWN_FILENAME" not in content
+    assert "MACH_NUMBER= 0.3" in content and "BREAKDOWN_FILENAME= study_FB.dat" in content
     await user.should_see(marker="config-checks")
     user.find(marker="generate").click()
     await user.should_see("Wrote 1 config")

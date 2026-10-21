@@ -100,13 +100,13 @@ def settings_parameters(settings: Settings) -> dict[str, Optional[str]]:
 
 
 def case_parameters(project: Project, case: Case) -> dict[str, str]:
-    params: dict[str, str] = {}
+    # A single case too: a template saved from an old case carries that case's breakdown name.
+    params: dict[str, str] = {"BREAKDOWN_FILENAME": f"{case.name}_FB.dat"}
     if project.sweep.enabled:
         params.update({
             "MACH_NUMBER": format_value(case.mach),
             "AOA": format_value(case.alpha),
             "SIDESLIP_ANGLE": format_value(case.beta),
-            "BREAKDOWN_FILENAME": f"{case.name}_FB.dat",
         })
     if project.mesh.path:
         # Absolute, because the sweep runs from runs/ rather than from the cfg folder.
