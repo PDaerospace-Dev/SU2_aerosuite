@@ -473,7 +473,7 @@ class RunPage:
         with ui.row().classes("items-baseline w-full no-wrap gap-2"):
             self.summary_label = ui.label("").classes("as-muted").mark("run-cluster-summary")
             ui.space()
-            ui.link("Cluster →", "/cluster").classes("no-wrap").mark("run-cluster-link")
+            ui.link("Cluster →", "/cluster").style("white-space: nowrap").mark("run-cluster-link")
         self._summary_values()
 
     def _summary_values(self) -> None:

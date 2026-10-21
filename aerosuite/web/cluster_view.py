@@ -185,11 +185,13 @@ def job_studies(rows: Sequence[MyJob]) -> list[str]:
 
 
 def job_state_text(row: MyJob) -> str:
-    """'Failed (OUT_OF_MEMORY)', 'Converged', 'NODE_FAIL · earlier attempt (now 4)'."""
+    """'Failed (OUT_OF_MEMORY)', 'Converged', 'Pending · Dependency', 'NODE_FAIL · earlier attempt (now 4)'."""
     if row.earlier_attempt:
         return f"{row.slurm_state} · earlier attempt (now {row.current_id})"
     if row.case_state is None:
         return row.slurm_state
     text = row.case_state.capitalize()
+    if row.slurm_state in QUEUED_STATES and row.reason and row.reason != "None":
+        return f"{text} · {row.reason}"  # why it waits: Dependency, Resources, Priority
     plain = {"COMPLETED", "RUNNING", "PENDING", "CANCELLED", "COMPLETING"}
     return text if row.slurm_state in plain or row.slurm_state == row.case_state else f"{text} ({row.slurm_state})"

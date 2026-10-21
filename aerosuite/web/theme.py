@@ -311,6 +311,8 @@ a.as-step:hover { background: #f6f8fa; }
 .as-node-bad { background: #fff8f7; border-color: #f0b9b3; }
 .as-pill-small { font-size: 11.5px; padding: 1px 7px; }
 .as-section-toggle { min-height: 48px; justify-content: flex-start; gap: 10px; padding: 0 16px; }
+.as-section-toggle .q-btn__content { gap: 10px; flex-wrap: nowrap; }
+.as-node-card .as-mono { white-space: nowrap; }
 .as-table-compact .as-own { background: var(--as-accent-tint); }
 .as-table-compact.as-queue .as-td { white-space: normal; }
 .as-queue-what { flex-direction: column; align-items: flex-start !important; gap: 0; }

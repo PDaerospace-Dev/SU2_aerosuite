@@ -105,3 +105,12 @@ def test_my_job_filters_and_texts():
     assert job_state_text(rows[2]) == "Converged"
     assert job_state_text(rows[0]) == "Running"
     assert job_state_text(rows[4]) == "NODE_FAIL · earlier attempt (now 4)"
+
+
+def test_a_pending_job_says_why():
+    waiting = MyJob("7", Path("/d/s"), "s", "c", "PENDING", "PENDING", "j", "node1", "", "0:00", "", "Dependency",
+                    True, "7", False)
+    assert job_state_text(waiting) == "Pending · Dependency"
+    queued = MyJob("8", Path("/d/s"), "s", "c", "PENDING", "PENDING", "j", "node1", "", "0:00", "", "None", True,
+                   "8", False)
+    assert job_state_text(queued) == "Pending"
