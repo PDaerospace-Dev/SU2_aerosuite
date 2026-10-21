@@ -46,7 +46,8 @@ class SlurmCase(BaseModel):
     partition: str
     ntasks: int
     time_limit: str = ""
-    depends_on: Optional[str] = None  # the case whose job this one waits for (afterok)
+    depends_on: Optional[str] = None  # the case whose job this one waits for (afterany; afterok before)
+    scratch_fallback: bool = False  # afterany: it starts from scratch when depends_on ends without a solution
     state: str = "PENDING"  # the last Slurm state seen: PENDING, RUNNING, ..., COMPLETED, OUT_OF_MEMORY
     node: str = ""
     reason: str = ""  # why it is pending (Resources, Priority, Dependency)

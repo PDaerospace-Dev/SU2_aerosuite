@@ -6,7 +6,7 @@ from aerosuite.engine.jobs.runner import CaseState, JobState
 from aerosuite.engine.jobs.store import active_lock, load_job, save_job
 from aerosuite.engine.project import save_project
 
-from slurm_helpers import A0, A2, A4, STEADY, slurm_study  # noqa: F401  (fixture)
+from slurm_helpers import A0, A2, A4, STEADY, as_afterok, slurm_study  # noqa: F401  (fixture)
 
 
 def test_cancel_scancels_every_unfinished_case_in_one_call(slurm_study, history_writer):
@@ -42,7 +42,7 @@ def _fail_first(slurm_study, state="NODE_FAIL", previous=True):
         for case in project.cases[1:]:
             case.restart = "previous"
         save_project(project_dir, project)
-    job = runner.submit(project_dir, project)
+    job = as_afterok(project_dir, runner.submit(project_dir, project))  # resubmitting a blocked chain
     fake.run("101", node="hpc2")
     runner.refresh(project_dir, job)
     fake.finish("101", state, "0:0" if state == "NODE_FAIL" else "0:125", node="hpc2")
@@ -63,8 +63,8 @@ def test_resubmit_a_node_fail_case_with_the_cases_blocked_behind_it(slurm_study)
         A0: ("104", ["101"]), A2: ("105", ["102"]), A4: ("106", ["103"])}
     assert all(state is CaseState.PENDING for state in job.case_status.values())
     assert fake.job("104")["dependency"] is None
-    assert fake.job("105")["dependency"] == "afterok:104"
-    assert fake.job("106")["dependency"] == "afterok:105"
+    assert fake.job("105")["dependency"] == "afterany:104"  # resubmitted: with the scratch fallback
+    assert fake.job("106")["dependency"] == "afterany:105"
     assert fake.job("104")["partition"] == "node1"  # as before
     assert active_lock(project_dir)["job_id"] == job.id
     assert not job.failure_tail
@@ -124,12 +124,26 @@ def test_cancel_one_case_lets_the_others_run(slurm_study):
     assert job.is_active and active_lock(project_dir)["job_id"] == job.id
 
 
-def test_cancel_a_case_others_restart_from_blocks_them(slurm_study):
+def test_cancel_a_case_others_restart_from_lets_them_start_from_scratch(slurm_study):
     project_dir, project, runner, fake = slurm_study
     for case in project.cases[1:]:
         case.restart = "previous"
     save_project(project_dir, project)
     job = runner.submit(project_dir, project, cases=[A0, A2])
+    fake.run("101")
+    job = runner.cancel_case(project_dir, runner.refresh(project_dir, job), A0)
+    fake.run("102")  # afterany: Slurm starts it once A0 is gone
+    job = runner.refresh(project_dir, job)
+    assert job.case_status == {A0: CaseState.CANCELLED, A2: CaseState.RUNNING} and job.is_active
+    assert f"from scratch: {A0} ended CANCELLED" in (project_dir / job.log_path).read_text()
+
+
+def test_cancel_a_case_others_restart_from_blocks_them_in_an_afterok_job(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    for case in project.cases[1:]:
+        case.restart = "previous"
+    save_project(project_dir, project)
+    job = as_afterok(project_dir, runner.submit(project_dir, project, cases=[A0, A2]))
     fake.run("101")
     job = runner.cancel_case(project_dir, runner.refresh(project_dir, job), A0)
     fake.finish("102", "CANCELLED", elapsed="00:00:00")  # Slurm: --kill-on-invalid-dep

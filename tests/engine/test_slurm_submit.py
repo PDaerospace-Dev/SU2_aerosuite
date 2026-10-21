@@ -25,16 +25,48 @@ def test_job_script_matches_the_reference_script():
     assert lines.index("export OMPI_MCA_osc='^ucx'") < lines.index("srun --mpi=pmix SU2_CFD M0p8_a2.cfg")
     assert 'cd "$SLURM_SUBMIT_DIR"' in lines
     assert "srun --mpi=pmix SU2_CFD M0p8_a2.cfg" in lines
-    assert lines[-3:] == ["code=$?", 'echo "AEROSUITE_EXIT $code $(date -Is)"', "exit $code"]
-    assert "--dependency" not in text and "-t " not in text
+    assert lines[-4:] == ["code=$?", "echo $code > aerosuite_exit", 'echo "AEROSUITE_EXIT $code $(date -Is)"',
+                          "exit $code"]
+    assert lines.index("rm -f aerosuite_exit") < lines.index("srun --mpi=pmix SU2_CFD M0p8_a2.cfg")
+    assert "--dependency" not in text and "-t " not in text and "RESTART_SOL" not in text
 
 
 def test_job_script_options():
     options = SlurmOptions(partition="node2", ntasks=48, time_limit="12:00:00", exclusive=False, account="")
-    text = job_script("s", "c", "c.cfg", options, SlurmSettings(), "j", after="101", note="restarts from b")
+    text = job_script("s", "c", "c.cfg", options, SlurmSettings(), "j", after="101", note="restarts from b",
+                      restart_from=("b", "/r/b", "/r/b/restart_flow.dat"))
     assert "#SBATCH -t 12:00:00" in text and "#SBATCH -A" not in text and "--exclusive" not in text
-    assert "#SBATCH --dependency=afterok:101\n#SBATCH --kill-on-invalid-dep=yes\n" in text
+    assert "#SBATCH --dependency=afterany:101\n#SBATCH --kill-on-invalid-dep=yes\n" in text
+    assert 'if [ "$(cat /r/b/aerosuite_exit 2>/dev/null)" != 0 ] || [ ! -f /r/b/restart_flow.dat ]; then' in text
     assert "case c (restarts from b)." in text
+
+
+@pytest.mark.parametrize("exit_code, solution, restarts", [
+    ("0", True, True),  # the case before ended with a solution: restart from it
+    ("1", True, False),  # it failed (a file from before it diverged may be there): from scratch
+    (None, True, False),  # killed before it could write its exit code (time limit, node failure)
+    ("0", False, False),  # no solution file
+])
+def test_a_restarting_case_starts_from_scratch_without_a_solution(tmp_path, exit_code, solution, restarts):
+    import subprocess
+
+    before, folder = tmp_path / "a0", tmp_path / "a2"
+    before.mkdir(), folder.mkdir()
+    if exit_code is not None:
+        (before / "aerosuite_exit").write_text(exit_code + "\n")
+    if solution:
+        (before / "restart_flow.dat").write_text("solution")
+    (folder / "a2.cfg").write_text("MACH_NUMBER= 0.8\nRESTART_SOL= YES\n")
+    settings = SlurmSettings(module_line=":", srun_command="true")
+    text = job_script("s", "a2", "a2.cfg", OPTIONS, settings, "j", after="101",
+                      restart_from=("a0", str(before), str(before / "restart_flow.dat")))
+    (folder / "su2_job.sh").write_text(text)
+    done = subprocess.run(["bash", "su2_job.sh"], cwd=folder, env={"PATH": "/usr/bin:/bin", "SLURM_SUBMIT_DIR": str(folder)},
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert ("RESTART_SOL= YES" if restarts else "RESTART_SOL= NO") in (folder / "a2.cfg").read_text()
+    assert ("starting from scratch" in done.stdout) is not restarts
+    assert (folder / "aerosuite_exit").read_text().strip() == "0"  # for the case after this one
 
 
 @pytest.mark.parametrize("change", [dict(partition="node1\n#SBATCH -p x"), dict(account="a b"),
@@ -105,10 +137,13 @@ def test_previous_restarts_wait_for_the_case_before(slurm_study):
     job = runner.submit(project_dir, project)
     assert (job.slurm[A0].depends_on, job.slurm[A2].depends_on, job.slurm[A4].depends_on) == (None, A0, A2)
     assert fake.job("101")["dependency"] is None
-    assert fake.job("102")["dependency"] == "afterok:101"
-    assert fake.job("103")["dependency"] == "afterok:102"
+    assert fake.job("102")["dependency"] == "afterany:101"
+    assert fake.job("103")["dependency"] == "afterany:102"
+    assert job.slurm[A2].scratch_fallback and not job.slurm[A0].scratch_fallback
     script = (project_dir / "runs" / A4 / "su2_job.sh").read_text()
     assert "#SBATCH --kill-on-invalid-dep=yes" in script
+    assert f"[ ! -f {project_dir / 'runs' / A2 / 'restart_flow'} ]" in script
+    assert f"cat {project_dir / 'runs' / A2 / 'aerosuite_exit'}" in script
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
     assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg
     assert "RESTART_SOL= YES" in cfg

@@ -63,15 +63,16 @@ def test_an_added_case_waits_for_the_running_case_it_restarts_from(slurm_study):
     job = runner.refresh(project_dir, job)
     job = runner.add_cases(project_dir, project, job, [A2], options=NODE2)
     assert job.slurm[A2].depends_on == A0
-    assert fake.job("102")["dependency"] == "afterok:101"
+    assert fake.job("102")["dependency"] == "afterany:101"
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
     assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg
     assert "RESTART_SOL= YES" in cfg
+    assert f"[ ! -f {project_dir / 'runs' / A0 / 'restart_flow'} ]" in (project_dir / "runs" / A2 / "su2_job.sh").read_text()
     fake.finish("101", "FAILED", "1:0")
-    fake.finish("102", "CANCELLED", elapsed="00:00:00")
+    fake.run("102")
     job = runner.refresh(project_dir, job)
-    assert job.case_status == {A0: CaseState.FAILED, A2: CaseState.BLOCKED}
-    assert not job.is_active
+    assert job.case_status == {A0: CaseState.FAILED, A2: CaseState.RUNNING}  # from scratch
+    assert job.is_active
 
 
 def test_cancel_stops_the_added_cases_too(slurm_study):

@@ -2,8 +2,10 @@
 
 A submit writes runs/<case>/<case>.cfg and a self-contained runs/<case>/su2_job.sh (so the folder records exactly
 how the case ran), then `sbatch --parsable` from that folder. A case that restarts from a case running earlier in
-the same job waits for it (--dependency=afterok) and is cancelled by Slurm when it fails
-(--kill-on-invalid-dep=yes); AeroSuite then shows it BLOCKED.
+the same job waits for it to end, however it ends (--dependency=afterany). Each script writes its SU2 exit code to
+aerosuite_exit; the waiting case restarts only when that says 0 and the solution file exists, else it sets
+RESTART_SOL= NO in its cfg and starts from scratch, as the local sweep script does. (Jobs submitted before this
+waited with afterok and were cancelled by Slurm when the case failed; AeroSuite shows those BLOCKED.)
 
 States come from one poll (engine/slurm.py: one squeue, at most one sacct): queued -> PENDING/RUNNING; left the
 queue -> its accounting row (COMPLETED is judged from history.csv as locally); without accounting, the case's
@@ -39,12 +41,14 @@ from .store import JOBS_DIR, active_lock, clear_lock, load_job, save_job, write_
 JOB_SCRIPT = "su2_job.sh"
 STATS_FILE = "slurm_stats.json"
 EXIT_MARK = "AEROSUITE_EXIT"
+EXIT_FILE = "aerosuite_exit"  # the case's SU2 exit code, for the case that restarts from it
 FALLBACK_POLLS = 10  # polls without an accounting row before the case's files decide
 SEFF_TRIES = 3
 TAIL_LINES = 50
 _SAFE = re.compile(r"^[A-Za-z0-9_.:+-]+$")
 _EXIT_RE = re.compile(rf"^{EXIT_MARK}\s+(-?\d+)", re.MULTILINE)
 _RESTART_NAME_RE = re.compile(r"^\s*RESTART_FILENAME\s*=\s*(\S+)", re.MULTILINE)
+_SOLUTION_RE = re.compile(r"^\s*SOLUTION_FILENAME\s*=\s*(\S+)", re.MULTILINE)
 OK_STATES = {CaseState.CONVERGED, CaseState.UNCONVERGED}
 
 
@@ -62,8 +66,11 @@ def job_name(study: str, case: str) -> str:
 
 
 def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slurm: SlurmSettings, job_id: str,
-               after: Optional[str] = None, note: str = "") -> str:
-    """The batch script of one case (see the spec's §4.2); `after` = the Slurm job id it waits for."""
+               after: Optional[str] = None, note: str = "",
+               restart_from: Optional[tuple[str, str, str]] = None) -> str:
+    """The batch script of one case (see the spec's §4.2); `after` = the Slurm job id it waits for, and
+    `restart_from` = (that case, its folder, the solution file): without both its 0 exit and the file, this case
+    starts from scratch."""
     lines = ["#!/bin/bash -l",
              f"#SBATCH -J {job_name(study, case)}",
              f"#SBATCH -p {_safe('Partition', options.partition)}",
@@ -77,7 +84,7 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
         lines.append(f"#SBATCH -t {_safe('Time limit', options.time_limit)}")
     lines.append("#SBATCH -o slurm-%j.out")
     if after:
-        lines += [f"#SBATCH --dependency=afterok:{_safe('Job id', after)}", "#SBATCH --kill-on-invalid-dep=yes"]
+        lines += [f"#SBATCH --dependency=afterany:{_safe('Job id', after)}", "#SBATCH --kill-on-invalid-dep=yes"]
     comment = f"# Written by AeroSuite for job {job_id}, case {case}" + (f" ({note})" if note else "") + "."
     for value in (slurm.module_line, slurm.su2_bin, slurm.srun_command, comment):
         if "\n" in value or "\r" in value:
@@ -86,9 +93,18 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
     lines += [f"export {name}={shlex.quote(value)}" for name, value in env_pairs(slurm.job_env)]
     lines += [f"export PATH={shlex.quote(slurm.su2_bin)}:\"$PATH\"",
               'cd "$SLURM_SUBMIT_DIR"',
-              'echo "AeroSuite: Slurm job $SLURM_JOB_ID on $(hostname), $SLURM_NTASKS ranks, start $(date -Is)"',
-              f"{slurm.srun_command} {shlex.quote(cfg_name)}",
+              f"rm -f {EXIT_FILE}",
+              'echo "AeroSuite: Slurm job $SLURM_JOB_ID on $(hostname), $SLURM_NTASKS ranks, start $(date -Is)"']
+    if restart_from is not None:
+        source, folder, solution = restart_from
+        exit_file = shlex.quote(str(Path(folder) / EXIT_FILE))
+        lines += [f'if [ "$(cat {exit_file} 2>/dev/null)" != 0 ] || [ ! -f {shlex.quote(solution)} ]; then',
+                  f'  echo {shlex.quote(f"AeroSuite: {source} ended without a solution; starting from scratch")}',
+                  "  sed -i -E 's/^RESTART_SOL[[:space:]]*=.*/RESTART_SOL= NO/' " + shlex.quote(cfg_name),
+                  "fi"]
+    lines += [f"{slurm.srun_command} {shlex.quote(cfg_name)}",
               "code=$?",
+              f"echo $code > {EXIT_FILE}",
               f'echo "{EXIT_MARK} $code $(date -Is)"',
               "exit $code"]
     return "\n".join(lines) + "\n"
@@ -263,7 +279,13 @@ class SlurmRunner:
                 attempts: Sequence[str] = ()) -> None:
         folder = project_dir / RUNS_DIR / name
         after = job.slurm[depends_on].job_id if depends_on else None
-        script = job_script(project.name, name, f"{name}.cfg", options, slurm, job.id, after, note)
+        restart_from = None
+        if depends_on:
+            source = project_dir / RUNS_DIR / depends_on
+            own = _SOLUTION_RE.search(_read(folder / f"{name}.cfg"))
+            solution = own.group(1) if own else str(source / _restart_name(_read(source / f"{depends_on}.cfg")))
+            restart_from = (depends_on, str(source), solution)
+        script = job_script(project.name, name, f"{name}.cfg", options, slurm, job.id, after, note, restart_from)
         try:
             (folder / JOB_SCRIPT).write_text(script, encoding="utf-8", newline="\n")
             (folder / JOB_SCRIPT).chmod(0o755)
@@ -276,7 +298,8 @@ class SlurmRunner:
             raise JobError(f"Cannot submit {name}: {exc}") from exc
         job.slurm[name] = SlurmCase(job_id=slurm_id, attempts=list(attempts), partition=options.partition,
                                     ntasks=options.ntasks, time_limit=options.time_limit, depends_on=depends_on,
-                                    reason="Dependency" if after else "", submitted=time.time())
+                                    scratch_fallback=bool(after), reason="Dependency" if after else "",
+                                    submitted=time.time())
         job.case_status[name] = CaseState.PENDING
         job.failure_tail.pop(name, None)
         self._log(project_dir, job, f"{name} -> Slurm job {slurm_id} on {options.partition}, {options.ntasks} tasks"
@@ -297,7 +320,7 @@ class SlurmRunner:
 
         Cases already queued or running in it are skipped; one that finished, failed or was cancelled in it runs
         again (its earlier Slurm id kept in `attempts`). An added case that restarts from a case still queued or
-        running in the job waits for it (afterok), as within one submit. A failed sbatch cancels only this batch.
+        running in the job waits for it (afterany, starting from scratch if it fails), as within one submit. A failed sbatch cancels only this batch.
         """
         project_dir = Path(project_dir).resolve()
         job = self._reload(project_dir, job)
@@ -488,7 +511,9 @@ class SlurmRunner:
         if row.state in sl.RUNNING_STATES:
             sc.node, sc.reason, sc.started = row.node, "", True
             if job.case_status[name] is not CaseState.RUNNING:
-                self._log(project_dir, job, f"{name} ({sc.job_id}) running on {row.node}")
+                target = self._dependency_failed(job, name) if sc.scratch_fallback else None
+                self._log(project_dir, job, f"{name} ({sc.job_id}) running on {row.node}" + (
+                    f", from scratch: {target} ended {job.case_status[target].value}" if target else ""))
             job.case_status[name] = CaseState.RUNNING
             return
         sc.reason = row.reason
@@ -526,11 +551,11 @@ class SlurmRunner:
         sc.node = node or sc.node
         ran = sc.started or (sl.parse_duration(sc.elapsed or "") or 0) > 0
         if state == "CANCELLED":
-            target = sc.depends_on
+            target = None if sc.scratch_fallback else sc.depends_on  # afterany: Slurm never cancels it for that
             if target and not sc.started and job.case_status.get(target) not in FINAL_CASE_STATES:
                 sc.state = "PENDING"  # wait for the case it depends on: Blocked or Cancelled follows from it
                 return
-            if self._dependency_failed(job, name) and not sc.started:
+            if target and self._dependency_failed(job, name) and not sc.started:
                 self._block(project_dir, job, name)
             else:
                 job.case_status[name] = CaseState.CANCELLED
@@ -577,7 +602,7 @@ class SlurmRunner:
             return
         if exits or "Exit Success" in text:
             self._from_files(project_dir, job, name, sc, folder, out, int(exits[-1]) if exits else 0, error)
-        elif self._dependency_failed(job, name) and not text:
+        elif not sc.scratch_fallback and self._dependency_failed(job, name) and not text:
             self._block(project_dir, job, name)
         else:
             sc.state = "UNKNOWN"

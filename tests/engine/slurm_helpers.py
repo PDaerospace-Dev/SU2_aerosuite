@@ -3,6 +3,7 @@ import pytest
 
 from aerosuite.engine.cfg import generate_configs
 from aerosuite.engine.jobs.slurm import SlurmRunner
+from aerosuite.engine.jobs.store import save_job
 from aerosuite.engine.project import save_project
 from aerosuite.engine.settings import AppSettings, set_value
 
@@ -35,3 +36,12 @@ def out_file(project_dir, case, job_id, text):
     path = project_dir / "runs" / case / f"slurm-{job_id}.out"
     path.write_text(text)
     return path
+
+
+def as_afterok(project_dir, job):
+    """The record as a job submitted before the scratch fallback: its dependents waited with afterok, so Slurm
+    cancelled them when the case they restart from failed, and AeroSuite shows them BLOCKED."""
+    for sc in job.slurm.values():
+        sc.scratch_fallback = False
+    save_job(project_dir, job)
+    return job

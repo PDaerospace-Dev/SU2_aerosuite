@@ -196,8 +196,11 @@ aerosuite settings                   # partitions, default tasks, memory limits,
   reruns it by hand, after removing a `--dependency` line).
 - While a Slurm job runs, the Run page's **Add cases** sends more ticked cases into it, e.g. to the other node; the
   time limit for every job is set on the Settings page (`--time` overrides it for one run).
-- A case that restarts from another case of the same submit waits for it (`--dependency=afterok`); if that one
-  fails, the case shows **Blocked** instead of waiting forever.
+- A case that restarts from another case of the same submit waits for it to end, however it ends
+  (`--dependency=afterany`). It restarts from that case's solution only if the case exited 0 and the solution file
+  exists; otherwise (failed, cancelled, killed) its script sets `RESTART_SOL= NO` and it starts from scratch, as a
+  local sweep does. Its `slurm-<id>.out` and the job log say so. (Jobs submitted before this used `afterok`: there a
+  failed case's dependents show **Blocked**.)
 - Studies must live under the shared root (`/data`): the other node cannot see anything else. Before submitting,
   AeroSuite estimates the memory from the mesh header (`NELEM` × 3.9 GB per million cells, configurable), warns when
   it is over the partition's limit and refuses on partitions set to block (node2).

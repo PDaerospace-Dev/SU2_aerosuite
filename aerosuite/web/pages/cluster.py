@@ -317,7 +317,7 @@ class ClusterPage:
         try:
             with ui.dialog() as dialog, ui.card():
                 ui.label(f"Cancel {row.case} (Slurm job {row.slurm_id}) of {row.study_name}? Cases that restart "
-                         "from its solution become Blocked; the job's other cases go on.")
+                         "from its solution start from scratch instead; the job's other cases go on.")
                 with ui.row().classes("w-full justify-end gap-2"):
                     secondary_button("Keep it", on_click=lambda: _answer(dialog, False)).mark("cancel-keep")
                     danger_button("Cancel the case", on_click=lambda: _answer(dialog, True)).mark("cancel-confirm")

@@ -8,7 +8,7 @@ from aerosuite.engine.jobs.slurm import FALLBACK_POLLS, case_stats
 from aerosuite.engine.jobs.store import active_lock, load_job
 from aerosuite.engine.project import save_project
 
-from slurm_helpers import A0, A2, A4, STEADY, WOBBLY, out_file, slurm_study  # noqa: F401  (fixture)
+from slurm_helpers import A0, A2, A4, STEADY, WOBBLY, as_afterok, out_file, slurm_study  # noqa: F401  (fixture)
 
 
 def _submit(slurm_study, cases=None, previous=False):
@@ -108,9 +108,32 @@ def test_cancelled_outside_aerosuite(slurm_study):
     assert job.case_status[A0] is CaseState.CANCELLED and job.state is JobState.CANCELLED
 
 
-def test_a_failed_case_blocks_the_chain_behind_it(slurm_study):
+def test_a_failed_case_lets_the_case_behind_it_start_from_scratch(slurm_study):
     project_dir, project, runner, fake = slurm_study
     job = _submit(slurm_study, previous=True)
+    fake.run("101")
+    job = runner.refresh(project_dir, job)
+    fake.finish("101", "FAILED", "1:0")  # afterany: Slurm starts the next case anyway
+    fake.run("102")
+    job = runner.refresh(project_dir, job)
+    assert job.case_status == {A0: CaseState.FAILED, A2: CaseState.RUNNING, A4: CaseState.PENDING}
+    assert A2 not in job.failure_tail and job.is_active
+    log = (project_dir / job.log_path).read_text()
+    assert f"{A2} (102) running on hpc1, from scratch: {A0} ended FAILED" in log
+
+
+def test_a_cancelled_dependent_is_cancelled_not_blocked(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = _submit(slurm_study, cases=[A0, A2], previous=True)
+    fake.finish("101", "FAILED", "1:0")
+    fake.finish("102", "CANCELLED", "0:0", elapsed="00:00:00")  # someone cancelled it
+    job = runner.refresh(project_dir, job)
+    assert job.case_status == {A0: CaseState.FAILED, A2: CaseState.CANCELLED}
+
+
+def test_a_failed_case_blocks_the_chain_behind_it_in_an_afterok_job(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = as_afterok(project_dir, _submit(slurm_study, previous=True))
     fake.run("101")
     job = runner.refresh(project_dir, job)
     assert job.case_status[A2] is CaseState.PENDING and job.slurm[A2].reason == "Dependency"
@@ -125,9 +148,9 @@ def test_a_failed_case_blocks_the_chain_behind_it(slurm_study):
     assert not job.is_active
 
 
-def test_a_cancelled_dependent_waits_for_the_case_it_depends_on(slurm_study):
+def test_a_cancelled_dependent_waits_for_the_case_it_depends_on_in_an_afterok_job(slurm_study):
     project_dir, project, runner, fake = slurm_study
-    job = _submit(slurm_study, cases=[A0, A2], previous=True)
+    job = as_afterok(project_dir, _submit(slurm_study, cases=[A0, A2], previous=True))
     fake.finish("101", "FAILED", "1:0", accounted=False)  # slurmdbd has no row for it yet
     fake.finish("102", "CANCELLED", "0:0", elapsed="00:00:00")
     job = runner.refresh(project_dir, job)

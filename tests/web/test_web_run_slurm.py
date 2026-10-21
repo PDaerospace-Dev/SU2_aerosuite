@@ -137,10 +137,14 @@ async def test_resubmit_out_of_memory_proposes_more_memory(user: User, slurm_pro
 
 
 async def test_a_blocked_case_shows_why(user: User, slurm_project, eventually):
+    from aerosuite.engine.jobs.store import save_job
+
     project_dir, project, fake = slurm_project
     project.cases[1].restart = "previous"
     save_project(project_dir, project)
     job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    job.slurm[A2].scratch_fallback = False  # a job submitted before the fallback: afterok
+    save_job(project_dir, job)
     fake.finish("101", "FAILED", "1:0")
     fake.finish("102", "CANCELLED", elapsed="00:00:00")
     WATCH.track(project_dir, job.id)
