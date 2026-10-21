@@ -60,7 +60,7 @@ class ClusterPage:
         self.shown: Optional[tuple] = None
         self.good = None  # the last snapshot Slurm answered: shown, greyed, while it does not
         WATCH.show_page()
-        ui.context.client.on_disconnect(WATCH.hide_page)
+        ui.context.client.on_delete(WATCH.hide_page)  # not on_disconnect: a brief socket drop reconnects
         self.holder = ui.column().classes("w-full gap-4")
         self.poll()
         ui.timer(POLL_SECONDS, self.poll)

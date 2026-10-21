@@ -88,7 +88,7 @@ def _cluster_button() -> None:
         ui.label("Cluster")
         count = ui.label("").classes("as-cluster-count").mark("cluster-count")
     watch.show_cluster()
-    ui.context.client.on_disconnect(watch.hide_cluster)
+    ui.context.client.on_delete(watch.hide_cluster)  # not on_disconnect: a brief socket drop reconnects
 
     def update() -> None:
         if dot.is_deleted:

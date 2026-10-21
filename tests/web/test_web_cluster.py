@@ -169,3 +169,15 @@ async def test_more_than_the_cap_says_so(user: User, cluster_study, monkeypatch,
     runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
     await _open(user)
     await eventually(lambda: _text(user, "jobs-more") == "1 older job not shown", 5)
+
+
+async def test_a_brief_disconnect_keeps_the_page_counted(user: User, cluster_study):
+    await user.open("/cluster")
+    await user.should_see(marker="cluster-page")
+    assert (WATCH.viewers, WATCH.pages) == (1, 1)  # the top-bar button and the page
+    for handler in list(user.client.disconnect_handlers):  # a Wi-Fi blip: the socket drops and comes back
+        user.client.safe_invoke(handler)
+    assert (WATCH.viewers, WATCH.pages) == (1, 1)
+    for handler in list(user.client.delete_handlers):  # the tab is really gone
+        user.client.safe_invoke(handler)
+    assert (WATCH.viewers, WATCH.pages) == (0, 0)
