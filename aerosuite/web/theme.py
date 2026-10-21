@@ -304,6 +304,14 @@ a.as-step:hover { background: #f6f8fa; }
 .as-dot-green { background: #2da44e; } .as-dot-amber { background: #d4a72c; }
 .as-dot-red { background: #cf222e; } .as-dot-grey { background: #8c959f; }
 .as-cluster-count { margin-left: 4px; color: #9fb0c8; }
+/* Cluster page (layout D): compact node cards, collapsible sections, your rows in the queue */
+.as-node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.as-node-card { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 10px 12px;
+  gap: 6px; }
+.as-node-bad { background: #fff8f7; border-color: #f0b9b3; }
+.as-pill-small { font-size: 11.5px; padding: 1px 7px; }
+.as-section-toggle { min-height: 48px; justify-content: flex-start; gap: 10px; padding: 0 16px; }
+.as-table-compact .as-own { background: var(--as-accent-tint); }
 .as-table-compact.as-queue .as-td { white-space: normal; }
 .as-queue-what { flex-direction: column; align-items: flex-start !important; gap: 0; }
 .as-table-compact .as-td.as-slurm-cell { white-space: normal; gap: 8px; }

@@ -13,7 +13,8 @@ def register_pages(root: Path) -> None:
     app.on_startup(WATCH.start)  # the Slurm poller: idle until a Slurm job or the cluster panel needs it
     app.on_shutdown(WATCH.stop)
     from .pages import config as config_page
-    from .pages import aircraft, calculators, monitor, profiles, projects, results, run, settings, setup, sweep
+    from .pages import (aircraft, calculators, cluster, monitor, profiles, projects, results, run, settings, setup,
+                        sweep)
 
     projects.register()
     setup.register()
@@ -26,3 +27,4 @@ def register_pages(root: Path) -> None:
     calculators.register()
     profiles.register()
     settings.register()
+    cluster.register()

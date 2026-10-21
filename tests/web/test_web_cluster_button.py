@@ -38,3 +38,5 @@ async def test_the_button_dot_and_count(user: User, fake_slurm, ready_project, t
     fake_slurm.update(controller_down=True)
     await WATCH.poll_once()
     await eventually(lambda: "as-dot-red" in _element(user, "cluster-dot").classes, 5)
+    user.find(marker="cluster").click()
+    await user.should_see(marker="cluster-page")
