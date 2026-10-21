@@ -64,7 +64,7 @@ async def test_sinfo_only_while_a_page_shows_the_cluster(two_studies):
                 reasons=["hpc2|drain|bad DIMM"])
     fake.clear_calls()
     await watch.poll_once()
-    assert [call[0:2] for call in fake.calls()] == [["squeue", "--me"], ["sinfo", "-h"], ["sinfo", "-R"]]
+    assert [call[0:2] for call in fake.calls()] == [["squeue", "-h"], ["sinfo", "-h"], ["sinfo", "-R"]]
     assert watch.cluster.reasons["hpc2"].reason == "bad DIMM"
     watch.hide_cluster()
     fake.clear_calls()

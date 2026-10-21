@@ -173,6 +173,8 @@ class FakeSlurm:
             "jobs": {}, "calls": [], "controller_down": False, "accounting_down": False,
             "partitions": ["node1*|up|1|idle|0/192/0/192", "node2|up|1|idle|0/192/0/192"],
             "reasons": [],
+            "nodes": ["hpc1|node1*|idle|0/192/0/192|125000|101000|7.28|none",
+                      "hpc2|node2|idle|0/192/0/192|62000|57000|3.38|none"],
         })
 
     def read(self) -> dict:
@@ -196,6 +198,16 @@ class FakeSlurm:
         state = self.read()
         state["jobs"][job_id].update(values)
         self.write(state)
+
+    def add_job(self, job_id: str, user: str = "someone", state: str = "RUNNING", node: str = "hpc1",
+                time: str = "1:00", reason: str = "None", name: str = "other/job", cwd: str = "/home/someone") -> None:
+        """A job someone else (or a hand-written script) put in the queue."""
+        data = self.read()
+        data["jobs"][job_id] = {"name": name, "partition": "node1", "ntasks": "4", "dependency": None, "cwd": cwd,
+                                "script": "", "env_virtual_env": None, "user": user, "state": state,
+                                "in_queue": True, "node": node, "time": time, "reason": reason, "exit_code": "0:0",
+                                "elapsed": "00:00:00", "accounted": True, "seff": None}
+        self.write(data)
 
     def run(self, job_id: str, node: str = "hpc1", time: str = "0:05") -> None:
         self.set_job(job_id, state="RUNNING", node=node, time=time, reason="None")

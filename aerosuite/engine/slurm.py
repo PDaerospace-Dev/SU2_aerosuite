@@ -8,6 +8,7 @@ job's steps, per task), so the job's total memory comes from `seff`.
 from __future__ import annotations
 
 import asyncio
+import getpass
 import os
 import re
 import shutil
@@ -19,7 +20,6 @@ from typing import Iterable, Mapping, Optional, Sequence
 from .errors import AeroSuiteError
 
 TIMEOUT = 20.0
-SQUEUE_FORMAT = "%i|%T|%N|%M|%R"
 SACCT_FIELDS = "JobID,State,ExitCode,Elapsed,MaxRSS,NodeList"
 SINFO_FORMAT = "%P|%a|%D|%t|%C"
 SINFO_REASON_FORMAT = "%n|%t|%E"
@@ -40,10 +40,6 @@ class SlurmUnavailable(AeroSuiteError):
 
 
 # -- arguments ----------------------------------------------------------------------------------------------
-
-def squeue_args() -> list[str]:
-    return ["squeue", "--me", "-h", "-o", SQUEUE_FORMAT]
-
 
 def sacct_args(job_ids: Iterable[str]) -> list[str]:
     return ["sacct", "-j", ",".join(job_ids), "-P", "-n", "-X", f"--format={SACCT_FIELDS}"]
@@ -70,15 +66,6 @@ def scancel_args(job_ids: Iterable[str]) -> list[str]:
 
 
 # -- parsed output ------------------------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class QueueRow:
-    job_id: str
-    state: str
-    node: str  # "" while pending
-    time: str  # run time as squeue prints it, "0:00" while pending
-    reason: str  # pending: why ("Resources", "Dependency"); running: the node list
-
 
 @dataclass(frozen=True)
 class AcctRow:
@@ -134,17 +121,6 @@ def parse_sbatch(text: str) -> str:
 def _strip_reason(text: str) -> str:
     text = text.strip()
     return text[1:-1] if text.startswith("(") and text.endswith(")") else text
-
-
-def parse_squeue(text: str) -> dict[str, QueueRow]:
-    rows = {}
-    for line in text.splitlines():
-        parts = line.strip().split("|", 4)
-        if len(parts) != 5 or not parts[0]:
-            continue
-        job_id, state, node, run_time, reason = (part.strip() for part in parts)
-        rows[job_id] = QueueRow(job_id, state, node, run_time, _strip_reason(reason))
-    return rows
 
 
 def parse_sacct(text: str) -> dict[str, AcctRow]:
@@ -217,6 +193,169 @@ def parse_seff(text: str) -> SeffStats:
         cpu_utilized_s=parse_duration(values.get("CPU Utilized", "")),
         memory_gb=memory,
     )
+
+
+SQUEUE_FORMAT = "%i|%T|%N|%M|%R|%u|%j|%Z"  # every user's jobs: id, state, node, time, reason, user, name, folder
+SINFO_NODES_FORMAT = "%N|%P|%t|%C|%m|%e|%O|%E"  # per node: partition, state, CPUs, memory, free, load, reason
+RECENT_DAYS = 7
+RECENT_FIELDS = "JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Start,End,WorkDir"
+
+
+def squeue_args() -> list[str]:
+    return ["squeue", "-h", "-o", SQUEUE_FORMAT]
+
+
+def sinfo_nodes_args() -> list[str]:
+    return ["sinfo", "-h", "-N", "-o", SINFO_NODES_FORMAT]
+
+
+def sacct_recent_args(days: int = RECENT_DAYS) -> list[str]:
+    return ["sacct", "-S", f"now-{days}days", "-X", "-n", "-P", f"--format={RECENT_FIELDS}"]
+
+
+def current_user() -> str:
+    """The Unix user running AeroSuite: whose jobs are "mine"."""
+    return getpass.getuser()
+
+
+@dataclass(frozen=True)
+class QueueRow:
+    job_id: str
+    state: str
+    node: str  # "" while pending
+    time: str  # run time as squeue prints it, "0:00" while pending
+    reason: str  # pending: why ("Resources", "Dependency"); running: the node list
+    user: str = ""
+    name: str = ""  # an AeroSuite case: "<study>/<case>"
+    workdir: str = ""  # an AeroSuite case: "<study folder>/runs/<case>"; "" when Slurm does not say
+
+
+def _folder(text: str) -> str:
+    text = text.strip()
+    return text if text.startswith("/") else ""  # "(null)", "N/A", ""
+
+
+def parse_squeue(text: str) -> dict[str, QueueRow]:
+    """squeue rows by job id: 8 fields (SQUEUE_FORMAT), or the 5 of the older format. A '|' inside a job name stays
+    in the name: the folder is always the last field."""
+    rows = {}
+    for line in text.splitlines():
+        parts = [part.strip() for part in line.strip().split("|")]
+        if len(parts) < 5 or not parts[0]:
+            continue
+        job_id, state, node, run_time, reason = parts[:5]
+        user, name, workdir = "", "", ""
+        if len(parts) >= 8:
+            user, name, workdir = parts[5], "|".join(parts[6:-1]), _folder(parts[-1])
+        rows[job_id] = QueueRow(job_id, state, node, run_time, _strip_reason(reason), user, name, workdir)
+    return rows
+
+
+@dataclass(frozen=True)
+class NodeRow:
+    node: str
+    partition: str
+    default: bool  # the default partition (sinfo marks it '*')
+    state: str  # idle, mix, alloc, drain, down*, ...
+    allocated: int
+    idle: int
+    other: int
+    total: int
+    memory_mb: Optional[int]
+    free_mb: Optional[int]
+    load: Optional[float]
+    reason: str  # why it is drained or down; "" when sinfo says "none"
+
+    @property
+    def bad(self) -> bool:
+        return self.state.rstrip("*~#!%$@^-").startswith(BAD_NODE_STATES)
+
+
+def _int(text: str) -> Optional[int]:
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
+def _float(text: str) -> Optional[float]:
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def parse_sinfo_nodes(text: str) -> list[NodeRow]:
+    rows = []
+    for line in text.splitlines():
+        parts = [part.strip() for part in line.strip().split("|", 7)]
+        if len(parts) != 8 or not parts[0]:
+            continue
+        node, partition, state, cpus, memory, free, load, reason = parts
+        counts = [_int(count) for count in cpus.split("/")]
+        if len(counts) != 4 or None in counts:
+            continue
+        allocated, idle, other, total = counts
+        rows.append(NodeRow(node, partition.rstrip("*"), partition.endswith("*"), state, allocated, idle, other,
+                            total, _int(memory), _int(free), _float(load),
+                            "" if reason.lower() == "none" else reason))
+    return rows
+
+
+@dataclass(frozen=True)
+class HistoryRow:
+    job_id: str
+    name: str
+    state: str  # "CANCELLED by 1000" -> "CANCELLED"
+    exit_code: str
+    elapsed: str
+    node: str
+    partition: str
+    start: str
+    end: str
+    workdir: str
+
+
+def parse_sacct_recent(text: str) -> dict[str, HistoryRow]:
+    """RECENT_FIELDS rows by job id; a '|' inside a job name stays in the name (the other fields are counted from
+    both ends)."""
+    rows = {}
+    for line in text.splitlines():
+        parts = [part.strip() for part in line.strip().split("|")]
+        if len(parts) < 10 or not parts[0] or "." in parts[0]:
+            continue
+        job_id, workdir = parts[0], parts[-1]
+        name = "|".join(parts[1:-8])
+        state, exit_code, elapsed, node, partition, start, end = parts[-8:-1]
+        rows[job_id] = HistoryRow(job_id, name, state.split(" ")[0], exit_code, elapsed, node, partition, start, end,
+                                  _folder(workdir))
+    return rows
+
+
+@dataclass(frozen=True)
+class RecentJobs:
+    """The user's jobs of the last RECENT_DAYS days from accounting (one sacct)."""
+    taken: float = field(default_factory=time.time)
+    rows: Mapping[str, HistoryRow] = field(default_factory=dict)
+    error: Optional[str] = None
+
+
+async def recent_async(days: int = RECENT_DAYS, timeout: float = TIMEOUT) -> RecentJobs:
+    taken = time.time()
+    try:
+        return RecentJobs(taken=taken, rows=parse_sacct_recent(await run_async(sacct_recent_args(days),
+                                                                              timeout=timeout)))
+    except SlurmUnavailable as exc:
+        return RecentJobs(taken=taken, error=str(exc))
+
+
+async def nodes_async(timeout: float = TIMEOUT) -> ClusterInfo:
+    """One sinfo -N: every node with its partition, CPUs, memory, load and reason."""
+    taken = time.time()
+    try:
+        return ClusterInfo(taken=taken, nodes=parse_sinfo_nodes(await run_async(sinfo_nodes_args(), timeout=timeout)))
+    except SlurmUnavailable as exc:
+        return ClusterInfo(taken=taken, error=str(exc))
 
 
 # -- running them -------------------------------------------------------------------------------------------
@@ -334,6 +473,7 @@ class ClusterInfo:
     partitions: Sequence[PartitionRow] = ()
     reasons: Mapping[str, NodeReason] = field(default_factory=dict)
     error: Optional[str] = None
+    nodes: Sequence["NodeRow"] = ()
 
 
 async def cluster_async(timeout: float = TIMEOUT) -> ClusterInfo:

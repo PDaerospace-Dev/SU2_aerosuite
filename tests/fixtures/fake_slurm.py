@@ -5,6 +5,7 @@ Usage: python fake_slurm.py <command> <args...>   (the shims the `fake_slurm` fi
 The cluster lives in the JSON file named by $FAKE_SLURM_STATE; tests move jobs through their states by editing it
 (see FakeSlurm in tests/conftest.py). Every call is appended to its "calls" list. Standard library only.
 """
+import getpass
 import json
 import os
 import re
@@ -61,6 +62,7 @@ def sbatch(state, args):
         "name": options.get("-J", ""), "partition": options.get("-p", ""), "ntasks": options.get("-n", ""),
         "dependency": dependency, "cwd": os.getcwd(), "script": os.path.abspath(script),
         "env_virtual_env": os.environ.get("VIRTUAL_ENV"),
+        "user": os.environ.get("FAKE_SLURM_USER") or getpass.getuser(),
         "state": "PENDING", "in_queue": True, "node": "", "time": "0:00",
         "reason": "Dependency" if dependency else "Priority",
         "exit_code": "0:0", "elapsed": "00:00:00", "accounted": True, "seff": None,
@@ -72,16 +74,30 @@ def sbatch(state, args):
 def squeue(state, args):
     if state.get("controller_down"):
         return fail(CONTROLLER_DOWN)
+    me = getpass.getuser()
     for job_id, job in sorted(state["jobs"].items(), key=lambda item: int(item[0])):
-        if job["in_queue"]:
-            reason = job["node"] if job["state"] in ("RUNNING", "COMPLETING") else "(" + job["reason"] + ")"
-            sys.stdout.write("|".join([job_id, job["state"], job["node"], job["time"], reason]) + "\n")
+        user = job.get("user") or me
+        if not job["in_queue"] or ("--me" in args and user != me):
+            continue
+        reason = job["node"] if job["state"] in ("RUNNING", "COMPLETING") else "(" + job["reason"] + ")"
+        fields = [job_id, job["state"], job["node"], job["time"], reason, user, job.get("name", ""),
+                  job.get("cwd", "") or "(null)"]
+        sys.stdout.write("|".join(fields) + "\n")
     return 0
 
 
 def sacct(state, args):
     if state.get("accounting_down"):
         return fail(ACCOUNTING_DOWN)
+    if "-S" in args:  # the recent history: the user's ended, accounted jobs
+        me = getpass.getuser()
+        for job_id, job in sorted(state["jobs"].items(), key=lambda item: int(item[0])):
+            if job["in_queue"] or not job.get("accounted", True) or (job.get("user") or me) != me:
+                continue
+            fields = [job_id, job.get("name", ""), job["state"], job["exit_code"], job["elapsed"], job["node"],
+                      job.get("partition", ""), job.get("start", ""), job.get("end", ""), job.get("cwd", "")]
+            sys.stdout.write("|".join(fields) + "\n")
+        return 0
     ids = args[args.index("-j") + 1].split(",")
     for job_id in ids:
         job = state["jobs"].get(job_id)
@@ -111,7 +127,10 @@ def scancel(state, args):
 def sinfo(state, args):
     if state.get("controller_down"):
         return fail("slurm_load_partitions: Unable to contact slurm controller (connect failure)")
-    lines = state["reasons"] if "-R" in args else state["partitions"]
+    if "-N" in args:
+        lines = state.get("nodes", [])
+    else:
+        lines = state["reasons"] if "-R" in args else state["partitions"]
     for line in lines:
         sys.stdout.write(line + "\n")
     return 0

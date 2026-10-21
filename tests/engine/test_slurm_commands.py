@@ -202,3 +202,80 @@ def test_fake_scancel_and_sinfo(fake_slurm, tmp_path):
     assert [r.name for r in rows] == ["node1", "node2"]
     fake_slurm.update(reasons=["hpc2|drain|bad DIMM"])
     assert parse_sinfo_reasons(run_sync(slurm.sinfo_reason_args()))["hpc2"].reason == "bad DIMM"
+
+
+from aerosuite.engine.slurm import (  # noqa: E402  (next to the other imports when tidying)
+    current_user, parse_sacct_recent, parse_sinfo_nodes, recent_async, nodes_async, sacct_recent_args,
+    sinfo_nodes_args, squeue_args,
+)
+
+# hpc1, 2026-10-20: sinfo -h -N -o "%N|%P|%t|%C|%m|%e|%O|%E"
+SINFO_N = "hpc1|node1*|idle|0/192/0/192|125000|101081|7.28|none\nhpc2|node2|drain|0/0/192/192|62000|57125|3.38|bad DIMM\n"
+# hpc1, 2026-10-20: sacct -S now-7days -X -n -P --format=JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Start,End,WorkDir
+SACCT_RECENT = ("33|test/M1p2_0km_a10|COMPLETED|0:0|00:02:56|hpc2|node2|2026-10-20T17:39:13|2026-10-20T17:42:09|"
+                "/data/benchmark/x07/test/runs/M1p2_0km_a10\n"
+                "20|test/M1p2_0km_a0|CANCELLED by 1000|0:0|00:01:50|hpc1|node1|2026-10-20T16:29:42|2026-10-20T16:31:32|"
+                "/data/benchmark/x07/test/runs/M1p2_0km_a0\n")
+
+
+def test_squeue_asks_for_every_user_with_name_and_folder():
+    assert squeue_args() == ["squeue", "-h", "-o", "%i|%T|%N|%M|%R|%u|%j|%Z"]
+    rows = parse_squeue("12|RUNNING|hpc1|1:00|hpc1|pdas-hpc1|test/M0p8_a0|/data/s/runs/M0p8_a0\n"
+                        "13|PENDING||0:00|(Resources)|ana|my|job|(null)\n"
+                        "14|PENDING||0:00|(Priority)\n")
+    assert (rows["12"].user, rows["12"].name, rows["12"].workdir) == ("pdas-hpc1", "test/M0p8_a0", "/data/s/runs/M0p8_a0")
+    assert (rows["13"].user, rows["13"].name, rows["13"].workdir) == ("ana", "my|job", "")  # '|' in a name, (null) dir
+    assert (rows["14"].user, rows["14"].reason) == ("", "Priority")  # the old 5-field form still reads
+
+
+def test_sinfo_nodes_from_hpc1():
+    assert sinfo_nodes_args() == ["sinfo", "-h", "-N", "-o", "%N|%P|%t|%C|%m|%e|%O|%E"]
+    nodes = parse_sinfo_nodes(SINFO_N)
+    assert [(n.node, n.partition, n.default, n.state) for n in nodes] == [
+        ("hpc1", "node1", True, "idle"), ("hpc2", "node2", False, "drain")]
+    hpc1, hpc2 = nodes
+    assert (hpc1.allocated, hpc1.total, hpc1.memory_mb, hpc1.free_mb, hpc1.load) == (0, 192, 125000, 101081, 7.28)
+    assert hpc1.reason == "" and not hpc1.bad
+    assert hpc2.reason == "bad DIMM" and hpc2.bad
+    odd = parse_sinfo_nodes("hpc3|node3|down*|0/0/96/96|N/A|N/A|N/A|Not responding\n")[0]
+    assert (odd.memory_mb, odd.free_mb, odd.load, odd.bad) == (None, None, None, True)
+
+
+def test_sacct_recent_from_hpc1():
+    assert sacct_recent_args() == ["sacct", "-S", "now-7days", "-X", "-n", "-P",
+                                   "--format=JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Start,End,WorkDir"]
+    rows = parse_sacct_recent(SACCT_RECENT)
+    assert rows["33"].name == "test/M1p2_0km_a10" and rows["33"].partition == "node2"
+    assert rows["33"].workdir == "/data/benchmark/x07/test/runs/M1p2_0km_a10"
+    assert rows["20"].state == "CANCELLED"
+
+
+def test_current_user():
+    import getpass
+
+    assert current_user() == getpass.getuser()
+
+
+def test_fake_queue_shows_every_user(fake_slurm, tmp_path):
+    run_sync(slurm.sbatch_args("su2_job.sh"), cwd=str(_script(tmp_path / "a", "-J s/a").parent))
+    fake_slurm.add_job("900", user="ana", name="ana/case", cwd="/data/ana/runs/case")
+    rows = parse_squeue(run_sync(squeue_args()))
+    assert rows["101"].user == current_user() and rows["101"].name == "s/a"
+    assert rows["101"].workdir == str(tmp_path / "a")
+    assert rows["900"].user == "ana"
+
+
+def test_fake_nodes_and_recent(fake_slurm, tmp_path):
+    import asyncio
+
+    run_sync(slurm.sbatch_args("su2_job.sh"), cwd=str(_script(tmp_path / "a", "-J s/a", "-p node2").parent))
+    fake_slurm.finish("101", "OUT_OF_MEMORY", "0:125", node="hpc2")
+    info = asyncio.run(nodes_async())
+    assert [n.node for n in info.nodes] == ["hpc1", "hpc2"] and info.error is None
+    recent = asyncio.run(recent_async())
+    assert recent.rows["101"].state == "OUT_OF_MEMORY" and recent.rows["101"].workdir == str(tmp_path / "a")
+    assert recent.rows["101"].partition == "node2"
+    fake_slurm.update(accounting_down=True)
+    assert asyncio.run(recent_async()).error is not None
+    fake_slurm.update(controller_down=True)
+    assert asyncio.run(nodes_async()).error is not None
