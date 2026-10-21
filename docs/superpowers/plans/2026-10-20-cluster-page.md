@@ -34,9 +34,10 @@ simulated `user`; `tests/fixtures/fake_slurm.py` stands in for Slurm.
 - Web tests must never reach the real Slurm on hpc1: `slurm_available()` is patched in `tests/web/conftest.py`
   (Task 7) and every test that needs Slurm uses the `fake_slurm` fixture.
 
-**Layout:** Task 8 builds layout **A (stacked tables)** from the mockups canvas
-(https://claude.ai/artifact/VsSeR1BSKb4SuRyXZ9uW5F). If the user picks B (node tiles + tabs) or C (dashboard),
-only Task 8's page code and its markers' containers change; Tasks 1–7 and 9 stay as written.
+**Layout (chosen by the user 2026-10-21):** **D** on the mockups canvas
+(https://claude.ai/artifact/VsSeR1BSKb4SuRyXZ9uW5F, board "D · Compact node cards + collapsible queue and jobs"):
+compact node cards in a grid (one per node), then **My jobs**, then **Queue**, both collapsible (open by default,
+the choice remembered while the server runs).
 
 ## Review Focus
 
@@ -1752,7 +1753,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
   `my_jobs`, `RecordIndex` (Task 2); `node_groups`, `cluster_queue`, `cluster_status`, `filter_jobs`, `job_studies`,
   `job_state_text`, `JOB_KINDS` (Task 4); `WATCHER.cancel_case` (Task 3); `resubmit_case` (Task 6);
   `slurm_available` (Task 7).
-- Produces: page `/cluster`; markers `cluster-page`, `cluster-outage`, `nodes-card`, `node-<n>`, `node-<n>-state`,
+- Produces: page `/cluster` (layout D); markers `cluster-page`, `cluster-outage`, `nodes-card`, `nodes-summary`,
+  `node-card-<n>`, `node-<n>`, `node-<n>-state`, `jobs-card-toggle`, `queue-card-toggle`,
   `node-<n>-cpus`, `node-<n>-memory`, `node-<n>-note`, `queue-card`, `q-<id>`, `q-<id>-user`, `q-<id>-link`,
   `queue-empty`, `jobs-card`, `jobs-filter-<kind>`, `jobs-study`, `job-<id>`, `job-<id>-state`, `cancel-<id>`,
   `cancel-confirm`, `cancel-keep`, `resubmit-<id>`, `log-<id>`, `log-dialog-text`, `jobs-more`, `jobs-accounting`,
@@ -1810,6 +1812,7 @@ async def test_nodes_queue_and_my_jobs(user: User, cluster_study, eventually):
     assert WATCH.pages == 1
     await eventually(lambda: _text(user, "node-hpc2-note") == "bad DIMM", 5)
     assert _text(user, "node-hpc1-cpus") == "192 / 192" and _text(user, "node-hpc1-memory") == "20 of 122 GB free"
+    assert "as-node-bad" in _element(user, "node-card-hpc2").classes
     assert _text(user, "q-900-user") == "ana"
     assert _element(user, "q-101-link").props["href"].startswith("/run?project=")
     assert _text(user, "job-101-state") == "Running" and _text(user, "job-102-state").startswith("Pending")
@@ -1898,6 +1901,26 @@ async def test_accounting_down_lists_active_cases_only(user: User, cluster_study
     await user.should_see(marker="job-101")
 
 
+async def test_my_jobs_and_queue_fold_and_stay_folded(user: User, cluster_study, eventually):
+    from aerosuite.web.pages import cluster as cluster_page
+
+    cluster_page._COLLAPSED.clear()
+    project_dir, project, fake = cluster_study
+    runner_for("slurm").submit(project_dir, project, cases=[A0])
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="job-101").elements), 5)
+    user.find(marker="jobs-card-toggle").click()
+    await user.should_not_see(marker="job-101")
+    user.find(marker="queue-card-toggle").click()
+    await user.should_not_see(marker="q-101")
+    await user.open("/cluster")  # a new page: the sections stay folded
+    await user.should_see(marker="jobs-card-toggle")
+    await user.should_not_see(marker="job-101")
+    user.find(marker="jobs-card-toggle").click()
+    await eventually(lambda: bool(user.find(marker="job-101").elements), 5)
+    cluster_page._COLLAPSED.clear()
+
+
 async def test_more_than_the_cap_says_so(user: User, cluster_study, monkeypatch, eventually):
     from aerosuite.web.pages import cluster as cluster_page
 
@@ -1926,6 +1949,7 @@ Expected: FAIL (no page at /cluster).
 """Cluster: every node (sinfo -N), everyone's queue (squeue) and the user's AeroSuite cases on Slurm across every
 study — queued, running, or ended in the last 7 days — with Cancel (one case), Resubmit and Log. Everything comes
 from the server's Slurm poller and the job records; the page never runs a Slurm command itself."""
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -1942,13 +1966,13 @@ from ..jobs import WATCHER
 from ..layout import header, project_url
 from ..resubmit_dialog import resubmit_case
 from ..slurm_watch import WATCH, slurm_available
-from ..ui_kit import (banner, card, chip_button, danger_button, flat_button, hint, secondary_button, table, td,
-                      td_box, th)
+from ..ui_kit import banner, chip_button, danger_button, flat_button, hint, pill, secondary_button, table, td, td_box, th
 
 POLL_SECONDS = 2.0
 LOG_LINES = 200
 INDEX = RecordIndex()  # shared by every Cluster page: a study's records are read once per change
 KIND_LABELS = {"all": "All", "active": "Active", "failed": "Failed"}
+_COLLAPSED: set[str] = set()  # "jobs", "queue": sections the user folded, kept while the server runs
 
 
 def register() -> None:
@@ -2015,45 +2039,72 @@ class ClusterPage:
                 banner("error", f"{tip}. Showing the last known state, as of {_time(WATCH.last_ok)}.").mark(
                     "cluster-outage")
             self._nodes(cluster)
-            self._queue(snapshot)
             self._jobs(list(rows), more, recent)
+            self._queue(snapshot)
 
     # -- nodes ------------------------------------------------------------------------------------------------
 
     def _nodes(self, cluster) -> None:
-        with card("Nodes", f"Updated {_time(cluster.taken if cluster else None)}", fold="cluster-nodes") as box:
-            box.mark("nodes-card")
-            groups = node_groups(cluster)
-            if not groups:
-                hint("Asking Slurm…")
-                return
-            with table("minmax(6rem, .7fr) minmax(6rem, .7fr) minmax(10rem, 1.4fr) minmax(9rem, 1fr) "
-                       "minmax(4rem, .4fr) minmax(8rem, 1.2fr)").classes("as-table-compact w-full"):
-                for heading in ("Node", "State", "CPUs", "Memory", "Load", "Note"):
-                    th(heading)
-                for partition, default, nodes in groups:
-                    with td_box() as cell:
-                        cell.classes("as-group-cell").style("grid-column: 1 / -1")
-                        ui.label(partition + (" (default)" if default else "")).classes("as-strong")
-                    for node in nodes:
-                        td(node.node, strong=True).mark(f"node-{node.node}")
-                        td(node.state).classes("as-error-text" if node.bad else "").mark(f"node-{node.node}-state")
-                        with td_box() as cell:
-                            cell.classes("gap-2 no-wrap")
+        """One compact card per node, the default partition's first; a drained or down node is tinted red."""
+        groups = node_groups(cluster)
+        with ui.row().classes("items-baseline w-full gap-2").mark("nodes-card"):
+            total = sum(n.total for _p, _d, nodes in groups for n in nodes)
+            used = sum(n.allocated for _p, _d, nodes in groups for n in nodes)
+            count = sum(len(nodes) for _p, _d, nodes in groups)
+            ui.label("Nodes").classes("as-card-title")
+            ui.label(f"{count} node{'' if count == 1 else 's'} · {used} / {total} CPUs in use · updated "
+                     f"{_time(cluster.taken if cluster else None)}" if groups else "Asking Slurm…").classes(
+                "as-muted").mark("nodes-summary")
+        with ui.element("div").classes("as-node-grid w-full"):
+            for partition, default, nodes in groups:
+                for node in nodes:
+                    with ui.column().classes("as-node-card" + (" as-node-bad" if node.bad else "")).mark(
+                            f"node-card-{node.node}"):
+                        with ui.row().classes("items-center w-full no-wrap gap-2"):
+                            ui.label(node.node).classes("as-mono as-strong").mark(f"node-{node.node}")
+                            ui.label(partition + (" · default" if default else "")).classes("as-muted as-small")
+                            ui.space()
+                            pill(node.state.upper() if node.bad else node.state).classes("as-pill-small").mark(
+                                f"node-{node.node}-state")
+                        with ui.row().classes("items-center w-full no-wrap gap-2"):
                             ui.linear_progress(node.busy_percent / 100, show_value=False).props(
                                 "rounded size=6px").classes("grow")
-                            ui.label(node.cpus).classes("as-mono").mark(f"node-{node.node}-cpus")
-                        td(node.memory).mark(f"node-{node.node}-memory")
-                        td(node.load, mono=True)
-                        td(node.reason).classes("as-error-text").mark(f"node-{node.node}-note")
+                            ui.label(node.cpus).classes("as-mono as-small").mark(f"node-{node.node}-cpus")
+                        with ui.row().classes("items-baseline w-full no-wrap gap-2 as-small"):
+                            ui.label(node.memory).classes("as-muted").mark(f"node-{node.node}-memory")
+                            ui.label(f"· load {node.load}").classes("as-muted")
+                            ui.space()
+                            ui.label(node.reason).classes("as-error-text").mark(f"node-{node.node}-note")
+
+    @contextmanager
+    def _section(self, key: str, title: str, subtitle: str, mark: str):
+        """A card whose title row folds it (open by default; the choice kept while the server runs). Yields
+        (header row for extra controls, whether the body is shown)."""
+        opened = key not in _COLLAPSED
+        with ui.column().classes("as-card as-card-flush w-full gap-0").mark(mark):
+            with ui.row().classes("items-center w-full no-wrap gap-2 pr-3") as head:
+                with ui.button(on_click=lambda: self._toggle(key), color=None).props(
+                        f'flat no-caps align=left aria-expanded={"true" if opened else "false"}').classes(
+                        "as-section-toggle grow").mark(f"{mark}-toggle"):
+                    ui.icon("expand_more" if opened else "chevron_right")
+                    ui.label(title).classes("as-card-title")
+                    ui.label(subtitle).classes("as-muted as-small")
+            yield head, opened
+
+    def _toggle(self, key: str) -> None:
+        (_COLLAPSED.discard if key in _COLLAPSED else _COLLAPSED.add)(key)
+        self.shown = None
+        self.poll()
 
     # -- queue ------------------------------------------------------------------------------------------------
 
     def _queue(self, snapshot) -> None:
         lines = cluster_queue(snapshot, WATCH.user)
-        with card("Queue", f"{len(lines)} job{'' if len(lines) == 1 else 's'} · yours highlighted",
-                  fold="cluster-queue", flush=True) as box:
-            box.mark("queue-card")
+        mine = sum(1 for line in lines if line.own)
+        subtitle = f"{len(lines)} job{'' if len(lines) == 1 else 's'}, all users · {mine} yours · yours highlighted"
+        with self._section("queue", "Queue", subtitle, "queue-card") as (_head, opened):
+            if not opened:
+                return
             if not lines:
                 hint("Queue empty").classes("px-4 pb-4").mark("queue-empty")
                 return
@@ -2080,10 +2131,13 @@ class ClusterPage:
     # -- my jobs ----------------------------------------------------------------------------------------------
 
     def _jobs(self, rows: list, more: int, recent) -> None:
-        with card("My jobs", "AeroSuite cases on Slurm, all studies: queued, running, or ended in the last 7 days",
-                  fold="cluster-jobs", flush=True) as box:
-            box.mark("jobs-card")
-            with ui.row().classes("items-center gap-2 px-4"):
+        failed = len(filter_jobs(rows, "failed"))
+        subtitle = (f"{len(rows)} · all studies · queued, running or ended in the last 7 days"
+                    + (f" · {failed} failed" if failed else ""))
+        with self._section("jobs", "My jobs", subtitle, "jobs-card") as (head, opened):
+            if not opened:
+                return
+            with head:
                 for kind in JOB_KINDS:
                     chip = chip_button(KIND_LABELS[kind], on_click=lambda k=kind: self._set_kind(k)).mark(
                         f"jobs-filter-{kind}")
@@ -2215,7 +2269,18 @@ def _tail(path: Path) -> str:
 ```
 
 In `aerosuite/web/app.py` import `cluster` with the other pages and call `cluster.register()`.
-In `aerosuite/web/theme.py` add `.as-table-compact .as-own { background: var(--as-accent-tint); }` and
+In `aerosuite/web/theme.py` add the node cards and section toggles (layout D):
+
+```css
+.as-node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.as-node-card { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 10px 12px;
+  gap: 6px; }
+.as-node-bad { background: #fff8f7; border-color: #f0b9b3; }
+.as-pill-small { font-size: 11.5px; padding: 1px 7px; }
+.as-section-toggle { min-height: 48px; justify-content: flex-start; gap: 10px; padding: 0 16px; }
+```
+
+and `.as-table-compact .as-own { background: var(--as-accent-tint); }` and
 `.as-chip-on { background: var(--as-accent); color: #fff; }` (skip the latter if `chip_button` already has an "on"
 style — check `ui_kit.chip_button` first and reuse its class).
 
