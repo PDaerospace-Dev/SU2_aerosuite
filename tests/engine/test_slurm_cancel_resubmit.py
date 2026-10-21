@@ -110,3 +110,61 @@ def test_resubmit_failing_in_sbatch_keeps_the_job_failed(slurm_study):
     again = load_job(project_dir, job.id)
     assert again.case_status[A0] is CaseState.FAILED and again.slurm[A0].job_id == "101"
     assert not again.is_active and active_lock(project_dir) is None
+
+
+def test_cancel_one_case_lets_the_others_run(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = runner.submit(project_dir, project)
+    fake.run("101")
+    job = runner.refresh(project_dir, job)
+    job = runner.cancel_case(project_dir, job, A2)
+    assert fake.calls("scancel") == [["scancel", "102"]]
+    assert job.case_status == {A0: CaseState.RUNNING, A2: CaseState.CANCELLED, A4: CaseState.PENDING}
+    assert job.failure_tail[A2] == "Cancelled from the Cluster page."
+    assert job.is_active and active_lock(project_dir)["job_id"] == job.id
+
+
+def test_cancel_a_case_others_restart_from_blocks_them(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    for case in project.cases[1:]:
+        case.restart = "previous"
+    save_project(project_dir, project)
+    job = runner.submit(project_dir, project, cases=[A0, A2])
+    fake.run("101")
+    job = runner.cancel_case(project_dir, runner.refresh(project_dir, job), A0)
+    fake.finish("102", "CANCELLED", elapsed="00:00:00")  # Slurm: --kill-on-invalid-dep
+    job = runner.refresh(project_dir, job)
+    assert job.case_status == {A0: CaseState.CANCELLED, A2: CaseState.BLOCKED}
+    assert job.state is JobState.CANCELLED and active_lock(project_dir) is None
+
+
+def test_cancelling_the_last_case_ends_the_job(slurm_study, history_writer):
+    project_dir, project, runner, fake = slurm_study
+    job = runner.submit(project_dir, project, cases=[A0, A2])
+    history_writer(project_dir / "runs" / A0, STEADY)
+    fake.finish("101")
+    job = runner.refresh(project_dir, job)
+    job = runner.cancel_case(project_dir, job, A2)
+    assert job.state is JobState.CANCELLED and job.finished is not None
+    assert active_lock(project_dir) is None
+
+
+def test_cancel_a_case_that_already_ended_does_nothing(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = runner.submit(project_dir, project, cases=[A0, A2])
+    fake.finish("101", "FAILED", "1:0")
+    stale = job  # the page's copy, from before the case ended
+    runner.refresh(project_dir, job)
+    job = runner.cancel_case(project_dir, stale, A0)
+    assert fake.calls("scancel") == [] and job.case_status[A0] is CaseState.FAILED
+
+
+def test_cancel_case_errors(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = runner.submit(project_dir, project, cases=[A0])
+    with pytest.raises(JobError, match="not a Slurm case of job"):
+        runner.cancel_case(project_dir, job, A2)
+    fake.update(controller_down=True)
+    with pytest.raises(JobError, match="Cannot cancel M0p8_a0_b0"):
+        runner.cancel_case(project_dir, job, A0)
+    assert load_job(project_dir, job.id).case_status[A0] is CaseState.PENDING

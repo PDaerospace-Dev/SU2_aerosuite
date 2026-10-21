@@ -383,8 +383,7 @@ class SlurmRunner:
             job.case_status[name] = CaseState.FAILED
         self._log(project_dir, job, f"Adding cases failed: {message}")
         if all(job.case_status.get(name) in FINAL_CASE_STATES for name in job.cases):
-            ok = all(job.case_status[name] in OK_STATES for name in job.cases)
-            self._end(project_dir, job, JobState.DONE if ok else JobState.FAILED)
+            self._end(project_dir, job, self._final_state(job))
         else:
             save_job(project_dir, job)
 
@@ -479,8 +478,7 @@ class SlurmRunner:
             else:
                 self._no_accounting(project_dir, job, name, sc, snap.accounting_error)
         if all(job.case_status.get(name) in FINAL_CASE_STATES for name in job.cases):
-            ok = all(job.case_status[name] in OK_STATES for name in job.cases)
-            self._end(project_dir, job, JobState.DONE if ok else JobState.FAILED)
+            self._end(project_dir, job, self._final_state(job))
         else:
             save_job(project_dir, job)
         return job
@@ -684,6 +682,38 @@ class SlurmRunner:
                 job.slurm[name].state = "CANCELLED"
         self._log(project_dir, job, f"Cancelled: scancel {' '.join(ids)}" if ids else "Cancelled")
         self._end(project_dir, job, JobState.CANCELLED)
+        return job
+
+    def _final_state(self, job: JobRecord) -> JobState:
+        """How a job whose cases all ended ends: DONE when every case ran to the end, FAILED when one failed, else
+        CANCELLED (cases cancelled, or blocked by a cancelled one)."""
+        states = [job.case_status[name] for name in job.cases]
+        if all(state in OK_STATES for state in states):
+            return JobState.DONE
+        return JobState.FAILED if CaseState.FAILED in states else JobState.CANCELLED
+
+    @_serialized
+    def cancel_case(self, project_dir: Path, job: JobRecord, case: str) -> JobRecord:
+        """scancel one case; the job's other cases go on. Nothing happens when the case has already ended."""
+        project_dir = Path(project_dir).resolve()
+        job = self._reload(project_dir, job)
+        sc = job.slurm.get(case)
+        if sc is None:
+            raise JobError(f"{case} is not a Slurm case of job {job.id}")
+        if not job.is_active or job.case_status.get(case) in FINAL_CASE_STATES:
+            return job
+        try:
+            sl.run_sync(sl.scancel_args([sc.job_id]))
+        except sl.SlurmUnavailable as exc:
+            raise JobError(f"Cannot cancel {case} (Slurm job {sc.job_id}): {exc}") from exc
+        job.case_status[case] = CaseState.CANCELLED
+        sc.state = "CANCELLED"
+        job.failure_tail[case] = "Cancelled from the Cluster page."
+        self._log(project_dir, job, f"{case} ({sc.job_id}) cancelled: scancel {sc.job_id}")
+        if all(job.case_status.get(name) in FINAL_CASE_STATES for name in job.cases):
+            self._end(project_dir, job, self._final_state(job))
+        else:
+            save_job(project_dir, job)
         return job
 
     def resubmittable(self, job: JobRecord) -> list[str]:

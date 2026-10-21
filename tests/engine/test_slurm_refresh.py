@@ -105,7 +105,7 @@ def test_cancelled_outside_aerosuite(slurm_study):
     job = _submit(slurm_study, cases=[A0])
     fake.finish("101", "CANCELLED", "0:15", elapsed="00:00:00")
     job = runner.refresh(project_dir, job)
-    assert job.case_status[A0] is CaseState.CANCELLED and job.state is JobState.FAILED
+    assert job.case_status[A0] is CaseState.CANCELLED and job.state is JobState.CANCELLED
 
 
 def test_a_failed_case_blocks_the_chain_behind_it(slurm_study):

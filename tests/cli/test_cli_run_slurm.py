@@ -165,3 +165,14 @@ def test_run_only_some_cases(study):
     assert list_jobs(project_dir)[0].cases == [A2]
     result = runner.invoke(app, ["run", str(project_dir), "--case", "nope"])
     assert result.exit_code == 1 and "Unknown case(s): nope" in result.output
+
+
+def test_cancel_one_case_from_the_cli(study):
+    project_dir, fake = study
+    runner.invoke(app, ["run", str(project_dir), "--backend", "slurm"])
+    result = runner.invoke(app, ["cancel", str(project_dir), "--case", A2])
+    assert result.exit_code == 0, result.output
+    assert f"Cancelled {A2} (Slurm job 102)" in result.output
+    assert fake.calls("scancel") == [["scancel", "102"]]
+    result = runner.invoke(app, ["cancel", str(project_dir), "--case", "nope"])
+    assert result.exit_code == 1 and "not a Slurm case" in result.output

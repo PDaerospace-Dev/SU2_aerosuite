@@ -220,8 +220,10 @@ def status(
 def cancel(
     directory: ProjectDir,
     job_id: Annotated[Optional[str], typer.Argument(help="Job id (default: the running job)")] = None,
+    case: Annotated[Optional[str], typer.Option(
+        "--case", help="Slurm: cancel only this case of the job; the others go on")] = None,
 ) -> None:
-    """Stop a running job: the sweep script, mpirun and every SU2 process (Slurm: scancel its jobs)."""
+    """Stop a running job: the sweep script, mpirun and every SU2 process (Slurm: scancel its jobs, or one case)."""
     engine_project.open_project(directory)  # fails clearly if this is not a project
     if job_id is not None:
         job = load_job(directory, job_id)
@@ -231,6 +233,15 @@ def cancel(
             typer.echo("No running job to cancel.", err=True)
             raise typer.Exit(1)
         job = active[0]
+    if case is not None:
+        if job.backend != "slurm":
+            typer.echo("Error: --case is for Slurm jobs; a local sweep is cancelled as a whole.", err=True)
+            raise typer.Exit(1)
+        job = runner_of(job).cancel_case(directory, job, case)
+        typer.echo(f"Cancelled {case} (Slurm job {job.slurm[case].job_id})."
+                   if job.case_status[case].value == "CANCELLED" else f"{case} had already ended.")
+        _echo_job(job)
+        return
     job = runner_of(job).cancel(directory, job)
     if job.state is JobState.CANCELLED:
         typer.echo(f"Cancelled job {job.id}.")

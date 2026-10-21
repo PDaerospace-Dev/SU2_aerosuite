@@ -143,6 +143,14 @@ class JobWatcher:
         self.slurm_watch.track(directory, job.id)
         return job
 
+    def cancel_case(self, project_dir: Path, project: Project, job_id: str, case: str) -> JobRecord:
+        """Stop one case of a Slurm job (see SlurmRunner.cancel_case)."""
+        directory = Path(project_dir).resolve()
+        job = next((job for job in self._view(directory, project).overview.jobs if job.id == job_id), None)
+        if job is None or job.backend != "slurm":
+            raise JobError(f"No Slurm job {job_id} in this project")
+        return self.slurm_runner.cancel_case(directory, job, case)
+
     def resubmit(self, project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
                  options: Optional[SlurmOptions] = None) -> JobRecord:
         """Submit NODE_FAIL / OUT_OF_MEMORY cases of a Slurm job again (see SlurmRunner.resubmit)."""
