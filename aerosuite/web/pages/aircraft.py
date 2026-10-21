@@ -167,7 +167,7 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
 MODE_CHOICES = {"manual": "Set by hand", "altitude": "From altitude"}
 MODE_HINTS = {
     "manual": "One temperature and Reynolds number for every case",
-    "altitude": "Each case gets the ISA temperature of its altitude and its own Reynolds number",
+    "altitude": "Each case gets the ISA temperature and pressure of its altitude and its own Reynolds number",
 }
 
 

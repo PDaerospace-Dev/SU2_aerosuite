@@ -37,8 +37,14 @@ def test_manual_mode_adds_nothing():
 
 def test_values_for_known_inputs():
     assert freestream_for(_altitude(), 0.8) == {
-        "FREESTREAM_TEMPERATURE": "216.65", "REYNOLDS_NUMBER": "36258390", "REYNOLDS_LENGTH": "6"}
+        "FREESTREAM_TEMPERATURE": "216.65", "FREESTREAM_PRESSURE": "22632.1", "REYNOLDS_NUMBER": "36258390",
+        "REYNOLDS_LENGTH": "6"}
     assert freestream_for(_altitude(), 0.6)["REYNOLDS_NUMBER"] == "27193793"
+
+
+def test_pressure_keeps_six_figures_up_to_100_km():
+    assert freestream_for(_altitude(10.668, 1.0), 0.8)["FREESTREAM_PRESSURE"] == "23842.3"
+    assert freestream_for(_altitude(100.0, 1e6), 0.8)["FREESTREAM_PRESSURE"] == "0.0232195"
 
 
 @pytest.mark.parametrize("altitude, length, mach, message", [

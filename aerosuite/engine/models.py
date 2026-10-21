@@ -18,8 +18,8 @@ FreestreamMode = Literal["manual", "altitude"]
 
 
 class Freestream(BaseModel):
-    # "altitude": each case's temperature and Reynolds number come from the ISA at its altitude and its own
-    # Mach; temperature_K and reynolds are then kept (unused) for switching back.
+    # "altitude": each case's temperature, pressure and Reynolds number come from the ISA at its altitude and
+    # its own Mach; temperature_K and reynolds are then kept (unused) for switching back.
     mode: FreestreamMode = "manual"
     altitude_km: Optional[float] = None  # the single case's altitude; a sweep uses SweepSpec.altitudes_km
     temperature_K: Optional[float] = None

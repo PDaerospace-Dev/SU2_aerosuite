@@ -46,10 +46,11 @@ def test_plan_for_a_general_single_case_writes_template_lines_at_the_templates_m
     project.sweep.enabled = False
     plan = plan_isa_apply(project, TEMPLATE, 11.0, 0.8, 6.0)
     assert plan.kind == "template"
-    assert plan.template_params == {"FREESTREAM_TEMPERATURE": "216.65", "REYNOLDS_NUMBER": "13596896",
-                                    "REYNOLDS_LENGTH": "6"}
+    assert plan.template_params == {"FREESTREAM_TEMPERATURE": "216.65", "FREESTREAM_PRESSURE": "22632.1",
+                                    "REYNOLDS_NUMBER": "13596896", "REYNOLDS_LENGTH": "6"}
     assert ("REYNOLDS_NUMBER", "1e6", "13596896") in plan.changes
     assert ("FREESTREAM_TEMPERATURE", "—", "216.65") in plan.changes
+    assert ("FREESTREAM_PRESSURE", "—", "22632.1") in plan.changes
     assert plan.note == "The Reynolds number is computed for Mach 0.3 (the template's), not 0.8"
 
 

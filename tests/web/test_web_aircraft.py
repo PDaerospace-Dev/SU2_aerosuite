@@ -192,7 +192,7 @@ async def test_the_mode_is_a_toggle_in_the_card_head_and_the_inputs_share_one_ro
     with user:
         toggle.set_value("altitude")
     await user.should_see(marker="freestream-altitudes-sweep")
-    assert "ISA temperature of its altitude" in _element(user, "freestream-mode-hint").text
+    assert "ISA temperature and pressure of its altitude" in _element(user, "freestream-mode-hint").text
     row = {_element(user, m).parent_slot.parent.parent_slot.parent.id
            for m in ("freestream-mach-sweep", "freestream-altitudes-sweep", "freestream-reynolds_length")}
     assert len(row) == 1  # Mach, altitudes and Reynolds length side by side

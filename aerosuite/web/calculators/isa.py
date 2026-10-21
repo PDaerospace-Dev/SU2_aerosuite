@@ -18,7 +18,7 @@ from .isa_rules import ApplyPlan, apply_isa_settings, isa_prefill, plan_isa_appl
 INPUTS = [("altitude", "Altitude (km)"), ("mach", "Mach"), ("length", "Characteristic length (m)")]
 RESULTS = [  # (marker, label, engine key, format, highlight)
     ("isa-temperature", "Temperature", "temperature", lambda v: f"{format_value(round(v, 2))} K", True),
-    ("isa-pressure", "Pressure", "pressure", lambda v: f"{format_value(round(v))} Pa", False),
+    ("isa-pressure", "Pressure", "pressure", lambda v: f"{format_value(round(v))} Pa", True),
     ("isa-density", "Density", "density", lambda v: f"{v:.4g} kg/m³", False),
     ("isa-sound", "Speed of sound", "speed_of_sound", lambda v: f"{format_value(round(v, 2))} m/s", False),
     ("isa-tas", "True airspeed", "true_airspeed", lambda v: f"{format_value(round(v, 2))} m/s", False),

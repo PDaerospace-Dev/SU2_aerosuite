@@ -1,4 +1,5 @@
-"""Freestream from an ISA altitude: each case's temperature and Reynolds number from its own altitude and Mach."""
+"""Freestream from an ISA altitude: each case's temperature, pressure and Reynolds number from its own altitude
+and Mach."""
 from __future__ import annotations
 
 import math
@@ -10,13 +11,14 @@ from .errors import ProjectError
 from .models import Case, Freestream, Project, Settings
 from .naming import format_value
 
-FREESTREAM_KEYS = ("FREESTREAM_TEMPERATURE", "REYNOLDS_NUMBER", "REYNOLDS_LENGTH")
+FREESTREAM_KEYS = ("FREESTREAM_TEMPERATURE", "FREESTREAM_PRESSURE", "REYNOLDS_NUMBER", "REYNOLDS_LENGTH")
 ALTITUDE_MIN_KM, ALTITUDE_MAX_KM = 0.0, 100.0
 
 
 @dataclass(frozen=True)
 class FreestreamValues:
     temperature_K: float
+    pressure_Pa: float
     reynolds: float
     reynolds_length: float
 
@@ -98,8 +100,8 @@ def freestream_setup_errors(source) -> list[str]:
 
 
 def freestream_values(fs: Freestream, mach: float, altitude_km=_FROM_SETTINGS) -> FreestreamValues:
-    """ISA temperature at the altitude (the freestream's own unless given) and the Reynolds number at `mach`;
-    ProjectError when they cannot be computed."""
+    """ISA temperature and pressure at the altitude (the freestream's own unless given) and the Reynolds number
+    at `mach`; ProjectError when they cannot be computed."""
     if altitude_km is _FROM_SETTINGS:
         altitude_km = fs.altitude_km
     error = altitude_error(altitude_km) or _length_error(fs)
@@ -111,16 +113,18 @@ def freestream_values(fs: Freestream, mach: float, altitude_km=_FROM_SETTINGS) -
     if round(isa["reynolds_number"]) < 1:  # the config writes it as a whole number
         raise ProjectError(f"The Reynolds number at {format_value(altitude_km)} km, Mach {format_value(mach)} and "
                            f"length {format_value(fs.reynolds_length)} m is below 1; check the altitude and length")
-    return FreestreamValues(isa["temperature"], isa["reynolds_number"], fs.reynolds_length)
+    return FreestreamValues(isa["temperature"], isa["pressure"], isa["reynolds_number"], fs.reynolds_length)
 
 
 def freestream_for(settings: Settings, mach: float, altitude_km=_FROM_SETTINGS) -> Optional[dict[str, str]]:
-    """The per-case config lines in altitude mode (None in manual mode)."""
+    """The per-case config lines in altitude mode (None in manual mode). Pressure as well as the Reynolds number,
+    so the case runs at the altitude with either INIT_OPTION."""
     if settings.freestream.mode != "altitude":
         return None
     values = freestream_values(settings.freestream, mach, altitude_km)
     return {
         "FREESTREAM_TEMPERATURE": format_value(round(values.temperature_K, 3)),
+        "FREESTREAM_PRESSURE": format_value(float(f"{values.pressure_Pa:.6g}")),  # 6 figures: 0.03 Pa at 100 km
         "REYNOLDS_NUMBER": format_value(round(values.reynolds)),
         "REYNOLDS_LENGTH": format_value(values.reynolds_length),
     }

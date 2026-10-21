@@ -142,16 +142,13 @@ def _option(project: Project, template: str, key: str) -> Optional[str]:
 
 
 def _unused_reynolds_problems(project: Project, template: str) -> list[Problem]:
-    """Altitude mode writes REYNOLDS_NUMBER; say so when SU2 will not use it."""
+    """Altitude mode writes the compressible freestream; say so when SU2 will not use it. Either INIT_OPTION
+    is fine: REYNOLDS uses the Reynolds number, TD_CONDITIONS the pressure."""
     problems = []
-    init = _option(project, template, "INIT_OPTION")
-    if init is not None and init.upper() != "REYNOLDS":
-        problems.append(Problem("warning", f"INIT_OPTION= {init}: SU2 won't use the Reynolds number from the "
-                                           "altitude; set INIT_OPTION= REYNOLDS"))
     solver = _option(project, template, "SOLVER")
     if solver is not None and solver.upper().startswith("INC_"):
         problems.append(Problem("warning", f"SOLVER= {solver}: the incompressible solver ignores the Reynolds "
-                                           "number and temperature from the altitude"))
+                                           "number, temperature and pressure from the altitude"))
     return problems
 
 
