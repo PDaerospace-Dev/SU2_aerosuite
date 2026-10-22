@@ -34,6 +34,7 @@ from ..results import HISTORY_FILE, check_convergence, read_history
 from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
 from .executors import SlurmOptions, slurm_options
+from .diagnose import diagnose
 from .plan import RESTART_DIR, _referenced_case, prepare_job
 from .runner import FINAL_CASE_STATES, CaseState, JobRecord, JobState, SlurmCase, new_job_id, sweep_environment
 from .store import JOBS_DIR, active_lock, clear_lock, load_job, save_job, write_lock
@@ -570,8 +571,11 @@ class SlurmRunner:
             on = f" on {sc.node}" if sc.node else ""
             job.case_status[name] = CaseState.FAILED
             job.failure_tail[name] = f"Slurm: {state} (exit {exit_code}){on}.\n" + _tail(_read(out))
+        why = ""
+        if job.case_status[name] is CaseState.FAILED and name in job.failure_tail:
+            why = f": {diagnose(job.failure_tail[name], state, sc.time_limit).summary}"
         self._log(project_dir, job, f"{name} ({sc.job_id}) ended {state} (exit {exit_code}): "
-                                    f"{job.case_status[name].value}")
+                                    f"{job.case_status[name].value}{why}")
         self._write_stats(project_dir, job, name, None)
         sc.stats_pending = True
 
@@ -624,7 +628,10 @@ class SlurmRunner:
             sc.state = "FAILED"
             job.case_status[name] = CaseState.FAILED
             job.failure_tail[name] = f"SU2 exited with code {code}. {note}\n" + _tail(_read(out))
-        self._log(project_dir, job, f"{name} ({sc.job_id}): {job.case_status[name].value}. {note}")
+        why = ""
+        if job.case_status[name] is CaseState.FAILED:
+            why = f": {diagnose(job.failure_tail[name], sc.state, sc.time_limit).summary}"
+        self._log(project_dir, job, f"{name} ({sc.job_id}): {job.case_status[name].value}{why}. {note}")
 
     def _end(self, project_dir: Path, job: JobRecord, state: JobState) -> None:
         job.state = state

@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Optional
 
+from .jobs.diagnose import diagnose
 from .jobs.runner import CaseState, JobRecord
 from .jobs.slurm import job_name
 from .jobs.store import JOBS_DIR, scan_jobs
@@ -110,6 +111,7 @@ class MyJob:
     current_id: Optional[str]  # the case's current Slurm id (differs for an earlier attempt)
     resubmittable: bool
     submitted: Optional[float] = None  # when it was submitted (time.time() seconds); None when unknown
+    failure: str = ""  # why it failed, in words (jobs/diagnose.py); "" unless it failed
 
     @property
     def earlier_attempt(self) -> bool:
@@ -146,6 +148,7 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
         record = index.lookup(study, job_id) if study is not None else None
         case_state = job = current = None
         resubmittable = False
+        failure = ""
         if record is not None:
             job, case = record[0], record[1]
             sc = job.slurm[case]
@@ -156,8 +159,10 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
                 status = job.case_status.get(case)
                 case_state = status.value if status is not None else None
                 resubmittable = status is CaseState.FAILED and sc.state in RESUBMITTABLE
+                if status in (CaseState.FAILED, CaseState.BLOCKED) and job.failure_tail.get(case):
+                    failure = diagnose(job.failure_tail[case], sc.state, sc.time_limit).summary
         rows.append(MyJob(job_id, study, study_name, case, state, case_state, job.id if job else None, partition,
                           node, elapsed, exit_code, reason, state in ACTIVE_STATES, current, resubmittable,
-                          submitted))
+                          submitted, failure))
     rows.sort(key=lambda row: (len(row.slurm_id), row.slurm_id), reverse=True)
     return rows[:limit], max(0, len(rows) - limit)

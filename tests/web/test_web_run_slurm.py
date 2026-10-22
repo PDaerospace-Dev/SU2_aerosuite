@@ -228,3 +228,50 @@ async def test_the_summary_turns_red_for_a_drained_node_or_an_outage(user: User,
     fake.update(controller_down=True)
     await WATCH.poll_once()
     await eventually(lambda: _text(user, "run-cluster-summary") == "Slurm controller unreachable", 5)
+
+
+DIVERGED_OUT = """AeroSuite: Slurm job 101 on hpc1, 96 ranks, start 2026-10-22T11:43:00+09:00
+|         591|    3.584994|  3.8582e+00|  1.0000e+00|    0.922846|    0.978883|
+|         592|    3.600066|  3.8578e+00|  1.0000e+00|    0.922425|    0.977734|
+
+Error in "void CSolver::SetResidual_RMS(const CGeometry*, const CConfig*)":
+-------------------------------------------------------------------------
+SU2 has diverged (NaN detected).
+------------------------------ Error Exit -------------------------------
+srun: error: hpc1: tasks 31,33,35: Exited with exit code 1
+AEROSUITE_EXIT 1 2026-10-22T11:53:15+09:00
+"""
+
+
+async def test_a_failed_case_says_why_in_words_and_what_to_try(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0])
+    (project_dir / "runs" / A0 / "slurm-101.out").write_text(DIVERGED_OUT)
+    fake.finish("101", "FAILED", "1:0")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    assert _text(user, f"why-{A0}") == "Diverged at iteration 592 (SU2 found NaN)"
+    user.find(marker=f"status-{A0}").click()
+    await eventually(lambda: bool(user.find(marker=f"advice-{A0}").elements))
+    assert "lower CFL or a first-order start" in _text(user, f"advice-{A0}")
+    await user.should_see(marker=f"monitor-{A0}")
+    assert "SU2 has diverged" in _text(user, f"tail-{A0}")  # the output, folded below
+    assert "Diverged at iteration 592" in (project_dir / job.log_path).read_text()
+
+
+async def test_a_time_limit_offers_to_continue_from_the_last_solution(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    (project_dir / "runs" / A0 / "restart_flow.dat").write_text("solution")  # written as it ran
+    fake.finish("101", "TIMEOUT", "0:15")
+    fake.finish("102", "COMPLETED", "0:0")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    assert _text(user, f"why-{A0}").startswith("Stopped at the time limit")
+    user.find(marker=f"status-{A0}").click()
+    await eventually(lambda: bool(user.find(marker=f"fix-{A0}").elements))
+    user.find(marker=f"fix-{A0}").click()
+    assert _element(user, f"tick-{A0}").value and not _element(user, f"tick-{A2}").value
+    assert _element(user, "continue").value

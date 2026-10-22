@@ -283,7 +283,11 @@ class ClusterPage:
                 ui.label(row.study_name).classes("as-muted")
         td(row.case, mono=True).mark(f"job-{row.slurm_id}")
         td(row.slurm_id, mono=True)
-        td(job_state_text(row)).mark(f"job-{row.slurm_id}-state")
+        with td_box():
+            with ui.column().classes("gap-0 min-w-0"):
+                ui.label(job_state_text(row)).mark(f"job-{row.slurm_id}-state")
+                if row.failure:
+                    ui.label(row.failure).classes("as-failure-reason").mark(f"job-{row.slurm_id}-why")
         td(" · ".join(part for part in (row.partition, row.node) if part) or "—")
         td(row.elapsed or "—", mono=True)
         td(row.exit_code or "—", mono=True)

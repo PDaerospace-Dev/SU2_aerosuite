@@ -10,14 +10,15 @@ from nicegui import background_tasks, run, ui
 from ...engine.cfg import generate_configs, read_template, render_case
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
+from ...engine.jobs.diagnose import Diagnosis, diagnose, residual_trend
 from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.plan import plan_restarts
 from ...engine.machine import machine, partitions_note, usage, usage_text
 from ...engine.naming import format_value
 from ...engine.packages import effective
 from ...engine.preflight import has_errors, preflight
-from ...engine.restarts import restart_file
-from ...engine.results import history_columns
+from ...engine.restarts import RUNS_DIR, restart_file
+from ...engine.results import HISTORY_FILE, history_columns
 from ...engine.settings import AppSettings, load_settings
 from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
@@ -30,7 +31,7 @@ from ..jobs import WATCHER, JobView, job_progress
 from ..layout import ProjectFrame, open_session, project_url
 from ..run_view import ATTENTION, case_conditions, case_groups, duration_text, layout, status_counts, time_left
 from ..session import parse_int
-from ..ui_kit import (banner, card, card_head, chip_button, danger_button, failure_row, flat_button, hint, ok_line,
+from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, hint, ok_line,
                       pill, pill_text, pill_tone, primary_button, secondary_button, stat, table, td, td_box, th,
                       titled, warning_group)
 
@@ -555,8 +556,10 @@ class RunPage:
                 with ui.row().classes("items-center gap-2"):
                     ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted").mark(f"slurm-{row.name}")
                     self._resubmit_button(job, row.name)
+            if self._diagnosis(row) is not None:
+                ui.label(self._diagnosis(row).summary).classes("as-failure-reason").mark(f"why-{row.name}")
             if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
-                failure_row(row.failure_tail).mark(f"tail-{row.name}")
+                self._failure(row)
             if row.status == NOT_RUN:
                 ui.label("Nothing has run yet.").classes("as-muted").mark("case-not-run")
 
@@ -644,7 +647,12 @@ class RunPage:
             ui.checkbox(value=row.name in self.ticked,
                         on_change=lambda e, n=row.name: self._tick(n, e.value)).props("dense").mark(
                 f"tick-{row.name}")
-        td(row.name, strong=True)
+        found = self._diagnosis(row)
+        with td_box():
+            with ui.column().classes("gap-0 min-w-0"):
+                ui.label(row.name).classes("as-strong")
+                if found is not None:
+                    ui.label(found.summary).classes("as-failure-reason as-truncate").mark(f"why-{row.name}")
         td(format_value(case.mach) if case else "")
         td(format_value(case.alpha) if case else "")
         td(format_value(case.beta) if case else "")
@@ -662,7 +670,65 @@ class RunPage:
         else:
             td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
         if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
-            failure_row(row.failure_tail).mark(f"tail-{row.name}")
+            self._failure(row)
+
+    def _diagnosis(self, row) -> Optional[Diagnosis]:
+        """Why the case failed, in words (jobs/diagnose.py); None unless it failed or was blocked."""
+        if row.status not in ("FAILED", "BLOCKED") or not row.failure_tail:
+            return None
+        job = self.jobs_by_id.get(row.job_id)
+        sc = job.slurm.get(row.name) if job is not None else None
+        return diagnose(row.failure_tail, sc.state if sc else None, sc.time_limit if sc else "")
+
+    def _failure(self, row) -> None:
+        """An opened failure: what happened, the residuals before a divergence, what to try (with the buttons
+        that do it), and the output's end, folded."""
+        found = self._diagnosis(row)
+        with ui.element("div").classes("as-td-failure").style("grid-column: 1 / -1"):
+            with ui.column().classes("as-failure-box gap-2 w-full").mark(f"failure-{row.name}"):
+                ui.label(found.summary).classes("as-strong")
+                if found.kind == "diverged":
+                    trend = residual_trend(self.directory / RUNS_DIR / row.name / HISTORY_FILE)
+                    if trend:
+                        ui.label(f"Before that, {trend}.").mark(f"trend-{row.name}")
+                if found.advice:
+                    ui.label(f"Try: {found.advice}.").classes("as-muted").mark(f"advice-{row.name}")
+                with ui.row().classes("gap-2"):
+                    self._failure_actions(row, found)
+                with ui.expansion("Output (its last lines)").props("dense").classes("w-full").mark(
+                        f"output-{row.name}"):
+                    ui.label(row.failure_tail).classes("as-failure").mark(f"tail-{row.name}")
+
+    def _failure_actions(self, row, found: Diagnosis) -> None:
+        project = self.project
+        form = "aircraft" if project.profile else "config"
+        go = {"config": ("Open the config", form, "edit_note"),
+              "mesh": ("Open Setup", "setup", "tune"),
+              "restart": ("Open the restart", form if not project.sweep.enabled else "sweep", "restart_alt")}
+        if found.kind in go:
+            text, page, icon = go[found.kind]
+            secondary_button(text, icon=icon, on_click=lambda p=page: ui.navigate.to(
+                project_url(p, self.directory))).props("dense").mark(f"fix-{row.name}")
+        elif found.kind == "launch":
+            secondary_button("Open Settings", icon="settings", on_click=lambda: ui.navigate.to("/settings")).props(
+                "dense").mark(f"fix-{row.name}")
+        elif found.kind == "time_limit":
+            secondary_button("Continue from its last solution", icon="play_arrow",
+                             on_click=lambda n=row.name: self._only(n, continue_=True)).props("dense").mark(
+                f"fix-{row.name}")
+        elif found.kind == "blocked":
+            secondary_button("Tick it to run again", icon="check_box",
+                             on_click=lambda n=row.name: self._only(n, continue_=False)).props("dense").mark(
+                f"fix-{row.name}")
+        if found.kind in ("diverged", "time_limit", "su2", "failed"):
+            flat_button("Monitor", icon="show_chart", on_click=lambda n=row.name: ui.navigate.to(
+                self._monitor_url(n))).props("dense").mark(f"monitor-{row.name}")
+
+    def _only(self, name: str, continue_: bool) -> None:
+        """Tick just this case (and Continue or not): Submit is then one click away."""
+        self.ticked = {name}
+        self.continue_choice = continue_
+        self.render()
 
     def _tick_group(self, names: list, value: Optional[bool]) -> None:
         if value:

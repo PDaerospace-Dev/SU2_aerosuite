@@ -179,6 +179,8 @@ a.as-step:hover { background: #f6f8fa; }
 .as-td { padding: 8px 14px; border-top: 1px solid var(--as-hairline); min-height: 40px; display: flex;
   align-items: center; flex-wrap: nowrap; gap: 8px; }
 .as-td-failure { padding: 0 14px 8px; }
+.as-failure-box { background: #fff9f9; border: 1px solid #ffd7d5; border-radius: 8px; padding: 10px 12px; }
+.as-failure-reason { font-size: 12px; color: #a40e26; }
 .as-failure { background: #fff5f5; border: 1px solid #ffd7d5; border-radius: 6px; padding: 7px 10px;
   font-family: var(--as-mono); font-size: 12px; color: #a40e26; white-space: pre-wrap;
   max-height: 7.5em; overflow: auto; }

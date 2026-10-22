@@ -5,6 +5,7 @@ from typing import Annotated, Optional
 
 import typer
 
+from ..engine.jobs.diagnose import diagnose
 from ..engine import project as engine_project
 from ..engine import results as engine_results
 from ..engine.cfg import CONFIGS_DIR, generate_configs
@@ -158,7 +159,9 @@ def job_lines(job: JobRecord) -> list[str]:
         state = job.case_status.get(name, CaseState.PENDING)
         lines.append(f"  {name.ljust(width)}  {state.value}" + _slurm_text(job, name))
     for name, tail in job.failure_tail.items():
-        lines.append(f"  --- {name} (last log lines) ---")
+        sc = job.slurm.get(name)
+        found = diagnose(tail, sc.state if sc else None, sc.time_limit if sc else "")
+        lines.append(f"  --- {name}: {found.summary}" + (f". Try: {found.advice}." if found.advice else "") + " ---")
         lines += [f"    {line}" for line in tail.splitlines()[-FAILURE_LINES:]]
     return lines
 

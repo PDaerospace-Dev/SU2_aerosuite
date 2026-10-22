@@ -282,3 +282,14 @@ async def test_close_never_leaves_aerosuite(user: User, cluster_study):
     user.find(marker="cluster-close").click()
     await user.should_not_see(marker="cluster-page")
     await user.should_see(marker="recent-empty")  # the Projects page, not another site
+
+
+async def test_a_failed_job_says_why(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0])
+    fake.finish("101", "NODE_FAIL", "0:0", node="hpc2")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()  # the record learns how it ended
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="job-101-why").elements), 8)
+    assert _text(user, "job-101-why") == "The node failed"

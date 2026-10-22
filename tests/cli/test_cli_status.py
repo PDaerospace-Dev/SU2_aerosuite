@@ -38,7 +38,7 @@ def test_status_shows_failure_tail(ready_project, su2_env, fake_plan, wait_job):
     result = runner.invoke(app, ["status", str(project_dir)])
     assert result.exit_code == 0, result.output
     assert "FAILED" in result.output
-    assert f"--- {A2} (last log lines) ---" in result.output
+    assert f"--- {A2}: " in result.output  # the reason in words, then the output's end
     assert "boom" in result.output
 
 
