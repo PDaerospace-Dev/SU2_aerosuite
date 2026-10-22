@@ -24,7 +24,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 from ..cfg import RUN_CONTROL_FILE, apply_parameters
 from ..errors import JobError
@@ -35,6 +35,7 @@ from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
 from .executors import SlurmOptions, slurm_options
 from .diagnose import diagnose
+from .rerun import describe
 from .plan import RESTART_DIR, _referenced_case, prepare_job
 from .runner import FINAL_CASE_STATES, CaseState, JobRecord, JobState, SlurmCase, new_job_id, sweep_environment
 from .store import JOBS_DIR, active_lock, clear_lock, load_job, save_job, write_lock
@@ -212,7 +213,8 @@ class SlurmRunner:
 
     @_serialized
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
-               continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
+               continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None,
+               changes: Optional[Mapping[str, Mapping[str, str]]] = None, fresh_cases: Iterable[str] = ()) -> JobRecord:
         project_dir = Path(project_dir).resolve()
         if active_lock(project_dir):
             raise JobError("A job is already running for this project")
@@ -225,14 +227,15 @@ class SlurmRunner:
                 raise JobError(f"Cannot create {folder}: {exc}") from exc
         selected = [case.name for case in project.cases] if cases is None else list(cases)
         job_id = new_job_id(project_dir)
-        configs = prepare_job(project_dir, project, job_id, selected, continue_cases)
+        configs = prepare_job(project_dir, project, job_id, selected, continue_cases, changes, fresh_cases)
         lines = _control_lines(configs / RUN_CONTROL_FILE)
         names = [name for name, _option, _ref in lines]
         job = JobRecord(id=job_id, backend=self.backend, cases=names, log_path=f"{JOBS_DIR}/{job_id}.log",
                         case_status={name: CaseState.PENDING for name in names},
                         backend_ref={"partition": options.partition, "ntasks": options.ntasks,
                                      "time_limit": options.time_limit, "exclusive": options.exclusive,
-                                     "account": options.account})
+                                     "account": options.account},
+                        changes={name: dict(c) for name, c in (changes or {}).items() if name in names and c})
         save_job(project_dir, job)  # active (QUEUED): the lock below counts as held from here on
         try:
             write_lock(project_dir, job_id, -1, 0.0, backend=self.backend)
@@ -243,6 +246,8 @@ class SlurmRunner:
         self._log(project_dir, job, f"Job {job_id}: {len(names)} case(s) to Slurm partition {options.partition}, "
                                     f"{options.ntasks} tasks each" +
                   (f", time limit {options.time_limit}" if options.time_limit else ""))
+        for name, changed in job.changes.items():
+            self._log(project_dir, job, f"{name} runs with {describe(changed)} (this job only)")
         previous: Optional[str] = None
         for name, option, ref in lines:
             depends_on, solution = self._restart_source(project_dir, configs, previous, option, ref)
@@ -316,7 +321,9 @@ class SlurmRunner:
 
     @_serialized
     def add_cases(self, project_dir: Path, project: Project, job: JobRecord, cases: Sequence[str],
-                  continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
+                  continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None,
+                  changes: Optional[Mapping[str, Mapping[str, str]]] = None,
+                  fresh_cases: Iterable[str] = ()) -> JobRecord:
         """Submit more cases inside the running job `job` (e.g. to the other partition while it runs).
 
         Cases already queued or running in it are skipped; one that finished, failed or was cancelled in it runs
@@ -337,7 +344,13 @@ class SlurmRunner:
         number = 2
         while (project_dir / JOBS_DIR / job.id / f"add-{number}").exists():
             number += 1
-        configs = prepare_job(project_dir, project, f"{job.id}/add-{number}", wanted, continue_cases)
+        configs = prepare_job(project_dir, project, f"{job.id}/add-{number}", wanted, continue_cases, changes,
+                              fresh_cases)
+        for name in wanted:  # this attempt's changes replace an earlier attempt's
+            job.changes.pop(name, None)
+            if (changes or {}).get(name):
+                job.changes[name] = dict(changes[name])
+                self._log(project_dir, job, f"{name} runs with {describe(changes[name])} (this job only)")
         lines = _control_lines(configs / RUN_CONTROL_FILE)
         by_name = {case.name: case for case in project.cases}
         continued = set(continue_cases)

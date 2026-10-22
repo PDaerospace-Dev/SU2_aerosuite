@@ -7,7 +7,7 @@ import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Optional, Protocol, Sequence
+from typing import Any, Iterable, Mapping, Optional, Protocol, Sequence
 
 from pydantic import BaseModel, Field
 
@@ -75,6 +75,7 @@ class JobRecord(BaseModel):
     # started before AeroSuite recorded it).
     exit_code: Optional[int] = None
     slurm: dict[str, SlurmCase] = Field(default_factory=dict)  # by case name; empty for local jobs
+    changes: dict[str, dict[str, str]] = Field(default_factory=dict)  # config lines for this job only, by case
 
     @property
     def is_active(self) -> bool:
@@ -83,7 +84,8 @@ class JobRecord(BaseModel):
 
 class Runner(Protocol):
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
-               continue_cases: Iterable[str] = ()) -> JobRecord: ...
+               continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
+               fresh_cases: Iterable[str] = ()) -> JobRecord: ...
 
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 

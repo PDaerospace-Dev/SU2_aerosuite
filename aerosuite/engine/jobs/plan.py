@@ -20,7 +20,7 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE, apply_parameters
 from ..errors import JobError
@@ -117,12 +117,20 @@ def _custom_path(name: str, ref: str) -> ControlLine:
 
 
 def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
-                continue_cases: Iterable[str] = ()) -> Path:
-    """Write jobs/<id>/configs/ (cfgs + run_control.txt) and set restart solutions aside.
+                continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
+                fresh_cases: Iterable[str] = ()) -> Path:
+    """Write jobs/<id>/configs/ (cfgs + run_control.txt) and set restart solutions aside. `changes` (by case) are
+    config lines for this job only (jobs/rerun.py); `fresh_cases` start from scratch whatever their restart.
 
     Returns the configs folder. On any error nothing of this job is left behind.
     """
     project_dir = Path(project_dir).resolve()
+    fresh = set(fresh_cases)
+    if fresh:
+        project = project.model_copy(deep=True)
+        for case in project.cases:
+            if case.name in fresh:
+                case.restart, case.restart_ref = "none", None
     plan = plan_restarts(project_dir, project, cases, continue_cases)
     if plan.missing_continue:
         raise JobError("These cases have no solution to continue from: " + ", ".join(plan.missing_continue))
@@ -145,7 +153,7 @@ def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequenc
         for line, reference in lines:
             text = (source / f"{line.case}.cfg").read_text(encoding="utf-8")
             restarts = "YES" if line.option in RESTART_OPTIONS else "NO"
-            text = apply_parameters(text, {"RESTART_SOL": restarts})
+            text = apply_parameters(text, {**(changes or {}).get(line.case, {}), "RESTART_SOL": restarts})
             (configs / f"{line.case}.cfg").write_text(text, encoding="utf-8", newline="\n")
             if line.copy_from is not None:
                 _set_aside(line.copy_from, Path(reference))

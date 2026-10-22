@@ -13,7 +13,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Optional, Sequence
+from typing import Callable, Iterable, Mapping, Optional, Sequence
 
 from ..engine.errors import JobError
 from ..engine.jobs.executors import SlurmOptions, backend_of, runner_for
@@ -123,23 +123,29 @@ class JobWatcher:
         return JobView(latest, active, overview)
 
     def submit(self, project_dir: Path, project: Project, cases: Sequence[str],
-               continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
+               continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None,
+               changes: Optional[Mapping[str, Mapping[str, str]]] = None, fresh_cases: Iterable[str] = ()) -> JobRecord:
         directory = Path(project_dir).resolve()
         if backend_of(project) == "slurm":
             job = self.slurm_runner.submit(directory, project, cases=list(cases),
-                                           continue_cases=list(continue_cases), options=options)
+                                           continue_cases=list(continue_cases), options=options, changes=changes,
+                                           fresh_cases=list(fresh_cases))
             self.slurm_watch.track(directory, job.id)
             return job
-        return self.runner.submit(directory, project, cases=list(cases), continue_cases=list(continue_cases))
+        return self.runner.submit(directory, project, cases=list(cases), continue_cases=list(continue_cases),
+                                  changes=changes, fresh_cases=list(fresh_cases))
 
     def add_cases(self, project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
-                  continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None) -> JobRecord:
+                  continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None,
+                  changes: Optional[Mapping[str, Mapping[str, str]]] = None, fresh_cases: Iterable[str] = ()
+                  ) -> JobRecord:
         """Submit more cases inside the running Slurm job `job_id` (see SlurmRunner.add_cases)."""
         directory = Path(project_dir).resolve()
         job = next((job for job in self._view(directory, project).overview.jobs if job.id == job_id), None)
         if job is None or job.backend != "slurm":
             raise JobError(f"No Slurm job {job_id} in this project")
-        job = self.slurm_runner.add_cases(directory, project, job, list(cases), list(continue_cases), options)
+        job = self.slurm_runner.add_cases(directory, project, job, list(cases), list(continue_cases), options,
+                                          changes, list(fresh_cases))
         self.slurm_watch.track(directory, job.id)
         return job
 

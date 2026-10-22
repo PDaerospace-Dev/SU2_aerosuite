@@ -378,3 +378,16 @@ def test_two_projects_with_the_same_job_name_keep_apart(tmp_path):
     job = JobRecord(id="20260928-1358", backend="local", cases=[], log_path="jobs/20260928-1358.log")
     assert runner.started_cases(tmp_path / "a", job) == ["A1"]
     assert runner.started_cases(tmp_path / "b", job) == ["B1"]
+
+
+def test_a_local_job_records_and_logs_its_changes(ready_project):
+    project_dir, project = ready_project
+    _prepare(project_dir, project)
+    runner = LocalRunner()
+    job = runner.submit(project_dir, project, cases=[A2], changes={A2: {"ITER": "50", "MUSCL_FLOW": "NO",
+                                                                         "MUSCL_TURB": "NO"}})
+    assert job.changes == {A2: {"ITER": "50", "MUSCL_FLOW": "NO", "MUSCL_TURB": "NO"}}
+    job = _wait(runner, project_dir, job, _finished)
+    assert (project_dir / job.log_path).read_text().startswith(
+        f"AeroSuite: {A2} runs with first order, 50 iterations (this job only)\n")
+    assert "ITER= 50" in (project_dir / "jobs" / job.id / CONFIGS_DIR / f"{A2}.cfg").read_text()

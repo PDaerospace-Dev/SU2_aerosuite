@@ -13,7 +13,7 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Mapping, Optional, Sequence
 
 import psutil
 
@@ -23,6 +23,7 @@ from ..models import Project
 from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
 from .plan import RESTART_DIR, prepare_job
+from .rerun import describe
 from .runner import (
     FINAL_CASE_STATES,
     CaseState,
@@ -104,8 +105,10 @@ class LocalRunner:
     # -- Runner interface ---------------------------------------------------
 
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
-               continue_cases: Iterable[str] = ()) -> JobRecord:
-        """Run `cases` (default: every case) from the job's own configs (see jobs/plan.py)."""
+               continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
+               fresh_cases: Iterable[str] = ()) -> JobRecord:
+        """Run `cases` (default: every case) from the job's own configs (see jobs/plan.py); `changes` are config
+        lines for this job only, `fresh_cases` start from scratch."""
         project_dir = Path(project_dir).resolve()
         if active_lock(project_dir):
             raise JobError("A job is already running for this project")
@@ -121,7 +124,7 @@ class LocalRunner:
             raise JobError(f"Cannot start the sweep script: Python not found: {project.run.sweep_python}")
         selected = [case.name for case in project.cases] if cases is None else list(cases)
         job_id = new_job_id(project_dir)
-        configs = prepare_job(project_dir, project, job_id, selected, continue_cases)
+        configs = prepare_job(project_dir, project, job_id, selected, continue_cases, changes, fresh_cases)
         control = configs / RUN_CONTROL_FILE
         names = control_cases(control)
         job = JobRecord(
@@ -130,6 +133,7 @@ class LocalRunner:
             cases=names,
             log_path=f"{JOBS_DIR}/{job_id}.log",
             case_status={name: CaseState.PENDING for name in names},
+            changes={name: dict(lines) for name, lines in (changes or {}).items() if name in names and lines},
         )
         exit_file = f"{JOBS_DIR}/{job_id}.exit"
         sweep = [
@@ -148,6 +152,9 @@ class LocalRunner:
         env = {**sweep_environment(), "PYTHONUNBUFFERED": "1"}
         try:
             with open(project_dir / job.log_path, "wb") as log:
+                for name, lines in job.changes.items():
+                    log.write(f"AeroSuite: {name} runs with {describe(lines)} (this job only)\n".encode())
+                log.flush()
                 proc = subprocess.Popen(
                     cmd, cwd=runs, stdin=subprocess.PIPE, stdout=log,
                     stderr=subprocess.STDOUT, env=env, **detach,

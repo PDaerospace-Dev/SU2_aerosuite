@@ -12,6 +12,7 @@ from ...engine.errors import AeroSuiteError
 from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
 from ...engine.jobs.diagnose import Diagnosis, diagnose, residual_trend
 from ...engine.jobs.overview import NOT_RUN
+from ...engine.jobs.rerun import describe
 from ...engine.jobs.plan import plan_restarts
 from ...engine.machine import machine, partitions_note, usage, usage_text
 from ...engine.naming import format_value
@@ -24,6 +25,7 @@ from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
 from ..cluster_view import can_resubmit, case_slurm_text, summary_line
 from ..fields import text_field
+from ..rerun_dialog import ask_rerun, keep_changes, kept
 from ..resubmit_dialog import resubmit_case
 from .cluster import cluster_url
 from ..slurm_fields import slurm_fields
@@ -106,6 +108,7 @@ class RunPage:
         self.cancelling = False  # this page's Cancel is running (other tabs see WATCHER.is_cancelling)
         self.submitting = False  # a Slurm submit (or adding cases) is running in a worker thread
         self.checking = False  # SU2 is checking the configs before a submit
+        self.rerun_with: Optional[dict] = None  # the next submit's {"changes": {case: lines}, "fresh": [case]}
         self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
         self.add_ntasks: Optional[int] = None  # None: that partition's default
         self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
@@ -334,6 +337,7 @@ class RunPage:
         return None
 
     async def add_cases(self, cases: list) -> None:
+        extra, self.rerun_with = self.rerun_with or {}, None
         if self.submitting or not cases:
             return
         self._load_settings()
@@ -352,13 +356,15 @@ class RunPage:
         self.submitting = True
         self.render()
         continue_cases = [name for name in self.continue_cases if name in cases]
-        background_tasks.create(self._add_slurm(view.active.id, cases, continue_cases, options))
+        background_tasks.create(self._add_slurm(view.active.id, cases, continue_cases, options, extra))
 
-    async def _add_slurm(self, job_id: str, cases: list, continue_cases: list, options: SlurmOptions) -> None:
+    async def _add_slurm(self, job_id: str, cases: list, continue_cases: list, options: SlurmOptions,
+                         extra: Optional[dict] = None) -> None:
+        extra = extra or {}
         try:
             generate_configs(self.directory, self.project)  # as a submit: the current settings
             await run.io_bound(WATCHER.add_cases, self.directory, self.project, job_id, cases, continue_cases,
-                               options)
+                               options, extra.get("changes"), extra.get("fresh", ()))
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
         else:
@@ -558,6 +564,10 @@ class RunPage:
                     self._resubmit_button(job, row.name)
             if self._diagnosis(row) is not None:
                 ui.label(self._diagnosis(row).summary).classes("as-failure-reason").mark(f"why-{row.name}")
+            self._ran_with(row)
+            if row.status == "UNCONVERGED":
+                with ui.row():
+                    self._rerun_button(row.name, "unconverged")
             if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
                 self._failure(row)
             if row.status == NOT_RUN:
@@ -653,6 +663,7 @@ class RunPage:
                 ui.label(row.name).classes("as-strong")
                 if found is not None:
                     ui.label(found.summary).classes("as-failure-reason as-truncate").mark(f"why-{row.name}")
+                self._ran_with(row)
         td(format_value(case.mach) if case else "")
         td(format_value(case.alpha) if case else "")
         td(format_value(case.beta) if case else "")
@@ -721,8 +732,53 @@ class RunPage:
                              on_click=lambda n=row.name: self._only(n, continue_=False)).props("dense").mark(
                 f"fix-{row.name}")
         if found.kind in ("diverged", "time_limit", "su2", "failed"):
+            self._rerun_button(row.name, found.kind)
             flat_button("Monitor", icon="show_chart", on_click=lambda n=row.name: ui.navigate.to(
                 self._monitor_url(n))).props("dense").mark(f"monitor-{row.name}")
+
+    async def rerun(self, name: str, kind: str) -> None:
+        """Ask how (rerun_dialog), then run just this case with those changes: a new job, or added to the
+        running Slurm job."""
+        answer = await ask_rerun(self.directory, self.project, name, kind)
+        if answer is None:
+            return
+        changes, from_last = answer
+        self.ticked = {name}
+        self.continue_choice = from_last
+        self.render()  # works out the Continue choice for the ticked case
+        self.rerun_with = {"changes": {name: changes} if changes else {}, "fresh": [] if from_last else [name]}
+        view = WATCHER.state(self.directory, self.project)
+        if view.active is not None and view.active.backend == "slurm":
+            await self.add_cases([name])
+        else:
+            await self.submit()
+
+    def _rerun_button(self, name: str, kind: str) -> None:
+        secondary_button("Rerun with changes…", icon="tune",
+                         on_click=lambda: self.rerun(name, kind)).props("dense").mark(f"rerun-{name}")
+
+    def _ran_with(self, row) -> None:
+        """What the case last ran with, when that job changed its config; "Keep" writes it into the config."""
+        job = self.jobs_by_id.get(row.job_id)
+        changes = job.changes.get(row.name) if job is not None else None
+        if not changes:
+            return
+        case = next((c for c in self.project.cases if c.name == row.name), None)
+        try:
+            config = render_case(read_template(self.directory, self.project), self.project, case) if case else ""
+        except AeroSuiteError:
+            config = ""
+        with ui.row().classes("items-center gap-1 no-wrap"):
+            ui.label(f"ran with {describe(changes)}").classes("as-muted as-small").mark(f"ran-with-{row.name}")
+            if case is not None and not kept(config, changes):
+                flat_button("Keep", icon="push_pin", on_click=lambda: self._keep(row.name, changes)).props(
+                    "dense").mark(f"keep-{row.name}")
+
+    def _keep(self, name: str, changes: dict) -> None:
+        message = keep_changes(self.frame, name, changes)
+        if message:
+            ui.notify(message, type="negative")
+        self.render()
 
     def _only(self, name: str, continue_: bool) -> None:
         """Tick just this case (and Continue or not): Submit is then one click away."""
@@ -797,6 +853,7 @@ class RunPage:
             else:
                 ui.notify("Project changed on disk and was reloaded; submit again", type="warning")
             return
+        extra, self.rerun_with = self.rerun_with or {}, None
         cases = [case.name for case in self.project.cases if case.name in self.ticked]
         self._load_settings()
         self.checking = True  # SU2 checks each config: a few seconds, off the event loop
@@ -816,11 +873,12 @@ class RunPage:
                 self.submitting = True
                 self.submit_error = None
                 self.render()
-                background_tasks.create(self._submit_slurm(cases, list(self.continue_cases), self.options))
+                background_tasks.create(self._submit_slurm(cases, list(self.continue_cases), self.options, extra))
             return
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
-            WATCHER.submit(self.directory, self.project, cases, self.continue_cases)
+            WATCHER.submit(self.directory, self.project, cases, self.continue_cases,
+                           changes=extra.get("changes"), fresh_cases=extra.get("fresh", ()))
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
             self.render()
@@ -829,12 +887,15 @@ class RunPage:
         self.frame.refresh()
         self.render()
 
-    async def _submit_slurm(self, cases: list, continue_cases: list, options: SlurmOptions) -> None:
+    async def _submit_slurm(self, cases: list, continue_cases: list, options: SlurmOptions,
+                            extra: Optional[dict] = None) -> None:
         """sbatch once per case (seconds for a big sweep, or up to the timeout when Slurm is slow): in a worker
         thread, so the server keeps answering."""
+        extra = extra or {}
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
-            await run.io_bound(WATCHER.submit, self.directory, self.project, cases, continue_cases, options)
+            await run.io_bound(WATCHER.submit, self.directory, self.project, cases, continue_cases, options,
+                               extra.get("changes"), extra.get("fresh", ()))
         except AeroSuiteError as exc:
             self.submit_error = str(exc)
             ui.notify(str(exc), type="negative")

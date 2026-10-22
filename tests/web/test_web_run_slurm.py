@@ -275,3 +275,51 @@ async def test_a_time_limit_offers_to_continue_from_the_last_solution(user: User
     user.find(marker=f"fix-{A0}").click()
     assert _element(user, f"tick-{A0}").value and not _element(user, f"tick-{A2}").value
     assert _element(user, "continue").value
+
+
+async def test_rerun_a_diverged_case_with_changes_then_keep_them(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0])
+    (project_dir / "runs" / A0 / "slurm-101.out").write_text(DIVERGED_OUT)
+    (project_dir / "runs" / A0 / "restart_flow.dat").write_text("solution at iteration 500")
+    fake.finish("101", "FAILED", "1:0")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    user.find(marker=f"status-{A0}").click()
+    await eventually(lambda: bool(user.find(marker=f"rerun-{A0}").elements))
+    user.find(marker=f"rerun-{A0}").click()
+    await eventually(lambda: bool(user.find(marker="rerun-dialog").elements))
+    assert _element(user, "rerun-cfl").value == "0.5"  # half of 1, for a divergence
+    assert _element(user, "rerun-first-order").value and _element(user, "rerun-start").value == "last"
+    user.find(marker="rerun-confirm").click()
+    await eventually(lambda: len(list_jobs(project_dir)) == 2, 10)
+    rerun = list_jobs(project_dir)[0]
+    assert rerun.changes == {A0: {"CFL_NUMBER": "0.5", "CFL_ADAPT": "NO", "MUSCL_FLOW": "NO", "MUSCL_TURB": "NO"}}
+    cfg = (project_dir / "runs" / A0 / f"{A0}.cfg").read_text()
+    assert "CFL_NUMBER= 0.5" in cfg and "MUSCL_FLOW= NO" in cfg and "RESTART_SOL= YES" in cfg  # from its solution
+    template = (project_dir / "template.cfg").read_text()
+    assert "CFL_NUMBER= 0.5" not in template  # this job only
+    await _open(user, project_dir)
+    assert _text(user, f"ran-with-{A0}") == "ran with CFL 0.5 (fixed), first order"
+    user.find(marker=f"keep-{A0}").click()
+    template = (project_dir / "template.cfg").read_text()
+    assert "CFL_NUMBER= 0.5" in template and "MUSCL_FLOW= NO" in template and "CFL_ADAPT= NO" in template
+    await user.should_not_see(marker=f"keep-{A0}")  # kept: nothing more to keep
+
+
+async def test_rerun_can_be_cancelled(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0])
+    (project_dir / "runs" / A0 / "slurm-101.out").write_text(DIVERGED_OUT)
+    fake.finish("101", "FAILED", "1:0")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    user.find(marker=f"status-{A0}").click()
+    await eventually(lambda: bool(user.find(marker=f"rerun-{A0}").elements))
+    user.find(marker=f"rerun-{A0}").click()
+    await eventually(lambda: bool(user.find(marker="rerun-dialog").elements))
+    assert _element(user, "rerun-start").value == "scratch"  # no solution to continue from
+    user.find(marker="rerun-cancel").click()
+    assert len(list_jobs(project_dir)) == 1
