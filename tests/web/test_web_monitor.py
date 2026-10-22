@@ -463,3 +463,36 @@ async def test_a_case_named_in_the_link_is_not_followed_away_from(user: User, re
     await user.open(project_url("monitor", project_dir) + f"&case={A0}")
     assert _element(user, "monitor-case").value == A0
     assert _element(user, "monitor-follow").value is False
+
+
+def test_attempts_are_stitched_on_one_iteration_axis():
+    from aerosuite.web.pages.monitor import stitched
+
+    first = pd.DataFrame({"Inner_Iter": [0, 1, 2], "rms[Rho]": [-1.0, -2.0, -3.0]})
+    second = pd.DataFrame({"Inner_Iter": [0, 1], "rms[Rho]": [-3.0, -3.5]})
+    df, marks = stitched([first, None, second], ["attempt 1", "attempt 2", "current run"])
+    assert df["Inner_Iter"].tolist() == [0, 1, 2, 3, 4] and marks == [(3.0, "current run")]
+    options = line_options([0, 1, 2, 3, 4], df, ["rms[Rho]"], marks=marks)
+    assert options["series"][0]["markLine"]["data"] == [{"xAxis": 3.0, "name": "current run"}]
+
+
+async def test_a_case_with_an_earlier_attempt_draws_it_before_the_current_run(user: User, ready_project):
+    from aerosuite.engine.attempts import attempts
+
+    project_dir, project = ready_project
+    runner, job = _start(project_dir, project)
+    _wait(runner, project_dir, job, lambda j: not j.is_active)
+    runner, job = _start(project_dir, project)  # every case's first run becomes attempt 1
+    _wait(runner, project_dir, job, lambda j: not j.is_active)
+    assert len(attempts(project_dir, A4)) == 1
+    await _open(user, project_dir)
+    assert _element(user, "monitor-attempts").value is True
+    assert _element(user, "monitor-source").text.endswith("· after 1 earlier attempt")
+    series = _element(user, "chart-history").options["series"]
+    first = series[0]
+    current_start = first["markLine"]["data"][0]["xAxis"]
+    xs = [point[0] for point in first["data"]]
+    assert xs == sorted(xs) and xs[-1] > current_start > 0  # both runs, one after the other
+    with user:
+        _element(user, "monitor-attempts").set_value(False)
+    assert "markLine" not in _element(user, "chart-history").options["series"][0]

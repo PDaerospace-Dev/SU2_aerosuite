@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
+from ..attempts import current_override
 from ..models import Project
 from ..restarts import RUNS_DIR, find_restart_file
 from .runner import JobRecord
@@ -33,6 +34,11 @@ def case_overview(project_dir: Path, project: Project) -> CaseOverview:
     rows = []
     for case in project.cases:
         job = next((job for job in jobs if case.name in job.case_status), None)
+        made_current = current_override(project_dir, case.name)
+        if made_current and (job is None or made_current["made_current"] > job.created.timestamp()):
+            # an earlier attempt brought back: its own outcome, until a newer job runs the case
+            rows.append(CaseRow(case.name, made_current.get("status") or NOT_RUN, made_current.get("job_id")))
+            continue
         if job is None:
             rows.append(CaseRow(case.name, NOT_RUN, None))
         else:

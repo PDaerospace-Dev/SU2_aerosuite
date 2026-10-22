@@ -8,6 +8,7 @@ from typing import Any, Callable, NamedTuple, Optional, Sequence
 
 from nicegui import ui
 
+from ...engine.attempts import attempts
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.runner import CaseState, JobRecord
@@ -45,6 +46,31 @@ def iteration_values(df) -> list:
     return list(range(len(df)))
 
 
+def stitched(frames: list, labels: list) -> tuple[Any, list]:
+    """Histories one after another on one iteration axis, each continuing from the last; and where each later one
+    starts, with its label: [(iteration, label), ...]."""
+    import pandas as pd
+
+    parts, marks, offset = [], [], 0.0
+    for df, label in zip(frames, labels):
+        if df is None or df.empty:
+            continue
+        part = df.copy()
+        column = next((c for c in ITERATION_COLUMNS if c in part.columns), None)
+        if column is not None:
+            part[column] = part[column] - part[column].iloc[0] + offset
+            following = float(part[column].iloc[-1]) + 1
+        else:
+            following = offset + len(part)
+        if parts:
+            marks.append((offset, label))
+        offset = following
+        parts.append(part)
+    if not parts:
+        return None, []
+    return pd.concat(parts, ignore_index=True), marks
+
+
 def filtered_columns(df) -> list:
     """The old monitor's column filter: residuals and the main force/moment coefficients."""
     return [column for column in df.columns if COLUMN_PATTERN.search(column)]
@@ -70,7 +96,8 @@ def normalize_series(values: list) -> list:
     return [value if math.isnan(value) else 1 + value - v0 for value in values]
 
 
-def line_options(x: list, df, columns: list, normalize: bool = False, colors: Optional[dict] = None) -> dict:
+def line_options(x: list, df, columns: list, normalize: bool = False, colors: Optional[dict] = None,
+                 marks: Sequence = ()) -> dict:
     """ECharts options: one line per column against iteration, thinned to MAX_POINTS; NaN is a
     gap. `normalize` applies the old app's normalize_data to each series first. `colors` maps a
     column to its line colour."""
@@ -84,6 +111,10 @@ def line_options(x: list, df, columns: list, normalize: bool = False, colors: Op
         item = {"name": column, "type": "line", "showSymbol": False, "data": data}
         if colors and column in colors:
             item["color"] = colors[column]
+        if marks and not series:  # where each later attempt starts: dashed lines, labelled
+            item["markLine"] = {"silent": True, "symbol": "none", "lineStyle": {"type": "dashed", "color": "#8c959f"},
+                                "label": {"formatter": "{b}", "position": "insideEndTop"},
+                                "data": [{"xAxis": at, "name": label} for at, label in marks]}
         series.append(item)
     return {
         "animation": False,
@@ -150,6 +181,7 @@ class _Content(NamedTuple):
     source_tooltip: str  # only set in file mode
     message: str = ""  # the label text for "no-columns"; "no-history"/"not-run" have fixed text
     status: str = ""  # the case's status for the pill beside the source line; "" hides it
+    marks: tuple = ()  # with earlier attempts drawn before it: where each run starts, ((iteration, label), ...)
 
 
 def _replace_options(chart, options: dict) -> None:
@@ -169,6 +201,8 @@ class MonitorPage:
         self.normalize = False
         self.ticked: dict = {}  # column name -> ticked, remembered across case/file switches
         self.was_running = False
+        self.with_attempts = True  # draw the case's earlier attempts before its current run
+        self.marks: tuple = ()
         self.df = None  # the DataFrame behind the chart, if one is shown
         self.chart = None  # the ui.echart, if the right pane currently shows one
         self.columns_shape: tuple = ()  # the column names self.checkbox_holder was built for
@@ -198,6 +232,10 @@ class MonitorPage:
                     self.stop_button = secondary_button("Stop", on_click=self._toggle_stop).mark("monitor-stop")
                     self.follow_box = ui.checkbox("Follow the running case", value=self.follow,
                                                   on_change=lambda e: self._set_follow(e.value)).mark("monitor-follow")
+                    self.attempts_box = ui.checkbox("Earlier attempts before it", value=self.with_attempts,
+                                                    on_change=lambda e: self._set_attempts(e.value)).mark(
+                        "monitor-attempts")
+                    self.attempts_box.set_visibility(False)
                     with ui.column().classes("w-full gap-2") as self.convergence_controls:  # the Convergence tab's own
                         ui.checkbox("Normalize", on_change=lambda e: self._set_normalize(e.value)).mark(
                             "monitor-normalize")
@@ -321,8 +359,16 @@ class MonitorPage:
             text = f"{row.status} in job {status_job.id} · showing job {source.id}"
         else:
             text = f"{self.case} · job {status_job.id}" if status_job is not None else ""
+        marks: tuple = ()
+        earlier = [a for a in attempts(self.directory, self.case) if a.history is not None]
+        if earlier and self.with_attempts:
+            frames = [WATCHER.file_history(a.history) for a in earlier] + [df]
+            labels = [f"attempt {a.folder.name.split('-', 1)[0].lstrip('0')}" for a in earlier] + ["current run"]
+            df, found = stitched(frames, labels)
+            marks = tuple(found)
+            text += f" · after {len(earlier)} earlier attempt{'' if len(earlier) == 1 else 's'}"
         state = "no-history" if df is None or df.empty else "chart"
-        return _Content(df, state, text, "", status=row.status)
+        return _Content(df, state, text, "", status=row.status, marks=marks)
 
     def _file_content(self) -> _Content:
         df = WATCHER.file_history(self.file_path)
@@ -335,6 +381,9 @@ class MonitorPage:
 
     def _apply(self, content: _Content, rebuild: bool) -> None:
         self.df = content.df
+        self.marks = content.marks
+        self.attempts_box.set_visibility(self.mode == "case" and bool(self.case) and self.frame.session.project.imported
+                                         is None and bool(attempts(self.directory, self.case)))
         self.source_label.set_text(content.source_text)
         if content.source_tooltip:
             self.source_label.props["title"] = content.source_tooltip
@@ -392,7 +441,7 @@ class MonitorPage:
 
     def _chart_options(self) -> dict:
         return line_options(iteration_values(self.df), self.df, self._ticked_columns(), self.normalize,
-                            colors=column_colors(filtered_columns(self.df)))
+                            colors=column_colors(filtered_columns(self.df)), marks=self.marks)
 
     def _draw_chart(self) -> None:
         if self.chart is not None:
@@ -401,6 +450,10 @@ class MonitorPage:
     def _toggle_column(self, column: str, value: bool) -> None:
         self.ticked[column] = value
         self._draw_chart()
+
+    def _set_attempts(self, value: bool) -> None:
+        self.with_attempts = value
+        self.render()
 
     def _set_normalize(self, value: bool) -> None:
         self.normalize = value

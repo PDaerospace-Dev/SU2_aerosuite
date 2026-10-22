@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
+from ..attempts import ATTEMPTS_DIR
 from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE, apply_parameters
 from ..errors import JobError
 from ..models import Case, Project
@@ -37,7 +38,8 @@ class ControlLine:
     case: str
     option: str  # "none" | "previous" | "from_case" | "custom"
     ref: Optional[str] = None  # from_case: "<case>.cfg"; custom: a restart file outside this project's runs/
-    copy_from: Optional[Path] = None  # custom: a solution in this project's runs/, copied aside first
+    copy_from: Optional[Path] = None  # custom: a solution in this project's runs/ or attempts/, copied aside first
+    aside: Optional[str] = None  # the folder under jobs/<id>/restart/ it is copied to (default: its own folder's)
 
 
 @dataclass(frozen=True)
@@ -77,10 +79,22 @@ def plan_restarts(project_dir: Path, project: Project, cases: Sequence[str],
         if target is not None:
             lines.append(_case_reference(project_dir, name, target, selected[:position], warnings))
         elif case.restart == "custom":
-            lines.append(_custom_path(name, case.restart_ref or ""))
+            line = _custom_path(name, case.restart_ref or "")
+            if line.ref and _within(Path(line.ref), Path(project_dir) / ATTEMPTS_DIR):
+                # an earlier attempt: copied aside, as an attempt may be pruned while this job runs
+                line = ControlLine(name, "custom", copy_from=Path(line.ref), aside=name)
+            lines.append(line)
         else:
             lines.append(ControlLine(name, "none"))
     return RestartPlan(lines, warnings, missing)
+
+
+def _within(path: Path, folder: Path) -> bool:
+    try:
+        path.resolve().relative_to(folder.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 def _referenced_case(project_dir: Path, case: Case, names: list[str]) -> Optional[str]:
@@ -169,7 +183,7 @@ def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequenc
 def _reference(job_dir: Path, line: ControlLine) -> Optional[str]:
     """The third field of `line` in run_control.txt: the set-aside solution, or line.ref."""
     if line.copy_from is not None:
-        return str(job_dir / RESTART_DIR / line.copy_from.parent.name / line.copy_from.name)
+        return str(job_dir / RESTART_DIR / (line.aside or line.copy_from.parent.name) / line.copy_from.name)
     return line.ref
 
 

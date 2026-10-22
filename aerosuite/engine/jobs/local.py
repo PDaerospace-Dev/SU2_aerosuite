@@ -22,6 +22,7 @@ from ..errors import JobError
 from ..models import Project
 from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
+from ..attempts import archive_before_rerun, settle_attempts
 from .plan import drop_kept, prepare_job, prune_restarts
 from .rerun import describe
 from .runner import (
@@ -130,6 +131,7 @@ class LocalRunner:
         configs = prepare_job(project_dir, project, job_id, selected, continue_cases, changes, starts)
         control = configs / RUN_CONTROL_FILE
         names = control_cases(control)
+        archived = archive_before_rerun(project_dir, names)  # the sweep script empties each case's folder
         job = JobRecord(
             id=job_id,
             backend=self.backend,
@@ -137,6 +139,7 @@ class LocalRunner:
             log_path=f"{JOBS_DIR}/{job_id}.log",
             case_status={name: CaseState.PENDING for name in names},
             changes={name: dict(lines) for name, lines in (changes or {}).items() if name in names and lines},
+            attempts=archived,
         )
         exit_file = f"{JOBS_DIR}/{job_id}.exit"
         sweep = [
@@ -239,6 +242,7 @@ class LocalRunner:
         job.state = JobState.CANCELLED
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
+        settle_attempts(project_dir, job.attempts, set(self.started_cases(project_dir, job)))
         self._scan.pop(_key(project_dir, job), None)
         _remove_restart_copies(project_dir, job)
         save_job(project_dir, job)
@@ -331,6 +335,7 @@ class LocalRunner:
         job.state = JobState.DONE if all(s in ok for s in job.case_status.values()) else JobState.FAILED
         job.finished = datetime.now()
         clear_lock(project_dir, job.id)
+        settle_attempts(project_dir, job.attempts, set(self.started_cases(project_dir, job)))
         self._scan.pop(_key(project_dir, job), None)
         _remove_restart_copies(project_dir, job)
 

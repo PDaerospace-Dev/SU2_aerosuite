@@ -8,6 +8,7 @@ from urllib.parse import quote
 from nicegui import background_tasks, run, ui
 
 from ...engine.cfg import generate_configs, read_template, render_case
+from ...engine.attempts import attempts, make_current
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
 from ...engine.jobs.diagnose import Diagnosis, diagnose, residual_trend
@@ -63,6 +64,22 @@ def register() -> None:
             pages.append(RunPage(frame))
 
 
+def _iterations(history) -> Optional[int]:
+    """The iterations a history file holds (its rows), or None."""
+    if history is None:
+        return None
+    try:
+        with open(history, "rb") as handle:
+            rows = sum(1 for _ in handle) - 1
+    except OSError:
+        return None
+    return rows if rows > 0 else None
+
+
+def _attempt_number(attempt) -> str:
+    return attempt.folder.name.split("-", 1)[0].lstrip("0") or "0"
+
+
 def _plural(count: int, word: str) -> str:
     return f"{count} {word}{'' if count == 1 else 's'}"
 
@@ -110,6 +127,7 @@ class RunPage:
         self.cancelling = False  # this page's Cancel is running (other tabs see WATCHER.is_cancelling)
         self.submitting = False  # a Slurm submit (or adding cases) is running in a worker thread
         self.checking = False  # SU2 is checking the configs before a submit
+        self.attempts_open: set[str] = set()  # cases whose earlier attempts are listed
         self.rerun_with: Optional[dict] = None  # the next submit's {"changes": {case: lines}, "starts": {case: ref}}
         self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
         self.add_ntasks: Optional[int] = None  # None: that partition's default
@@ -570,6 +588,9 @@ class RunPage:
             if row.status == "UNCONVERGED":
                 with ui.row():
                     self._rerun_button(row.name, "unconverged")
+            self._attempts_link(row.name)
+            if row.name in self.attempts_open:
+                self._attempts_list(row.name)
             if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
                 self._failure(row)
             if row.status == NOT_RUN:
@@ -666,6 +687,7 @@ class RunPage:
                 if found is not None:
                     ui.label(found.summary).classes("as-failure-reason as-truncate").mark(f"why-{row.name}")
                 self._ran_with(row)
+                self._attempts_link(row.name)
         td(format_value(case.mach) if case else "")
         td(format_value(case.alpha) if case else "")
         td(format_value(case.beta) if case else "")
@@ -684,6 +706,8 @@ class RunPage:
             td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
         if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
             self._failure(row)
+        if row.name in self.attempts_open:
+            self._attempts_list(row.name)
 
     def _diagnosis(self, row) -> Optional[Diagnosis]:
         """Why the case failed, in words (jobs/diagnose.py); None unless it failed or was blocked."""
@@ -793,6 +817,62 @@ class RunPage:
         message = keep_changes(self.frame, name, changes)
         if message:
             ui.notify(message, type="negative")
+        self.render()
+
+    def _attempts_link(self, name: str) -> None:
+        found = attempts(self.directory, name)
+        if found:
+            opened = name in self.attempts_open
+            flat_button(f"{len(found)} earlier attempt{'' if len(found) == 1 else 's'}",
+                        icon="expand_less" if opened else "history",
+                        on_click=lambda: self._toggle_attempts(name)).props("dense").mark(f"attempts-{name}")
+
+    def _toggle_attempts(self, name: str) -> None:
+        self.attempts_open ^= {name}
+        self.render()
+
+    def _attempts_list(self, name: str) -> None:
+        """The case's earlier attempts, newest first: how each ended, what it ran with, and what to do with it."""
+        with ui.element("div").classes("as-td-failure").style("grid-column: 1 / -1"):
+            with ui.column().classes("as-attempts gap-1 w-full").mark(f"attempts-list-{name}"):
+                for attempt in reversed(attempts(self.directory, name)):
+                    number = _attempt_number(attempt)
+                    with ui.row().classes("items-center gap-2 no-wrap w-full").mark(f"attempt-{name}-{number}"):
+                        ui.label(f"Attempt {number}").classes("as-strong")
+                        if attempt.status:
+                            pill(attempt.status)
+                        details = [describe(attempt.changes)] if attempt.changes else []
+                        iterations = _iterations(attempt.history)
+                        if iterations:
+                            details.append(f"{iterations} iterations")
+                        if attempt.archived:
+                            details.append(f"kept {datetime.fromtimestamp(attempt.archived):%d %b %H:%M}")
+                        ui.label(" · ".join(details)).classes("as-muted grow as-truncate")
+                        if attempt.solution is not None:
+                            source = {str(attempt.folder): f"From attempt {number}'s solution"}
+                            flat_button("Restart from this", icon="replay",
+                                        on_click=lambda s=source: self.rerun(name, "attempt", s, next(iter(s)))
+                                        ).props("dense").mark(f"attempt-restart-{name}-{number}")
+                        flat_button("Make current", icon="restore",
+                                    on_click=lambda a=attempt: self.confirm_make_current(a)).props("dense").mark(
+                            f"attempt-current-{name}-{number}")
+
+    async def confirm_make_current(self, attempt) -> None:
+        with ui.dialog() as dialog, ui.card():
+            ui.label(f"Make attempt {_attempt_number(attempt)} {attempt.case}'s current run? The current run "
+                     "becomes an earlier attempt (its volume files are not kept).")
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Keep as it is", on_click=lambda: _answer(dialog, False)).mark("current-keep")
+                primary_button("Make current", on_click=lambda: _answer(dialog, True)).mark("current-confirm")
+        if not await dialog:
+            return
+        try:
+            make_current(self.directory, attempt)
+        except AeroSuiteError as exc:
+            ui.notify(str(exc), type="negative")
+            return
+        ui.notify(f"{attempt.case}: attempt {_attempt_number(attempt)} is the current run again", type="positive")
+        self.frame.refresh()
         self.render()
 
     def _only(self, name: str, continue_: bool) -> None:

@@ -348,3 +348,39 @@ async def test_a_failed_continuation_reruns_from_the_solution_it_started_from(us
     control = (project_dir / "jobs" / rerun.id / "configs" / "run_control.txt").read_text()
     assert control.startswith(f"{A0}.cfg, custom, ") and "first-order" not in control
     assert (project_dir / "runs" / A0 / f"{A0}.cfg").read_text().count("RESTART_SOL= YES") == 1
+
+
+async def test_earlier_attempts_restart_from_and_make_current(user: User, slurm_project, eventually, history_writer):
+    project_dir, project, fake = slurm_project
+    runs = project_dir / "runs" / A0
+    first = runner_for("slurm").submit(project_dir, project, cases=[A0])
+    history_writer(runs, [0.5] * 30)
+    (runs / "restart_flow.dat").write_text("first order")
+    fake.finish("101", "COMPLETED", "0:0")
+    WATCH.track(project_dir, first.id)
+    await WATCH.poll_once()
+    second = runner_for("slurm").submit(project_dir, project, cases=[A0])  # its run becomes attempt 1
+    (runs / "slurm-102.out").write_text(DIVERGED_OUT)
+    history_writer(runs, [0.5] * 12)  # a diverged run leaves its history
+    fake.finish("102", "FAILED", "1:0")
+    WATCH.track(project_dir, second.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    assert _text(user, f"attempts-{A0}") == "1 earlier attempt"
+    user.find(marker=f"attempts-{A0}").click()
+    await user.should_see(marker=f"attempt-{A0}-1")
+    assert "30 iterations" in _element(user, f"attempt-{A0}-1").default_slot.children[-3].text
+
+    user.find(marker=f"attempt-restart-{A0}-1").click()  # Restart from this: its solution is chosen
+    await eventually(lambda: bool(user.find(marker="rerun-dialog").elements))
+    assert "/attempts/" in _element(user, "rerun-start").value
+    user.find(marker="rerun-cancel").click()
+
+    user.find(marker=f"attempt-current-{A0}-1").click()
+    await eventually(lambda: bool(user.find(marker="current-confirm").elements))
+    user.find(marker="current-confirm").click()
+    await eventually(lambda: (runs / "restart_flow.dat").is_file()
+                     and (runs / "restart_flow.dat").read_text() == "first order", 5)
+    await _open(user, project_dir)
+    assert _text(user, f"status-{A0}") == "CONVERGED"  # the first run's outcome again
+    assert _text(user, f"attempts-{A0}") == "1 earlier attempt"  # the failed one, kept in its place

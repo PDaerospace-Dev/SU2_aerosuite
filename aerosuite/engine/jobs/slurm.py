@@ -34,6 +34,7 @@ from ..results import HISTORY_FILE, check_convergence, read_history
 from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
 from .executors import SlurmOptions, slurm_options
+from ..attempts import archive_before_rerun, settle_attempts
 from .diagnose import diagnose
 from .rerun import describe
 from .plan import _referenced_case, drop_kept, prepare_job, prune_restarts
@@ -231,12 +232,14 @@ class SlurmRunner:
         configs = prepare_job(project_dir, project, job_id, selected, continue_cases, changes, starts)
         lines = _control_lines(configs / RUN_CONTROL_FILE)
         names = [name for name, _option, _ref in lines]
+        archived = archive_before_rerun(project_dir, names)  # before this job is the newest to name them
         job = JobRecord(id=job_id, backend=self.backend, cases=names, log_path=f"{JOBS_DIR}/{job_id}.log",
                         case_status={name: CaseState.PENDING for name in names},
                         backend_ref={"partition": options.partition, "ntasks": options.ntasks,
                                      "time_limit": options.time_limit, "exclusive": options.exclusive,
                                      "account": options.account},
-                        changes={name: dict(c) for name, c in (changes or {}).items() if name in names and c})
+                        changes={name: dict(c) for name, c in (changes or {}).items() if name in names and c},
+                        attempts=archived)
         save_job(project_dir, job)  # active (QUEUED): the lock below counts as held from here on
         try:
             write_lock(project_dir, job_id, -1, 0.0, backend=self.backend)
@@ -347,6 +350,7 @@ class SlurmRunner:
             number += 1
         configs = prepare_job(project_dir, project, f"{job.id}/add-{number}", wanted, continue_cases, changes,
                               starts)
+        job.attempts.update(archive_before_rerun(project_dir, wanted))  # each is emptied below, as at a submit
         for name in wanted:  # this attempt's changes replace an earlier attempt's
             job.changes.pop(name, None)
             if (changes or {}).get(name):
@@ -652,6 +656,7 @@ class SlurmRunner:
         job.finished = datetime.now()
         save_job(project_dir, job)
         clear_lock(project_dir, job.id)
+        settle_attempts(project_dir, job.attempts, {name for name, sc in job.slurm.items() if sc.started})
         prune_restarts(project_dir / JOBS_DIR / job.id, unfinished(job))
         drop_kept(project_dir, [name for name in job.case_status if name not in unfinished(job)], but=job.id)
         self._log(project_dir, job, f"Job {job.id} ended: {state.value}")

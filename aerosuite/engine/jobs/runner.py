@@ -76,6 +76,7 @@ class JobRecord(BaseModel):
     exit_code: Optional[int] = None
     slurm: dict[str, SlurmCase] = Field(default_factory=dict)  # by case name; empty for local jobs
     changes: dict[str, dict[str, str]] = Field(default_factory=dict)  # config lines for this job only, by case
+    attempts: dict[str, str] = Field(default_factory=dict)  # earlier runs it put aside (attempts/), by case
 
     @property
     def is_active(self) -> bool:
