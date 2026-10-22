@@ -122,6 +122,9 @@ def install(root: Path, port: int) -> list[str]:
     _systemctl("enable", SERVICE)
     _systemctl("restart", SERVICE)  # restart, not start: a reinstall with a new port or root takes effect
     done.append(f"Started; it starts again at boot and after a crash (http://127.0.0.1:{port})")
+    linked = link_command()
+    if linked:
+        done.append(linked)
     if lingering() is False:
         linger = subprocess.run(["loginctl", "enable-linger", getpass.getuser()], capture_output=True, text=True)
         if linger.returncode == 0:
@@ -130,6 +133,28 @@ def install(root: Path, port: int) -> list[str]:
             done.append(f"Could not enable lingering ({(linger.stderr or linger.stdout).strip()}): the service "
                         f"stops when you log out. Ask an admin to run: sudo loginctl enable-linger {getpass.getuser()}")
     return done
+
+
+def link_command() -> Optional[str]:
+    """Make `aerosuite` work in any terminal: link ~/.local/bin/aerosuite to this environment's script. Returns what
+    was done, or None when there was nothing to do; never replaces a file that is not that link."""
+    script = Path(os.path.abspath(sys.executable)).parent / "aerosuite"
+    if not script.is_file():
+        return None
+    folder = Path.home() / ".local" / "bin"
+    link = folder / "aerosuite"
+    if link.is_symlink() and Path(os.readlink(link)) == script:
+        return None
+    if link.exists() or link.is_symlink():
+        return f"Left {link} as it is (it is not a link to {script}); `aerosuite` may run another copy"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        link.symlink_to(script)
+    except OSError as exc:
+        return f"Could not link {link} ({exc}): run AeroSuite commands with `uv run aerosuite ...`"
+    on_path = str(folder) in os.environ.get("PATH", "").split(os.pathsep)
+    return f"Linked {link} to {script}: the aerosuite command works in any terminal" + (
+        "" if on_path else f" once {folder} is on your PATH (add it in ~/.bashrc)")
 
 
 def restart() -> None:

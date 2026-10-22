@@ -133,7 +133,7 @@ aerosuite service logs                          # its latest output
 aerosuite service stop / uninstall
 ```
 
-It runs through a login shell, so it sees the same PATH and modules as a terminal. If logging out stops it,
+It also links `~/.local/bin/aerosuite` to this environment, so `aerosuite` works in any terminal without `uv run` (a file already there is left alone). It runs through a login shell, so it sees the same PATH and modules as a terminal. If logging out stops it,
 lingering could not be enabled for you: ask an admin for `sudo loginctl enable-linger <user>`.
 
 **To open it:**

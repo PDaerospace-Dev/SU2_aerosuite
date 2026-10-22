@@ -13,6 +13,7 @@ from aerosuite.engine.settings import AppSettings, SettingsError, set_value
 def systemd(tmp_path, monkeypatch):
     """systemctl recorded instead of run; the unit goes under tmp_path."""
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))  # install links ~/.local/bin/aerosuite
     calls = []
     state = {"active": False}
 
@@ -103,3 +104,32 @@ def test_systemctl_falls_back_to_the_system_bus(monkeypatch):
     assert service._systemctl("daemon-reload").returncode == 0
     assert calls == [["systemctl", "--user", "daemon-reload"],
                      ["systemctl", "--user", "--machine=me@.host", "daemon-reload"]]
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("PATH", str(tmp_path / "home" / ".local" / "bin") + os.pathsep + "/usr/bin")
+    return tmp_path / "home"
+
+
+def test_install_links_the_command_into_local_bin(systemd, home, tmp_path):
+    script = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "aerosuite")
+    lines = service.install(tmp_path, 8080)
+    link = home / ".local" / "bin" / "aerosuite"
+    assert link.is_symlink() and os.readlink(link) == script
+    assert any(line.startswith(f"Linked {link}") and line.endswith("works in any terminal") for line in lines)
+    assert not any("Linked" in line for line in service.install(tmp_path, 8080))  # already there: nothing to say
+
+
+def test_the_link_says_when_local_bin_is_not_on_path(home, monkeypatch):
+    monkeypatch.setenv("PATH", "/usr/bin")
+    assert service.link_command().endswith("is on your PATH (add it in ~/.bashrc)")
+
+
+def test_the_link_never_replaces_another_file(home):
+    folder = home / ".local" / "bin"
+    folder.mkdir(parents=True)
+    (folder / "aerosuite").write_text("#!/bin/sh\necho mine\n")
+    assert service.link_command().startswith(f"Left {folder / 'aerosuite'} as it is")
+    assert (folder / "aerosuite").read_text() == "#!/bin/sh\necho mine\n"
