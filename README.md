@@ -122,15 +122,31 @@ su2aero
 ```
 
 ## Web UI
-Start it on the workstation (inside the uv environment):
+**Once, on the workstation** (inside the uv environment): install it as an always-on service. It starts at boot,
+restarts after a crash and keeps running when you log out, so no terminal or tmux is needed:
 
 ```bash
-aerosuite serve --root ~/cfd        # file picker starts in ~/cfd; listens on 127.0.0.1:8080
-aerosuite serve --port 8765         # another port, e.g. when 8080 is taken
+uv run aerosuite service install --root /data   # file picker starts in /data; listens on 127.0.0.1:8080
+aerosuite service status                        # running? and how to open it
+aerosuite service restart                       # after updating AeroSuite; sweeps and Slurm jobs go on
+aerosuite service logs                          # its latest output
+aerosuite service stop / uninstall
 ```
 
-- At the workstation: open http://localhost:8080
-- From your own PC: `ssh -L 8080:127.0.0.1:8080 you@workstation`, then open http://localhost:8080 (with `--port`, use that port on the workstation side of `-L`)
+It runs through a login shell, so it sees the same PATH and modules as a terminal. If logging out stops it,
+lingering could not be enabled for you: ask an admin for `sudo loginctl enable-linger <user>`.
+
+**To open it:**
+- On the workstation: http://localhost:8080
+- From your PC: **Settings → Open from your PC → download the launcher** (`AeroSuite.bat` for Windows,
+  `aerosuite.command` for Mac or Linux), copy it to the PC and double-click it. It opens the SSH tunnel and then
+  AeroSuite in your browser; closing its window disconnects. Set *SSH address of this machine* there first if your
+  PC reaches it by another name (e.g. its Tailscale IP). `aerosuite service launcher --for windows -o AeroSuite.bat`
+  writes the same file from the command line. By hand: `ssh -N -L 8080:127.0.0.1:8080 user@workstation`, then
+  http://localhost:8080.
+
+To run it in a terminal instead (it stops with the terminal): `aerosuite serve --root /data` (`--port 8765` when
+8080 is taken); it prints the tunnel command for your PC.
 
 Pages:
 - **Projects**: recent, open, and **new project**. First choose a *General case* (one config, no sweep) or an *Aircraft study* (pick a profile such as X07; sweep on).

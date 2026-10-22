@@ -3,10 +3,14 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
+from ...engine import service
+from ...engine.errors import ServiceError
+from ...engine.remote import default_ssh_address, local_url, ssh_address, tunnel_command, unix_launcher, windows_launcher
 from ...engine.settings import SettingsError, load_settings, save_settings, set_value, settings_path, validated
+from .. import serving
 from ..fields import text_field
 from ..layout import header
-from ..ui_kit import banner, card, card_head, flat_button, hint, secondary_button, table, td_box, th
+from ..ui_kit import banner, card, card_head, flat_button, hint, readonly, secondary_button, table, td_box, th
 
 FIELDS = [  # (key under slurm., label, hint)
     ("shared_root", "Shared root", "Case folders must be under it: every node mounts it (NFS)"),
@@ -75,6 +79,56 @@ class SettingsPage:
             with card(flush=True):
                 card_head("Partitions", "The memory limit is what an --exclusive job may use before Slurm kills it")
                 self._partitions()
+            with card():
+                card_head("Open from your PC", "AeroSuite has no login, so it listens on this machine only; "
+                                               "an SSH tunnel brings it to your PC")
+                self._remote()
+
+    def _remote(self) -> None:
+        port = serving.PORT["value"]
+        address = ssh_address(self.settings)
+        command = tunnel_command(address, port)
+        with ui.column().classes("w-full gap-2 px-4 pb-4"):
+            text_field("SSH address of this machine", self.settings.ssh_address, self._address,
+                       mark="settings-ssh_address", placeholder=default_ssh_address())
+            hint("user@host as your PC reaches it: the hostname on the same network, or e.g. its Tailscale IP. "
+                 f"Empty: {default_ssh_address()}.")
+            ui.label("Download a launcher, copy it to your PC and double-click it: it opens the tunnel, then "
+                     f"AeroSuite in your browser at {local_url(port)}. Closing its window disconnects.").classes(
+                "as-label")
+            with ui.row().classes("gap-2"):
+                secondary_button("Windows (AeroSuite.bat)", icon="download", on_click=lambda: ui.download.content(
+                    windows_launcher(address, port), "AeroSuite.bat", "application/octet-stream")).mark(
+                    "remote-windows")
+                secondary_button("Mac or Linux (aerosuite.command)", icon="download",
+                                 on_click=lambda: ui.download.content(unix_launcher(address, port), "aerosuite.command",
+                                                                      "application/octet-stream")).mark("remote-mac")
+            ui.label("Or run this on your PC, then open the address above:").classes("as-label")
+            with ui.row().classes("w-full items-center no-wrap gap-2"):
+                readonly(command, mono=True).mark("remote-command")
+                secondary_button("Copy", icon="content_copy", on_click=lambda: self._copy(command)).mark("remote-copy")
+            hint(self._service_note(port)).mark("remote-service")
+
+    def _address(self, text: str) -> Optional[str]:
+        message = self._set("ssh_address", text, render=False)
+        if message is None:
+            self.render()  # the command and the launchers follow
+        return message
+
+    def _copy(self, text: str) -> None:
+        ui.clipboard.write(text)
+        ui.notify("Copied", type="positive")
+
+    def _service_note(self, port: int) -> str:
+        try:
+            running = service.is_installed() and service.is_active()
+        except ServiceError:
+            running = False
+        if running:
+            return "Running as a service: it starts at boot and keeps running when you log out " \
+                   "(aerosuite service status / restart / stop on this machine)."
+        return "To keep AeroSuite running without a terminal, run this once on this machine: " \
+               f"aerosuite service install --root {self.settings.slurm.shared_root} --port {port}"
 
     def _committer(self, key: str) -> Callable[[str], Optional[str]]:
         def commit(text: str) -> Optional[str]:

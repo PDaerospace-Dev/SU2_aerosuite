@@ -6,6 +6,7 @@ from starlette.datastructures import Headers
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import Receive, Scope, Send
 
+from . import serving
 from .app import register_pages
 
 LOCAL_HOST_NAMES = ("localhost", "127.0.0.1", "::1", "[::1]")
@@ -44,6 +45,7 @@ class LocalHostMiddleware(TrustedHostMiddleware):
 
 
 def run_server(root: Path, host: str, port: int) -> None:
+    serving.PORT["value"] = port
     register_pages(root)
     app.add_middleware(LocalHostMiddleware, allowed_hosts=allowed_hosts(host))
     ui.run(host=host, port=port, reload=False, show=False, title="AeroSuite")

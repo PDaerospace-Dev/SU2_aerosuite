@@ -75,3 +75,25 @@ async def test_the_gear_opens_the_settings(user: User):
     await user.open("/")
     user.find(marker="settings").click()
     await user.should_see(marker="settings-backend")
+
+
+async def test_open_from_your_pc_gives_the_tunnel_and_launchers(user: User, monkeypatch):
+    from aerosuite.engine import remote, service
+    from aerosuite.web.pages import settings as settings_page
+
+    monkeypatch.setattr(settings_page, "default_ssh_address", lambda: "me@hpc1")
+    monkeypatch.setattr(remote, "default_ssh_address", lambda: "me@hpc1")
+    monkeypatch.setattr(service, "is_installed", lambda: False)
+    from aerosuite.web import serving
+
+    monkeypatch.setitem(serving.PORT, "value", 8080)  # another test's server may have set it
+    await user.open("/settings")
+    assert _element(user, "remote-command").text == "ssh -N -L 8080:127.0.0.1:8080 me@hpc1"
+    assert "aerosuite service install --root /data --port 8080" in _element(user, "remote-service").text
+    await user.should_see(marker="remote-windows")
+    await user.should_see(marker="remote-mac")
+    await _commit(user, "settings-ssh_address", "pdas@100.106.223.105")
+    assert load_settings()[0].ssh_address == "pdas@100.106.223.105"
+    assert _element(user, "remote-command").text == "ssh -N -L 8080:127.0.0.1:8080 pdas@100.106.223.105"
+    await _commit(user, "settings-ssh_address", "bad address")
+    assert load_settings()[0].ssh_address == "pdas@100.106.223.105"

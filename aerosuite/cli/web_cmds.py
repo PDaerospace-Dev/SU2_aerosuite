@@ -4,6 +4,8 @@ from typing import Annotated, Optional
 
 import typer
 
+from ..engine.remote import local_url, ssh_address, tunnel_command
+from ..engine.settings import load_settings
 from .app import app, engine_errors
 
 LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
@@ -18,7 +20,7 @@ def serve(
     i_understand_no_auth: Annotated[bool, typer.Option(
         "--i-understand-no-auth", help="Allow a non-local --host (the web UI has no login)")] = False,
 ) -> None:
-    """Start the web UI. Over SSH, tunnel it: ssh -L 8080:127.0.0.1:8080 you@workstation."""
+    """Start the web UI in this terminal. To keep it running without one: aerosuite service install."""
     if host not in LOCAL_HOSTS and not i_understand_no_auth:
         typer.echo(
             f"Error: refusing to listen on {host}: the web UI has no login. "
@@ -34,4 +36,8 @@ def serve(
 
     shown = f"[{host}]" if ":" in host else host  # an IPv6 address goes in brackets in a URL
     typer.echo(f"AeroSuite web UI on http://{shown}:{port}  (Ctrl-C to stop)")
+    if host in LOCAL_HOSTS:
+        address = ssh_address(load_settings()[0])
+        typer.echo(f"From your PC: {tunnel_command(address, port)}  then open {local_url(port)}")
+        typer.echo("  (or download a launcher that does both: Settings > Open from your PC)")
     server.run_server(root_dir, host, port)

@@ -23,6 +23,7 @@ BACKENDS = ("local", "slurm")
 _TIME_RE = re.compile(r"^(\d+|\d+:\d{1,2}|\d+:\d{1,2}:\d{1,2}|\d+-\d+|\d+-\d+:\d{1,2}|\d+-\d+:\d{1,2}:\d{1,2}"
                       r"|UNLIMITED|INFINITE)$")
 _NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_ADDRESS_RE = re.compile(r"^[A-Za-z0-9_.-]+@?[A-Za-z0-9_.:-]*$")
 
 
 class SettingsError(AeroSuiteError):
@@ -142,6 +143,16 @@ class SlurmSettings(BaseModel):
 class AppSettings(BaseModel):
     backend: Backend = "local"  # for projects that do not choose
     slurm: SlurmSettings = Field(default_factory=SlurmSettings)
+    # How a PC reaches this machine over SSH, for the tunnel command and launcher ("" = <user>@<hostname>)
+    ssh_address: str = ""
+
+    @field_validator("ssh_address")
+    @classmethod
+    def _address(cls, value: str) -> str:
+        value = value.strip()
+        if value and not _ADDRESS_RE.match(value):
+            raise ValueError(f"ssh_address {value!r} must look like user@host (letters, digits and . _ - @ : only)")
+        return value
 
 
 def settings_path() -> Path:
@@ -210,7 +221,7 @@ def _parse(text: str, current: Any) -> Any:
 
 def setting_keys(settings: AppSettings) -> list[str]:
     """Every dotted key `set_value` accepts, e.g. slurm.poll_seconds, slurm.partitions.node2.default_ntasks."""
-    keys = ["backend"]
+    keys = ["backend", "ssh_address"]
     for name, value in settings.slurm.model_dump().items():
         if name == "partitions":
             for partition in value:
@@ -224,8 +235,8 @@ def set_value(settings: AppSettings, key: str, text: str) -> AppSettings:
     """A copy of `settings` with the dotted `key` set from `text` (as typed on a command line)."""
     data = settings.model_dump()
     parts = key.split(".")
-    if parts == ["backend"]:
-        data["backend"] = text
+    if parts in (["backend"], ["ssh_address"]):
+        data[parts[0]] = text
     elif len(parts) == 2 and parts[0] == "slurm" and parts[1] in data["slurm"] and parts[1] != "partitions":
         data["slurm"][parts[1]] = _parse(text, data["slurm"][parts[1]])
     elif len(parts) == 4 and parts[:2] == ["slurm", "partitions"]:

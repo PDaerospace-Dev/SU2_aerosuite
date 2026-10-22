@@ -19,3 +19,7 @@ class GenerationError(AeroSuiteError):
 
 class JobError(AeroSuiteError):
     """A job could not be started, refreshed or cancelled."""
+
+
+class ServiceError(AeroSuiteError):
+    """The always-on web UI service could not be installed, started or stopped."""
