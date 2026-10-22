@@ -12,7 +12,9 @@ from ...engine.errors import AeroSuiteError
 from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
 from ...engine.jobs.diagnose import Diagnosis, diagnose, residual_trend
 from ...engine.jobs.overview import NOT_RUN
+from ...engine.jobs.plan import started_from
 from ...engine.jobs.rerun import describe
+from ...engine.jobs.store import JOBS_DIR
 from ...engine.jobs.plan import plan_restarts
 from ...engine.machine import machine, partitions_note, usage, usage_text
 from ...engine.naming import format_value
@@ -108,7 +110,7 @@ class RunPage:
         self.cancelling = False  # this page's Cancel is running (other tabs see WATCHER.is_cancelling)
         self.submitting = False  # a Slurm submit (or adding cases) is running in a worker thread
         self.checking = False  # SU2 is checking the configs before a submit
-        self.rerun_with: Optional[dict] = None  # the next submit's {"changes": {case: lines}, "fresh": [case]}
+        self.rerun_with: Optional[dict] = None  # the next submit's {"changes": {case: lines}, "starts": {case: ref}}
         self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
         self.add_ntasks: Optional[int] = None  # None: that partition's default
         self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
@@ -364,7 +366,7 @@ class RunPage:
         try:
             generate_configs(self.directory, self.project)  # as a submit: the current settings
             await run.io_bound(WATCHER.add_cases, self.directory, self.project, job_id, cases, continue_cases,
-                               options, extra.get("changes"), extra.get("fresh", ()))
+                               options, extra.get("changes"), extra.get("starts"))
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
         else:
@@ -704,6 +706,9 @@ class RunPage:
                         ui.label(f"Before that, {trend}.").mark(f"trend-{row.name}")
                 if found.advice:
                     ui.label(f"Try: {found.advice}.").classes("as-muted").mark(f"advice-{row.name}")
+                if self._sources(row.name):
+                    ui.label("The solution its run started from is kept, so a rerun can start from it.").classes(
+                        "as-muted").mark(f"kept-start-{row.name}")
                 with ui.row().classes("gap-2"):
                     self._failure_actions(row, found)
                 with ui.expansion("Output (its last lines)").props("dense").classes("w-full").mark(
@@ -736,17 +741,27 @@ class RunPage:
             flat_button("Monitor", icon="show_chart", on_click=lambda n=row.name: ui.navigate.to(
                 self._monitor_url(n))).props("dense").mark(f"monitor-{row.name}")
 
-    async def rerun(self, name: str, kind: str) -> None:
+    def _sources(self, name: str) -> dict[str, str]:
+        """More solutions a rerun of `name` can start from: the one its last (unfinished) run started from."""
+        view = WATCHER.state(self.directory, self.project)
+        row = next((r for r in view.overview.rows if r.name == name), None)
+        started = started_from(self.directory / JOBS_DIR / row.job_id, name) if row and row.job_id else None
+        return {str(started): "From the solution its last run started from"} if started is not None else {}
+
+    async def rerun(self, name: str, kind: str, sources: Optional[dict] = None, chosen: Optional[str] = None
+                    ) -> None:
         """Ask how (rerun_dialog), then run just this case with those changes: a new job, or added to the
         running Slurm job."""
-        answer = await ask_rerun(self.directory, self.project, name, kind)
+        answer = await ask_rerun(self.directory, self.project, name, kind,
+                                 sources if sources is not None else self._sources(name), chosen)
         if answer is None:
             return
-        changes, from_last = answer
+        changes, start = answer
         self.ticked = {name}
-        self.continue_choice = from_last
+        self.continue_choice = start == "last"
         self.render()  # works out the Continue choice for the ticked case
-        self.rerun_with = {"changes": {name: changes} if changes else {}, "fresh": [] if from_last else [name]}
+        starts = {} if start == "last" else {name: None if start == "scratch" else start}
+        self.rerun_with = {"changes": {name: changes} if changes else {}, "starts": starts}
         view = WATCHER.state(self.directory, self.project)
         if view.active is not None and view.active.backend == "slurm":
             await self.add_cases([name])
@@ -878,7 +893,7 @@ class RunPage:
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
             WATCHER.submit(self.directory, self.project, cases, self.continue_cases,
-                           changes=extra.get("changes"), fresh_cases=extra.get("fresh", ()))
+                           changes=extra.get("changes"), starts=extra.get("starts"))
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
             self.render()
@@ -895,7 +910,7 @@ class RunPage:
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
             await run.io_bound(WATCHER.submit, self.directory, self.project, cases, continue_cases, options,
-                               extra.get("changes"), extra.get("fresh", ()))
+                               extra.get("changes"), extra.get("starts"))
         except AeroSuiteError as exc:
             self.submit_error = str(exc)
             ui.notify(str(exc), type="negative")

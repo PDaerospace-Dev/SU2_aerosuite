@@ -118,19 +118,20 @@ def _custom_path(name: str, ref: str) -> ControlLine:
 
 def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
                 continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
-                fresh_cases: Iterable[str] = ()) -> Path:
+                starts: Optional[Mapping[str, Optional[str]]] = None) -> Path:
     """Write jobs/<id>/configs/ (cfgs + run_control.txt) and set restart solutions aside. `changes` (by case) are
-    config lines for this job only (jobs/rerun.py); `fresh_cases` start from scratch whatever their restart.
+    config lines for this job only (jobs/rerun.py); `starts` overrides how cases start, for this job only: None
+    from scratch, else from that solution (a file or a case folder), whatever their restart.
 
     Returns the configs folder. On any error nothing of this job is left behind.
     """
     project_dir = Path(project_dir).resolve()
-    fresh = set(fresh_cases)
-    if fresh:
+    if starts:
         project = project.model_copy(deep=True)
         for case in project.cases:
-            if case.name in fresh:
-                case.restart, case.restart_ref = "none", None
+            if case.name in starts:
+                ref = starts[case.name]
+                case.restart, case.restart_ref = ("none", None) if ref is None else ("custom", ref)
     plan = plan_restarts(project_dir, project, cases, continue_cases)
     if plan.missing_continue:
         raise JobError("These cases have no solution to continue from: " + ", ".join(plan.missing_continue))
@@ -181,3 +182,61 @@ def _set_aside(solution: Path, target: Path) -> None:
         os.link(solution, target)  # survives the sweep deleting runs/<case>/
     except OSError:  # another filesystem, or no hard links there
         shutil.copyfile(solution, target)
+
+
+def _batches(job_dir: Path) -> list[Path]:
+    """A job's folders that hold configs/ and restart/: the job's own, then each added batch (add-N)."""
+    return [job_dir, *sorted(job_dir.glob("add-*"), key=lambda path: int(path.name[4:]) if path.name[4:].isdigit()
+                                                                     else 0)]
+
+
+def started_from(job_dir: Path, case: str) -> Optional[Path]:
+    """The solution set aside for `case`'s last attempt in this job, while it is still there."""
+    found = None
+    for batch in _batches(Path(job_dir)):
+        try:
+            text = (batch / CONFIGS_DIR / RUN_CONTROL_FILE).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for raw in text.splitlines():
+            parts = [part.strip() for part in raw.split(",", 2)]
+            if parts[0] in (case, f"{case}.cfg"):
+                ref = Path(parts[2]) if len(parts) > 2 else None
+                found = ref if ref is not None and (batch / RESTART_DIR) in ref.parents else None
+    return found if found is not None and found.is_file() else None
+
+
+def prune_restarts(job_dir: Path, keep_for: Iterable[str]) -> None:
+    """When a job ends: delete the solutions set aside for it, except those the cases in `keep_for` (they did not
+    finish) started from, so a rerun can start from them again."""
+    keep = {path for path in (started_from(job_dir, case) for case in keep_for) if path is not None}
+    for batch in _batches(Path(job_dir)):
+        folder = batch / RESTART_DIR
+        if not keep & set(folder.rglob("*")):
+            shutil.rmtree(folder, ignore_errors=True)
+            continue
+        for path in sorted(folder.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+            try:
+                if path.is_file() and path not in keep:
+                    path.unlink()
+                elif path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
+            except OSError:
+                pass
+
+
+def drop_kept(project_dir: Path, cases: Iterable[str], but: str) -> None:
+    """Cases that now have a solution of their own: forget the starting solutions earlier jobs kept for them."""
+    jobs = Path(project_dir) / JOBS_DIR
+    if not jobs.is_dir():
+        return
+    names = set(cases)
+    for job_dir in jobs.iterdir():
+        if not job_dir.is_dir() or job_dir.name == but:
+            continue
+        for batch in _batches(job_dir):
+            restart = batch / RESTART_DIR
+            for name in names:
+                shutil.rmtree(restart / name, ignore_errors=True)
+            if restart.is_dir() and not any(restart.iterdir()):
+                restart.rmdir()

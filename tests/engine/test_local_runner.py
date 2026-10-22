@@ -161,7 +161,7 @@ def test_a_previous_case_really_restarts_from_the_case_before(ready_project):
     assert (project_dir / RUNS_DIR / A2 / "restart_used.txt").read_text() == f"{A2}.cfg, previous\n"
 
 
-def test_cancel_removes_the_restart_folder(ready_project):
+def test_cancel_keeps_the_solution_the_case_started_from(ready_project):
     project_dir, project = ready_project
     _prepare(project_dir, project)
     runner = LocalRunner()
@@ -173,7 +173,9 @@ def test_cancel_removes_the_restart_folder(ready_project):
     job = _wait(runner, project_dir, job, lambda j: j.case_status[A2] is CaseState.RUNNING)
     job = runner.cancel(project_dir, job)
     assert job.state is JobState.CANCELLED
-    assert not restart.exists()
+    from aerosuite.engine.jobs.plan import started_from
+
+    assert started_from(restart.parent, A2) is not None  # unfinished: a rerun can start from it again
     assert (project_dir / RUNS_DIR / A2 / "restart_applied.txt").read_text() == "yes\n"
 
 

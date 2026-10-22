@@ -82,10 +82,16 @@ class JobRecord(BaseModel):
         return self.state not in TERMINAL_JOB_STATES
 
 
+def unfinished(job: JobRecord) -> list[str]:
+    """The cases of `job` that ended without a solution of their own (failed, blocked, cancelled)."""
+    return [name for name, state in job.case_status.items()
+            if state not in (CaseState.CONVERGED, CaseState.UNCONVERGED)]
+
+
 class Runner(Protocol):
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
                continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
-               fresh_cases: Iterable[str] = ()) -> JobRecord: ...
+               starts: Optional[Mapping[str, Optional[str]]] = None) -> JobRecord: ...
 
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 

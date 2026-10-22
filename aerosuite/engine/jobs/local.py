@@ -22,7 +22,7 @@ from ..errors import JobError
 from ..models import Project
 from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
-from .plan import RESTART_DIR, prepare_job
+from .plan import drop_kept, prepare_job, prune_restarts
 from .rerun import describe
 from .runner import (
     FINAL_CASE_STATES,
@@ -33,6 +33,7 @@ from .runner import (
     resolve_sweep_python,
     sweep_environment,
     sweep_script_path,
+    unfinished,
 )
 from .store import JOBS_DIR, active_lock, clear_lock, kill_tree, load_job, process_alive, save_job, write_lock
 
@@ -79,8 +80,10 @@ def control_cases(control: Path) -> list[str]:
 
 
 def _remove_restart_copies(project_dir: Path, job: JobRecord) -> None:
-    """Delete jobs/<id>/restart/ (solutions set aside for this job): nothing reads them any more."""
-    shutil.rmtree(project_dir / JOBS_DIR / job.id / RESTART_DIR, ignore_errors=True)
+    """Delete jobs/<id>/restart/ (solutions set aside for this job), except what an unfinished case started from;
+    a case that finished needs no solution kept from an earlier job either."""
+    prune_restarts(project_dir / JOBS_DIR / job.id, unfinished(job))
+    drop_kept(project_dir, [name for name in job.case_status if name not in unfinished(job)], but=job.id)
 
 
 def _discard(project_dir: Path, job: JobRecord) -> None:
@@ -106,9 +109,9 @@ class LocalRunner:
 
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
                continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
-               fresh_cases: Iterable[str] = ()) -> JobRecord:
+               starts: Optional[Mapping[str, Optional[str]]] = None) -> JobRecord:
         """Run `cases` (default: every case) from the job's own configs (see jobs/plan.py); `changes` are config
-        lines for this job only, `fresh_cases` start from scratch."""
+        lines for this job only, `starts` how cases start (jobs/plan.py)."""
         project_dir = Path(project_dir).resolve()
         if active_lock(project_dir):
             raise JobError("A job is already running for this project")
@@ -124,7 +127,7 @@ class LocalRunner:
             raise JobError(f"Cannot start the sweep script: Python not found: {project.run.sweep_python}")
         selected = [case.name for case in project.cases] if cases is None else list(cases)
         job_id = new_job_id(project_dir)
-        configs = prepare_job(project_dir, project, job_id, selected, continue_cases, changes, fresh_cases)
+        configs = prepare_job(project_dir, project, job_id, selected, continue_cases, changes, starts)
         control = configs / RUN_CONTROL_FILE
         names = control_cases(control)
         job = JobRecord(

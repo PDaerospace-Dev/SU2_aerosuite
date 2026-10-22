@@ -29,9 +29,14 @@ def _answer(dialog: ui.dialog, value) -> None:
     dialog.submit(value)
 
 
-async def ask_rerun(directory: Path, project: Project, name: str, kind: str) -> Optional[tuple[dict, bool]]:
-    """Ask how to rerun `name` after a failure of `kind` (jobs/diagnose.py; "unconverged" too). Returns (the config
-    changes, from its last solution) or None when cancelled."""
+async def ask_rerun(directory: Path, project: Project, name: str, kind: str,
+                    sources: Optional[dict[str, str]] = None, chosen: Optional[str] = None
+                    ) -> Optional[tuple[dict, str]]:
+    """Ask how to rerun `name` after a failure of `kind` (jobs/diagnose.py; "unconverged" too). `sources` are more
+    solutions it can start from ({path: label}, e.g. the one its failed run started from), `chosen` the one to
+    offer first. Returns (the config changes, where it starts: "last", "scratch" or a solution's path), or None
+    when cancelled."""
+    sources = sources or {}
     case = next(c for c in project.cases if c.name == name)
     try:
         config = render_case(read_template(directory, project), project, case)
@@ -58,11 +63,10 @@ async def ask_rerun(directory: Path, project: Project, name: str, kind: str) -> 
         with ui.row().classes("items-center gap-2 no-wrap"):
             ui.label("Iterations").classes("as-label")
             iter_box = ui.input(value=iterations).props("dense outlined").classes("w-28").mark("rerun-iter")
-        start = ui.radio({"last": "From its last solution" + ("" if has_solution else " (none yet)"),
-                          "scratch": "From scratch"},
-                         value="last" if has_solution else "scratch").props("inline").mark("rerun-start")
-        if not has_solution:
-            start.disable()
+        options = {"last": "From its last solution" + ("" if has_solution else " (none yet)"), **sources,
+                   "scratch": "From scratch"}
+        first_choice = chosen or (next(iter(sources)) if sources and kind != "unconverged" else None)
+        start = ui.radio(options, value=first_choice or ("last" if has_solution else "scratch")).mark("rerun-start")
         error = ui.label("").classes("as-error-text").mark("rerun-error")
 
         def confirm() -> None:
@@ -80,7 +84,10 @@ async def ask_rerun(directory: Path, project: Project, name: str, kind: str) -> 
                 return
             same_iter = count is not None and str(count) == iterations
             changes = rerun_changes(cfl=value, first_order=first.value, iterations=None if same_iter else count)
-            _answer(dialog, (changes, start.value == "last"))
+            if start.value == "last" and not has_solution:
+                error.text = "It has no solution yet: start from scratch, or from another solution"
+                return
+            _answer(dialog, (changes, start.value))
 
         with ui.row().classes("w-full justify-end gap-2"):
             secondary_button("Cancel", on_click=lambda: _answer(dialog, None)).mark("rerun-cancel")

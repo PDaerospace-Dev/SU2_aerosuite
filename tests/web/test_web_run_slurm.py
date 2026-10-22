@@ -323,3 +323,28 @@ async def test_rerun_can_be_cancelled(user: User, slurm_project, eventually):
     assert _element(user, "rerun-start").value == "scratch"  # no solution to continue from
     user.find(marker="rerun-cancel").click()
     assert len(list_jobs(project_dir)) == 1
+
+
+async def test_a_failed_continuation_reruns_from_the_solution_it_started_from(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    first_order = project_dir / "runs" / A0 / "restart_flow.dat"
+    first_order.parent.mkdir(parents=True)
+    first_order.write_text("first-order solution")
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0], continue_cases=[A0])
+    (project_dir / "runs" / A0 / "slurm-101.out").write_text(DIVERGED_OUT)  # its folder was emptied: no solution
+    fake.finish("101", "FAILED", "1:0")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    user.find(marker=f"status-{A0}").click()
+    await user.should_see(marker=f"kept-start-{A0}")
+    user.find(marker=f"rerun-{A0}").click()
+    await eventually(lambda: bool(user.find(marker="rerun-dialog").elements))
+    kept = _element(user, "rerun-start").value
+    assert kept.endswith("restart_flow.dat") and "/jobs/" in kept  # offered first
+    user.find(marker="rerun-confirm").click()
+    await eventually(lambda: len(list_jobs(project_dir)) == 2, 10)
+    rerun = list_jobs(project_dir)[0]
+    control = (project_dir / "jobs" / rerun.id / "configs" / "run_control.txt").read_text()
+    assert control.startswith(f"{A0}.cfg, custom, ") and "first-order" not in control
+    assert (project_dir / "runs" / A0 / f"{A0}.cfg").read_text().count("RESTART_SOL= YES") == 1
