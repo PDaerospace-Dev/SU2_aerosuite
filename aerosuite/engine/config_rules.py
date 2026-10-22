@@ -3,8 +3,7 @@ geometry) or accepts although it is rarely meant. Instant: no SU2 is run.
 
 - error: a marker of the mesh with no boundary condition (SU2 stops on it once it reads the mesh);
 - warnings: an adaptive CFL whose minimum is above CFL_NUMBER, REF_AREA / REF_LENGTH left at SU2's 1 in an
-  aircraft study, a history without the coefficients Results judges convergence on, ASCII volume output on a
-  big mesh.
+  aircraft study, a history without the coefficients Results judges convergence on.
 """
 from __future__ import annotations
 
@@ -30,8 +29,6 @@ NOT_CONDITIONS = {
     "MARKER_NORMAL_DISPL", "MARKER_DISPL", "MARKER_SLIDING", "MARKER_ACTDISK_CG",
 }
 CONVERGENCE_FIELDS = {"AERO_COEFF", "LIFT", "DRAG", "MOMENT_Y"}  # history fields that give CL, CD, CMy
-ASCII_OUTPUTS = {"PARAVIEW_ASCII", "TECPLOT_ASCII"}
-BIG_MESH = 5_000_000  # elements
 
 
 def _options(text: str) -> dict[str, str]:
@@ -57,7 +54,6 @@ def _number(text: str) -> Optional[float]:
 def config_problems(project_dir: Path, project: Project) -> list["Problem"]:
     """Problems with the config the cases run with (the first case's; the rules do not depend on the case)."""
     from .preflight import Problem
-    from .slurm_checks import mesh_elements  # it imports preflight
 
     if not project.cases:
         return []
@@ -98,11 +94,4 @@ def config_problems(project_dir: Path, project: Project) -> list["Problem"]:
             problems.append(Problem("warning", "HISTORY_OUTPUT has no AERO_COEFF (or LIFT, DRAG): Results cannot "
                                                "judge convergence, which it reads from CL, CD and CMy"))
 
-    outputs = {item.upper() for item in _items(options.get("OUTPUT_FILES", ""))}
-    ascii_ = sorted(outputs & ASCII_OUTPUTS)
-    elements = mesh_elements(Path(project.mesh.path)) if project.mesh.path and ascii_ else None
-    if elements is not None and elements > BIG_MESH:
-        problems.append(Problem("warning", f"OUTPUT_FILES writes {', '.join(ascii_)} for a {elements / 1e6:.1f}M-"
-                                           "element mesh: large, slow text files at every write; PARAVIEW (binary) "
-                                           "is several times smaller"))
     return problems

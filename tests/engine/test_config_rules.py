@@ -47,14 +47,3 @@ def test_an_aircraft_study_warns_of_unit_reference_values_and_no_coefficients_in
     _with(project_dir, "HISTORY_OUTPUT= ( ITER, RMS_RES, AERO_COEFF )")
     assert _messages(project_dir, project, "warning") == []
 
-
-def test_ascii_volume_output_on_a_big_mesh_is_a_warning(ready_project):
-    project_dir, project = ready_project
-    mesh = project_dir.parent / "wing.su2"
-    mesh.write_text("NDIME= 3\nNELEM= 15036158\n")
-    _with(project_dir, "OUTPUT_FILES= ( RESTART, PARAVIEW_ASCII, SURFACE_PARAVIEW_ASCII )")
-    assert _messages(project_dir, project, "warning") == [
-        "OUTPUT_FILES writes PARAVIEW_ASCII for a 15.0M-element mesh: large, slow text files at every write; "
-        "PARAVIEW (binary) is several times smaller"]
-    mesh.write_text("NDIME= 3\nNELEM= 1000\n")
-    assert _messages(project_dir, project, "warning") == []
