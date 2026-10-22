@@ -104,6 +104,7 @@ class RunPage:
         self.dialogs_open = 0  # a re-render while Cancel's confirm dialog awaits would orphan it
         self.cancelling = False  # this page's Cancel is running (other tabs see WATCHER.is_cancelling)
         self.submitting = False  # a Slurm submit (or adding cases) is running in a worker thread
+        self.checking = False  # SU2 is checking the configs before a submit
         self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
         self.add_ntasks: Optional[int] = None  # None: that partition's default
         self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
@@ -245,6 +246,8 @@ class RunPage:
         if self.slurm:
             label = "Submitting…" if self.submitting else (
                 "Submit to Slurm" if single else f"Submit {_plural(len(selection.ticked), 'case')} to Slurm")
+        if self.checking:
+            label = "Checking the configs with SU2…"
         self.submit_button = primary_button(label, on_click=self.submit, icon="play_arrow").classes("w-full").mark(
             "submit")
         self.blocked = hint("").mark("submit-blocked")
@@ -329,7 +332,7 @@ class RunPage:
         self.render()
         return None
 
-    def add_cases(self, cases: list) -> None:
+    async def add_cases(self, cases: list) -> None:
         if self.submitting or not cases:
             return
         self._load_settings()
@@ -339,9 +342,9 @@ class RunPage:
             ui.notify("The job has ended: submit the cases instead", type="warning")
             self.render()
             return
-        errors = [p for p in preflight(self.directory, self.project, "submit", cases=cases, options=options,
-                                       settings=self.settings)
-                  if p.severity == "error" and not p.message.startswith(f"Job {view.active.id} ")]
+        found = await run.io_bound(preflight, self.directory, self.project, "submit", cases=cases, options=options,
+                                   settings=self.settings, check_su2=True)
+        errors = [p for p in found if p.severity == "error" and not p.message.startswith(f"Job {view.active.id} ")]
         if errors:
             ui.notify(errors[0].message, type="negative")
             return
@@ -379,7 +382,8 @@ class RunPage:
     def _buttons_state(self, view: JobView, selection: _Selection) -> None:
         if view.active is None:  # one job at a time: while one runs the panel has Cancel, no Submit
             self.clock = None
-            self.submit_button.set_enabled(bool(selection.ticked) and not self.has_errors and not self.submitting)
+            self.submit_button.set_enabled(bool(selection.ticked) and not self.has_errors and not self.submitting
+                                           and not self.checking)
             self.blocked.text = ("Fix the error below to run" if self.has_errors else
                                  "Tick at least one case" if not selection.ticked else "")
 
@@ -719,7 +723,7 @@ class RunPage:
         self.continue_choice = value
         self.render()
 
-    def submit(self) -> None:
+    async def submit(self) -> None:
         stale = self.frame.ensure_current(notify=False)
         if stale is not None:
             if self.frame.session.load_error is not None:  # project.json on disk is invalid
@@ -729,8 +733,14 @@ class RunPage:
             return
         cases = [case.name for case in self.project.cases if case.name in self.ticked]
         self._load_settings()
-        errors = [p for p in preflight(self.directory, self.project, "submit", cases=cases, options=self.options,
-                                       settings=self.settings) if p.severity == "error"]
+        self.checking = True  # SU2 checks each config: a few seconds, off the event loop
+        self.render()
+        try:
+            found = await run.io_bound(preflight, self.directory, self.project, "submit", cases=cases,
+                                       options=self.options, settings=self.settings, check_su2=True)
+        finally:
+            self.checking = False
+        errors = [p for p in found if p.severity == "error"]
         if errors:
             ui.notify(errors[0].message, type="negative")
             self.render()

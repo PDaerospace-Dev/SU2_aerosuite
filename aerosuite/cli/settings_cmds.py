@@ -13,7 +13,8 @@ app.add_typer(settings_app, name="settings")
 
 def _lines(settings) -> list[str]:
     slurm = settings.slurm
-    lines = [f"backend = {settings.backend}", f"ssh_address = {settings.ssh_address!r}"]
+    lines = [f"backend = {settings.backend}", f"ssh_address = {settings.ssh_address!r}",
+             f"check_with_su2 = {settings.check_with_su2}"]
     for name, value in slurm.model_dump().items():
         if name != "partitions":
             lines.append(f"slurm.{name} = {value!r}" if isinstance(value, str) else f"slurm.{name} = {value}")

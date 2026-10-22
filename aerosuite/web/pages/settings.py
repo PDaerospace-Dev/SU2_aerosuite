@@ -61,6 +61,12 @@ class SettingsPage:
                                   on_change=lambda e: self._set("backend", e.value)).props(
                             "dense no-caps unelevated").mark("settings-backend")
                     hint("The default for studies that have not chosen; each study can choose on its Run page.")
+                    ui.checkbox("Check each case's config with SU2 before Generate and Submit",
+                                value=self.settings.check_with_su2,
+                                on_change=lambda e: self._set("check_with_su2", "true" if e.value else "false")
+                                ).mark("settings-check_with_su2")
+                    hint("SU2_CFD -d (a dry run: SU2's own checks, without loading the mesh), about 2 s per config, "
+                         "from the SU2 bin folder below. A config SU2 rejects stops the submit.")
             with card():
                 card_head("Slurm", "Every job is one node; the defaults below are this cluster's")
                 with ui.column().classes("w-full gap-2 px-4 pb-4"):

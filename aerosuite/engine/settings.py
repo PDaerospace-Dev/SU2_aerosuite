@@ -145,6 +145,7 @@ class AppSettings(BaseModel):
     slurm: SlurmSettings = Field(default_factory=SlurmSettings)
     # How a PC reaches this machine over SSH, for the tunnel command and launcher ("" = <user>@<hostname>)
     ssh_address: str = ""
+    check_with_su2: bool = True  # each case's config through `SU2_CFD -d` before Generate and Submit
 
     @field_validator("ssh_address")
     @classmethod
@@ -221,7 +222,7 @@ def _parse(text: str, current: Any) -> Any:
 
 def setting_keys(settings: AppSettings) -> list[str]:
     """Every dotted key `set_value` accepts, e.g. slurm.poll_seconds, slurm.partitions.node2.default_ntasks."""
-    keys = ["backend", "ssh_address"]
+    keys = ["backend", "ssh_address", "check_with_su2"]
     for name, value in settings.slurm.model_dump().items():
         if name == "partitions":
             for partition in value:
@@ -237,6 +238,8 @@ def set_value(settings: AppSettings, key: str, text: str) -> AppSettings:
     parts = key.split(".")
     if parts in (["backend"], ["ssh_address"]):
         data[parts[0]] = text
+    elif parts == ["check_with_su2"]:
+        data["check_with_su2"] = _parse(text, data["check_with_su2"])
     elif len(parts) == 2 and parts[0] == "slurm" and parts[1] in data["slurm"] and parts[1] != "partitions":
         data["slurm"][parts[1]] = _parse(text, data["slurm"][parts[1]])
     elif len(parts) == 4 and parts[:2] == ["slurm", "partitions"]:

@@ -41,7 +41,8 @@ def test_preflight_lists_template_warnings(ready_project):
     from aerosuite.engine.preflight import has_errors, preflight
 
     project_dir, project = ready_project
-    (project_dir / TEMPLATE_FILE).write_text("MACH_NUMBER= 0.3\nAOA= 1\nAOA= 2\n")
+    (project_dir / TEMPLATE_FILE).write_text("MACH_NUMBER= 0.3\nAOA= 1\nAOA= 2\nMARKER_FAR= ( farfield )\n"
+                                             "MARKER_EULER= ( wall )\n")
     found = preflight(project_dir, project, "generate")
     assert any(p.severity == "warning" and "AOA is set on lines 2 and 3" in p.message for p in found)
     assert not has_errors(found)

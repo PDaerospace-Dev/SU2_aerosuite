@@ -12,7 +12,7 @@ from aerosuite.engine.errors import GenerationError
 from aerosuite.engine.preflight import sweep_problems
 from aerosuite.engine.project import follow_template, open_project, save_project, set_template_text
 
-TEMPLATE = "MACH_NUMBER= 1.2\nAOA= 2.0\nSIDESLIP_ANGLE= 0.0\n"
+TEMPLATE = "MACH_NUMBER= 1.2\nAOA= 2.0\nSIDESLIP_ANGLE= 0.0\nMARKER_FAR= ( farfield )\nMARKER_EULER= ( wall )\n"
 
 
 def _aircraft_single(project_dir, project, template=TEMPLATE):
@@ -78,7 +78,7 @@ def test_an_outside_edit_is_refused_until_the_case_follows(ready_project):
 def test_cli_generate_renames_a_case_left_behind_by_an_outside_edit(ready_project):
     project_dir, project = ready_project
     _aircraft_single(project_dir, project)
-    (project_dir / "template.cfg").write_text("MACH_NUMBER= 1.5\nAOA= 0\n")
+    (project_dir / "template.cfg").write_text(TEMPLATE.replace("MACH_NUMBER= 1.2\nAOA= 2.0", "MACH_NUMBER= 1.5\nAOA= 0"))
     result = CliRunner().invoke(app, ["generate", str(project_dir)])
     assert result.exit_code == 0, result.output
     assert "case M1p2_a2_b0 is now M1p5_a0_b0" in result.output

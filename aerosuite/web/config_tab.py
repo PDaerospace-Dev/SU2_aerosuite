@@ -4,15 +4,17 @@ per case (the sweep's Mach, α, β, the mesh, the altitude's freestream) goes ba
 to change it. The raw template file is behind a toggle."""
 from typing import Callable, Optional
 
-from nicegui import ui
+from nicegui import background_tasks, run, ui
 
 from ..engine.cfg import read_template, render_case
 from ..engine.config_edit import apply_changes, split_edit
 from ..engine.errors import AeroSuiteError
+from ..engine.settings import load_settings
+from ..engine.su2_check import dry_run, enabled, executable, where
 from .layout import ProjectFrame
 from .template_edit import save_template_text
 from .template_editor import SAVE_DELAY, TemplateEditor
-from .ui_kit import banner, field, hint
+from .ui_kit import banner, field, hint, ok_line
 
 
 class ConfigTab:
@@ -77,6 +79,34 @@ class ConfigTab:
             self.state["config_editor"], self.state["config_shown"] = self.editor, self.shown
             self.editor.on_value_change(self._typed)
             self.editor.on("focusout", self.commit)
+            self.su2_box = ui.column().classes("w-full gap-1").mark("config-su2")
+            background_tasks.create(self._su2_check(case, template, self.shown, self.su2_box))
+
+    async def _su2_check(self, case, template: str, text: str, box: ui.column) -> None:
+        """SU2's verdict on the shown config, under the editor (a dry run: about 2 s; cached)."""
+        settings = load_settings()[0]
+        if not enabled(settings):
+            return
+        su2 = executable(settings)
+        if su2 is None:
+            with box:
+                hint(f"Not checked with SU2: SU2_CFD was not found in {settings.slurm.su2_bin}")
+            return
+        with box:
+            hint("Checking with SU2…")
+        result = await run.io_bound(dry_run, text, su2)
+        if box.is_deleted:
+            return  # drawn again meanwhile: the new box has its own check
+        box.clear()
+        with box:
+            if result.skipped:
+                hint(f"Not checked with SU2: {result.skipped}")
+            elif result.ok:
+                ok_line("SU2 accepts this config.").mark("config-su2-ok")
+            else:
+                banner("error", f"SU2 rejects this config: {result.message}"
+                                f"{where(template, self.frame.session.project, case, result.message)}").mark(
+                    "config-su2-error")
 
     def _choose(self, name: str) -> None:
         self.commit()

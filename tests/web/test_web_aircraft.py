@@ -485,3 +485,14 @@ async def test_the_restart_stays_when_the_mach_renames_the_case(user: User, read
     user.find(marker="freestream-mach").clear().type("1.5").trigger("blur")
     [case] = open_project(project_dir).cases
     assert case.name.startswith("M1p5") and (case.restart, case.restart_ref) == ("custom", str(folder))
+
+
+async def test_the_config_tab_shows_what_su2_says(user: User, ready_project, fake_su2, eventually):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    await eventually(lambda: _shown(user, "config-su2-ok"), 10)
+    _edit_config(user, lambda text: text + "CFL_ADAPT= YES\nCFL_ADAPT_PARAM= ( 1.5, 0.5, 25.0, 100000.0 )\n")
+    await eventually(lambda: _shown(user, "config-su2-error"), 10)
+    text = _element(user, "config-su2-error").text
+    assert "CFL adaption factor down should be less than 1.0" in text and "CFL_ADAPT_PARAM, template line" in text

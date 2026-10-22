@@ -24,6 +24,40 @@ HISTORY_HEADER = '"Inner_Iter",   "rms[Rho]",   "CL",   "CD",   "CMy"'
 def _isolated_aerosuite_home(tmp_path, monkeypatch):
     """Never read the real ~/.aerosuite: its settings.json could switch the tests to the Slurm backend."""
     monkeypatch.setenv("AEROSUITE_HOME", str(tmp_path / "aerosuite-home"))
+    # No real SU2 dry runs: tests of the check turn it on with a fake SU2_CFD (fake_su2).
+    monkeypatch.setenv("AEROSUITE_SU2_CHECK", "off")
+    from aerosuite.engine.su2_check import clear_cache
+
+    clear_cache()
+
+
+FAKE_SU2 = """#!/bin/sh
+# A stand-in for SU2_CFD -d: rejects a CFL_ADAPT_PARAM whose factor down is 1.5, as SU2 8.5 does.
+echo call >> "$AEROSUITE_FAKE_SU2_CALLS"
+if grep -q "^CFL_ADAPT_PARAM= ( 1.5" "$2"; then
+  printf '\n\nError in "void CConfig::SetPostprocessing(SU2_COMPONENT, short unsigned int, short unsigned int)": \n'
+  printf -- '-------------------------------------------------------------------------\n'
+  printf 'CFL adaption factor down should be less than 1.0.\n'
+  printf -- '------------------------------ Error Exit -------------------------------\n'
+  exit 1
+fi
+echo "No solver started. DRY_RUN option enabled."
+echo "------------------------- Exit Success (SU2_CFD) ------------------------"
+"""
+
+
+@pytest.fixture
+def fake_su2(tmp_path, monkeypatch):
+    """The SU2 check on, with a fake SU2_CFD; returns a function giving how many times it ran."""
+    script = tmp_path / "fake_su2" / "SU2_CFD"
+    script.parent.mkdir()
+    script.write_text(FAKE_SU2)
+    script.chmod(0o755)
+    calls = tmp_path / "fake_su2" / "calls"
+    monkeypatch.setenv("AEROSUITE_SU2_CHECK", "on")
+    monkeypatch.setenv("AEROSUITE_SU2_CFD", str(script))
+    monkeypatch.setenv("AEROSUITE_FAKE_SU2_CALLS", str(calls))
+    return lambda: len(calls.read_text().splitlines()) if calls.exists() else 0
 
 
 @pytest.fixture

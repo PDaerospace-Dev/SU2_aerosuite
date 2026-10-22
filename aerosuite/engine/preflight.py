@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Iterable, Literal, Optional, Sequence
 
 from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE, STALE_NAME, case_freestream, stale_case_name
+from .config_rules import config_problems
+from .su2_check import check_cases
 from .freestream import FREESTREAM_KEYS, freestream_setup_errors
 from .jobs.runner import (
     resolve_sweep_python,
@@ -252,10 +254,11 @@ def su2_import_error(python: str) -> Optional[str]:
 
 def preflight(project_dir: Path, project: Project, action: Literal["generate", "run", "submit"],
               cases: Optional[Sequence[str]] = None, options: Optional["SlurmOptions"] = None,
-              settings: Optional["AppSettings"] = None) -> list[Problem]:
+              settings: Optional["AppSettings"] = None, check_su2: bool = False) -> list[Problem]:
     """Every problem for `action`. For a run or submit, the backend's own checks: the local sweep's environment, or
     (Slurm) shared storage, configs, mesh, partition, tasks and memory for `cases` (default all) with `options`
-    (default the project's and the settings')."""
+    (default the project's and the settings'). `check_su2` runs SU2's dry run on each case's config (a few
+    seconds; Generate and Submit do); without it, only verdicts SU2 already gave are reported."""
     project_dir = Path(project_dir)
     problems: list[Problem] = []
     template = project_dir / project.template
@@ -278,6 +281,14 @@ def preflight(project_dir: Path, project: Project, action: Literal["generate", "
         problems.append(Problem("error", f"Mesh not found: {project.mesh.path}"))
     problems += sweep_problems(project, project_dir)
     problems += _marker_problems(project)
+    problems += config_problems(project_dir, project)
+    if settings is None:
+        from .settings import load_settings
+
+        su2_settings = load_settings()[0]
+    else:
+        su2_settings = settings
+    problems += check_cases(project_dir, project, cases, su2_settings, run=check_su2)
     lock = active_lock(project_dir)
     if lock and not (action == "generate" and lock.get("backend") == "slurm"):  # Slurm cases run from copies
         problems.append(Problem("error", f"Job {lock['job_id']} is still running for this project"))

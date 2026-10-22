@@ -1,7 +1,7 @@
 """Checks and the Generate button: shared by the CFG setup page (sweep off) and the Sweep page."""
 from typing import Callable, Optional
 
-from nicegui import ui
+from nicegui import run, ui
 
 from ..engine.cfg import generate_configs
 from ..engine.errors import AeroSuiteError
@@ -28,7 +28,7 @@ def render_checks(frame: ProjectFrame, button: Optional[ui.button] = None) -> No
 def generate_button(frame: ProjectFrame, refresh: Callable[[], None]) -> ui.button:
     """The page's primary "Generate configs" button; `refresh` redraws the checks afterwards."""
 
-    def generate() -> None:
+    async def generate() -> None:
         stale = frame.ensure_current(notify=False)  # one toast, worded for Generate, not two
         if stale is not None:
             if frame.session.load_error is not None:  # project.json on disk is invalid
@@ -36,9 +36,15 @@ def generate_button(frame: ProjectFrame, refresh: Callable[[], None]) -> ui.butt
             else:
                 ui.notify("Project changed on disk and was reloaded; generate again", type="warning")
             return
-        # Check again: files may have gone (e.g. the mesh deleted) since these checks were drawn.
-        errors = [p for p in preflight(frame.session.directory, frame.session.project, "generate")
-                  if p.severity == "error"]
+        # Check again: files may have gone (e.g. the mesh deleted) since these checks were drawn; and with SU2
+        # (a few seconds, off the event loop).
+        button.props("loading")
+        try:
+            found = await run.io_bound(preflight, frame.session.directory, frame.session.project, "generate",
+                                       check_su2=True)
+        finally:
+            button.props(remove="loading")
+        errors = [p for p in found if p.severity == "error"]
         if errors:
             ui.notify(errors[0].message, type="negative")
             refresh()
@@ -53,4 +59,5 @@ def generate_button(frame: ProjectFrame, refresh: Callable[[], None]) -> ui.butt
         frame.refresh()
         refresh()
 
-    return primary_button("Generate configs", on_click=generate).mark("generate")
+    button = primary_button("Generate configs", on_click=generate).mark("generate")
+    return button

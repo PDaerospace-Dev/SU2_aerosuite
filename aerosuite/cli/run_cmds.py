@@ -32,7 +32,7 @@ def _open_following_template(directory: Path):
 def generate(directory: ProjectDir) -> None:
     """Check the project, then write configs/<case>.cfg, run_control.txt and cases.json."""
     project = _open_following_template(directory)
-    problems = preflight(directory, project, "generate")
+    problems = preflight(directory, project, "generate", check_su2=True)
     print_problems(problems)
     if has_errors(problems):
         raise typer.Exit(1)
@@ -102,7 +102,7 @@ def run(
     if add:
         _add_to_running_job(directory, project, case, options, settings)
         return
-    problems = preflight(directory, project, "run", cases=case, options=options, settings=settings)
+    problems = preflight(directory, project, "run", cases=case, options=options, settings=settings, check_su2=True)
     print_problems(problems)
     if has_errors(problems):
         raise typer.Exit(1)
@@ -132,7 +132,8 @@ def _add_to_running_job(directory, project, cases, options, settings) -> None:
     if not wanted:
         typer.echo(f"Error: Nothing to add: every chosen case is queued or running in job {job.id}.", err=True)
         raise typer.Exit(1)
-    problems = [p for p in preflight(directory, project, "run", cases=wanted, options=options, settings=settings)
+    problems = [p for p in preflight(directory, project, "run", cases=wanted, options=options, settings=settings,
+                                     check_su2=True)
                 if not p.message.startswith(f"Job {job.id} ")]
     print_problems(problems)
     if has_errors(problems):
