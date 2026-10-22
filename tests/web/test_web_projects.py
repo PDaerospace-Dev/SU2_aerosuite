@@ -196,3 +196,25 @@ async def test_import_checks_its_inputs(user: User, tmp_path):
     user.find(marker="import-source").type(str(tmp_path / "missing"))
     user.find(marker="import-scan").click()
     await user.should_see("is not a folder")
+
+
+async def test_new_and_import_fields_describe_themselves_on_hover(user: User):
+    from nicegui import ui
+
+    from aerosuite.web.pages.projects import HELP
+
+    def tip(marker):
+        element = next(iter(user.find(marker=marker).elements))
+        return [child.text for child in element.descendants() if isinstance(child, ui.tooltip)]
+
+    await user.open("/")
+    for marker, key in (("new-parent", "parent"), ("new-name", "name"), ("new-template", "template"),
+                        ("new-mesh", "mesh"), ("new-use-reference", "reference")):
+        assert tip(marker) == [HELP[key]], marker
+    user.find(marker="new-kind-aircraft").click()  # the profile shows for an aircraft study
+    await user.should_see(marker="new-profile")
+    assert tip("new-profile") == [HELP["profile"]]
+    user.find(marker="tab-import").click()
+    await user.should_see(marker="import-scan")
+    for marker, key in (("import-source", "runs"), ("import-parent", "import-parent"), ("import-name", "import-name")):
+        assert tip(marker) == [HELP[key]], marker

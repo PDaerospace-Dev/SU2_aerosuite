@@ -143,10 +143,23 @@ def summary_tile(label: str, value: object, tone: Optional[Literal["danger"]] = 
         return ui.label(str(value)).classes("as-tile-value")
 
 
-def field(widget, *, mono: bool = False):
-    """Style an input, select or textarea as a form field (outlined box; the label floats above a value)."""
+def field(widget, *, mono: bool = False, help: Optional[str] = None):
+    """Style an input, select or textarea as a form field (outlined box; the label floats above a value).
+    `help` is shown on hovering the field, which carries an (i) so you know it has some."""
     widget.props("outlined dense").classes("as-field" + (" as-field-mono" if mono else ""))
+    if help:
+        with widget.add_slot("append"):
+            ui.icon("info_outline").classes("as-help-icon")
+        help_tip(widget, help)
     return widget
+
+
+def help_tip(element, text: str):
+    """A short description of `element`, shown after a moment's hover (not at once: it would cover the field while
+    you aim at it)."""
+    with element:
+        ui.tooltip(text).props("delay=400 max-width=22rem").classes("as-help-tip")
+    return element
 
 
 def titled(element, text: str):
@@ -166,10 +179,11 @@ def readonly(text: str, *, mono: bool = False) -> ui.label:
 
 
 def path_field(label: str, *, mark: str, browse_mark: str, title: str,
-               mode: Literal["file", "folder", "any"], suffixes: Sequence[str] = ()) -> ui.input:
+               mode: Literal["file", "folder", "any"], suffixes: Sequence[str] = (),
+               help: Optional[str] = None) -> ui.input:
     """An input for a workstation path with a Browse button that fills it from the picker."""
     with ui.row().classes("w-full items-center no-wrap gap-2"):
-        box = field(ui.input(label), mono=True).classes("grow").mark(mark)
+        box = field(ui.input(label), mono=True, help=help).classes("grow").mark(mark)
 
         async def browse() -> None:
             from .picker import pick_path  # imported here: the picker itself uses this module's buttons

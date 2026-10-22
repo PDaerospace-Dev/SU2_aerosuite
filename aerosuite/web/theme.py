@@ -233,6 +233,8 @@ a.as-step:hover { background: #f6f8fa; }
 .as-field .q-field__control { border-radius: 8px; }
 .as-field-mono input, .as-field-mono textarea { font-family: var(--as-mono); font-size: 12px; }
 .as-field-readonly .q-field__control { background: #f6f8fa; }
+.as-help-icon { font-size: 16px; color: var(--as-muted); cursor: help; }
+.as-help-tip { font-size: 12px; line-height: 1.45; }
 .as-strip-result { gap: 32px; }
 .as-readonly { border: 1px solid var(--as-border); border-radius: 8px; padding: 8px 10px; background: #fafbfc;
   min-height: 36px; word-break: break-all; }

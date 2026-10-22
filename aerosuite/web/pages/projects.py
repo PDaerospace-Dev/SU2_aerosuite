@@ -11,8 +11,8 @@ from ...engine.profiles import list_profiles
 from ...engine.study import create_study
 from ..layout import header, project_url
 from ..recent import add_recent, recent_projects
-from ..ui_kit import (banner, card, card_head, field, hint, ok_line, path_field, pill, primary_button, secondary_button,
-                      table, td, th, warning_group)
+from ..ui_kit import (banner, card, card_head, field, help_tip, hint, ok_line, path_field, pill, primary_button,
+                      secondary_button, table, td, th, warning_group)
 
 
 def register() -> None:
@@ -131,6 +131,28 @@ def _kind_card(title: str, text: str, mark: str, on_choose) -> ui.column:
     return tile
 
 
+# Shown on hovering a field of the New project and Import forms.
+HELP = {
+    "profile": "The aircraft's saved starting point: template, mesh, reference area and length, sweep and run "
+               "settings. Change it later on Setup, or edit the profile itself on the Profiles page.",
+    "parent": "The folder the project's own folder is created in. To run on Slurm, keep it under the shared root "
+              "(Settings, /data by default): the other node sees only that.",
+    "name": "The name of the project's folder, made inside the parent folder (a plain name, no / or \\). It will "
+            "hold project.json, the template, configs/ and runs/ (one folder per case).",
+    "template": "The SU2 config (.cfg) the cases start from. It is copied into the project, so later changes to "
+                "the original do not reach it; edit the copy on CFG setup or Aircraft.",
+    "reference": "Start from SU2's own config_template.cfg, which lists every option with its description, "
+                 "instead of a template of your own.",
+    "mesh": "The SU2 mesh (.su2 or .cgns). Optional now: you can set it on Setup later. The marker names in a "
+            ".su2 mesh fill the marker lists.",
+    "runs": "The folder that holds the case folders, each with its .cfg and history file (also inside group "
+            "folders, up to four levels down). Nothing in it is changed or copied.",
+    "import-parent": "The folder the new study is created in. The study holds only project.json, which points at "
+                     "the runs folder.",
+    "import-name": "The name of the new study's folder, made inside the parent folder (a plain name, no / or \\).",
+}
+
+
 def _new_form() -> None:
     profiles, problems = list_profiles()
     state = {"kind": "general"}
@@ -153,15 +175,17 @@ def _new_form() -> None:
                               "placeholders and a Mach/alpha/beta sweep.", "new-kind-aircraft",
                               lambda: choose("aircraft"))
     profile = field(ui.select({p.id: p.name for p in profiles}, label="Aircraft profile",
-                              value=profiles[0].id if profiles else None)).classes("w-full").mark("new-profile")
+                              value=profiles[0].id if profiles else None), help=HELP["profile"]).classes(
+        "w-full").mark("new-profile")
     parent = path_field("Parent folder", mark="new-parent", browse_mark="new-browse",
-                        title="Choose the parent folder", mode="folder")
-    name = field(ui.input("Project name")).classes("w-full").mark("new-name")
+                        title="Choose the parent folder", mode="folder", help=HELP["parent"])
+    name = field(ui.input("Project name"), help=HELP["name"]).classes("w-full").mark("new-name")
     template = path_field("Template (.cfg)", mark="new-template", browse_mark="new-template-browse",
-                          title="Choose the template", mode="file", suffixes=(".cfg",))
-    use_reference = ui.checkbox("Start from SU2's config_template.cfg").mark("new-use-reference")
+                          title="Choose the template", mode="file", suffixes=(".cfg",), help=HELP["template"])
+    use_reference = help_tip(ui.checkbox("Start from SU2's config_template.cfg"), HELP["reference"]).mark(
+        "new-use-reference")
     mesh = path_field("Mesh (.su2, optional)", mark="new-mesh", browse_mark="new-mesh-browse",
-                      title="Choose the mesh", mode="file", suffixes=(".su2", ".cgns"))
+                      title="Choose the mesh", mode="file", suffixes=(".su2", ".cgns"), help=HELP["mesh"])
     error = ui.label("").classes("as-error-text").mark("new-error")
     with ui.row().classes("w-full justify-end"):
         primary_button("Create project", on_click=lambda: create()).mark("new-create")
@@ -204,11 +228,11 @@ def _import_form() -> None:
     """Existing SU2 runs, one folder per case (its .cfg and history), read into a read-only study."""
     hint("Read existing runs: one folder per case with its .cfg and history, also inside group folders.")
     source = path_field("Runs folder", mark="import-source", browse_mark="import-browse",
-                        title="Choose the folder that holds the case folders", mode="folder")
+                        title="Choose the folder that holds the case folders", mode="folder", help=HELP["runs"])
     with ui.element("div").classes("as-grid-2"):
         parent = path_field("Parent folder of the new study", mark="import-parent", browse_mark="import-pbrowse",
-                            title="Choose the parent folder", mode="folder")
-        name = field(ui.input("Study name")).classes("w-full").mark("import-name")
+                            title="Choose the parent folder", mode="folder", help=HELP["import-parent"])
+        name = field(ui.input("Study name"), help=HELP["import-name"]).classes("w-full").mark("import-name")
     error = ui.label("").classes("as-error-text").mark("import-error")
     with ui.row().classes("w-full justify-end"):
         secondary_button("Scan", icon="search", on_click=lambda: preview()).mark("import-scan")
