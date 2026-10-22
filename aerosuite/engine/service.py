@@ -20,6 +20,7 @@ from typing import Optional
 from .errors import ServiceError
 
 SERVICE = "aerosuite.service"
+NO_BUS = "Failed to connect to user scope bus"
 
 
 def unit_path() -> Path:
@@ -70,7 +71,13 @@ def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
 
 
 def _systemctl(*args: str, check: bool = True) -> subprocess.CompletedProcess:
-    return _run(["systemctl", "--user", *args], check=check)
+    done = _run(["systemctl", "--user", *args], check=False)
+    if done.returncode != 0 and NO_BUS in (done.stderr or ""):
+        # The user manager's own socket refused (seen on hpc1, 2026-10-22): reach it through the system bus.
+        done = _run(["systemctl", "--user", f"--machine={getpass.getuser()}@.host", *args], check=False)
+    if check and done.returncode != 0:
+        raise ServiceError(f"systemctl --user {' '.join(args)} failed: {(done.stderr or done.stdout).strip()}")
+    return done
 
 
 def is_active() -> bool:

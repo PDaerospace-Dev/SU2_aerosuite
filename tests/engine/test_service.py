@@ -87,3 +87,19 @@ def test_the_ssh_address_setting(monkeypatch):
     assert remote.ssh_address(settings) == "pdas-hpc1@100.106.223.105"
     with pytest.raises(SettingsError, match="user@host"):
         set_value(AppSettings(), "ssh_address", "me@hpc1; rm -rf /")
+
+
+def test_systemctl_falls_back_to_the_system_bus(monkeypatch):
+    calls = []
+
+    def run(args, check=True):
+        calls.append(args)
+        refused = "--machine" not in " ".join(args)
+        return type("Done", (), {"returncode": 1 if refused else 0, "stdout": "",
+                                 "stderr": "Failed to connect to user scope bus via local transport" if refused else ""})()
+
+    monkeypatch.setattr(service, "_run", run)
+    monkeypatch.setattr(service.getpass, "getuser", lambda: "me")
+    assert service._systemctl("daemon-reload").returncode == 0
+    assert calls == [["systemctl", "--user", "daemon-reload"],
+                     ["systemctl", "--user", "--machine=me@.host", "daemon-reload"]]
