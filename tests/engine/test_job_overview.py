@@ -61,3 +61,23 @@ def test_a_job_record_that_is_not_utf8_is_skipped_with_a_warning(ready_project):
     assert overview.problems == ["Job record jobs/bad.json can't be read; ignored"]
     with pytest.raises(JobError):
         list_jobs(project_dir)
+
+
+def test_run_solutions_lists_runs_with_a_restart_file_newest_first(ready_project):
+    import os
+
+    from aerosuite.engine.jobs.overview import run_solutions
+
+    project_dir, _ = ready_project
+    for name, stamp in (("M1p2_0km_a0_b0", 2000), ("M0p8_0km_a2_b0", 1000)):
+        solution = project_dir / "runs" / name / "restart_flow.dat"
+        solution.parent.mkdir(parents=True)
+        solution.write_text("solution")
+        os.utime(solution, (stamp, stamp))
+    (project_dir / "runs" / "no_solution").mkdir()
+    _job(project_dir, "j", T0, {"M1p2_0km_a0_b0": CaseState.UNCONVERGED})
+    found = run_solutions(project_dir)
+    assert [(s.name, s.status, s.modified) for s in found] == [
+        ("M1p2_0km_a0_b0", "UNCONVERGED", 2000), ("M0p8_0km_a2_b0", None, 1000)]
+    assert [s.name for s in run_solutions(project_dir, exclude=["M1p2_0km_a0_b0"])] == ["M0p8_0km_a2_b0"]
+    assert run_solutions(project_dir / "missing") == []

@@ -19,6 +19,7 @@ from ..session import parse_optional_int, parse_optional_number
 from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
 from ..config_tab import ConfigTab, carry_unsaved_config
+from ..restart_card import restart_card
 from ..template_editor import carry_unsaved
 from ..template_edit import write_template_params
 from ..ui_kit import (banner, card, card_head, field, fold_button, hint, pascals, sci, secondary_button, stat, table,
@@ -113,6 +114,8 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         holders["preview"]()
         holders["reference"]()
         render_checks_box()
+        if "restart" in holders:  # a new Mach renames the case: its own run leaves the list
+            holders["restart"]()
 
     def template_saved(warnings: list[str]) -> None:
         box = holders["template-warnings"]
@@ -150,6 +153,8 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
     with ui.element("div").classes("as-columns"):
         with ui.column().classes("gap-4 w-full"):
             holders["freestream"] = _freestream(frame, hints, after)
+            if not sweep_on:
+                holders["restart"] = restart_card(frame, lambda: (holders["preview"](), render_checks_box()))
             for title, rows in NUMBER_FIELDS.items():
                 with card(title, fold=f"aircraft-{title.lower().replace(' ', '-')}"):
                     with ui.element("div").classes("as-grid-3"):

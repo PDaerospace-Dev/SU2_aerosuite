@@ -426,3 +426,62 @@ async def test_every_card_folds_and_stays_folded(user: User, ready_project):
         assert "as-card-folded" not in again.classes
     finally:
         ui_kit._FOLDED.clear()
+
+
+def _a_run_with_a_solution(project_dir, name="M0p8_0km_a2_b0"):
+    solution = project_dir / "runs" / name / "restart_flow.dat"
+    solution.parent.mkdir(parents=True)
+    solution.write_text("solution")
+    return solution.parent
+
+
+async def test_the_restart_card_is_for_a_single_case_only(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await _open(user, project_dir)
+    await user.should_not_see(marker="restart-card")
+
+
+async def test_a_single_case_restarts_from_one_of_this_projects_runs_or_starts_fresh(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    folder = _a_run_with_a_solution(project_dir)
+    await _open(user, project_dir)
+    assert "as-choice-selected" in _element(user, "restart-fresh").classes
+    await user.should_see(marker="restart-continue-note")
+    user.find(marker="restart-solution").click()  # the newest run is chosen for you
+    [case] = open_project(project_dir).cases
+    assert (case.restart, case.restart_ref) == ("custom", str(folder))
+    await user.should_see(marker=f"restart-run-{folder.name}")
+    assert "as-choice-selected" in _element(user, f"restart-run-{folder.name}").classes
+    user.find(marker="restart-fresh").click()
+    [case] = open_project(project_dir).cases
+    assert (case.restart, case.restart_ref) == ("none", None)
+
+
+async def test_a_single_case_restarts_from_another_file_or_folder(user: User, ready_project, tmp_path):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    _a_run_with_a_solution(project_dir)
+    other = tmp_path / "other_study" / "runs" / "M1p2_0km_a0_b0"
+    other.mkdir(parents=True)
+    await _open(user, project_dir)
+    user.find(marker="restart-solution").click()
+    user.find(marker="restart-other").click()
+    assert "as-choice-selected" in _element(user, "restart-other").classes
+    assert open_project(project_dir).cases[0].restart_ref is None
+    user.find(marker="restart-ref").type(str(other)).trigger("blur")
+    [case] = open_project(project_dir).cases
+    assert (case.restart, case.restart_ref) == ("custom", str(other))
+    assert "as-choice-selected" in _element(user, "restart-other").classes
+
+
+async def test_the_restart_stays_when_the_mach_renames_the_case(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single_x07(project_dir)
+    folder = _a_run_with_a_solution(project_dir)
+    await _open(user, project_dir)
+    user.find(marker="restart-solution").click()
+    user.find(marker="freestream-mach").clear().type("1.5").trigger("blur")
+    [case] = open_project(project_dir).cases
+    assert case.name.startswith("M1p5") and (case.restart, case.restart_ref) == ("custom", str(folder))

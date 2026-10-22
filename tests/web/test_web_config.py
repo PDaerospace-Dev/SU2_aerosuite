@@ -197,3 +197,15 @@ async def test_with_the_sweep_off_each_template_warning_shows_once(user: User, r
     user.find(marker="config-text").type("AOA= 3.0\n").trigger("focusout")  # after a save, still once
     shown = [label.text for label in user.find("AOA is set on lines").elements]
     assert len(shown) == 1, shown
+
+
+async def test_a_single_general_case_has_the_restart_card(user: User, ready_project):
+    project_dir, _ = ready_project
+    _single(project_dir)
+    solution = project_dir / "runs" / "earlier" / "restart_flow.dat"
+    solution.parent.mkdir(parents=True)
+    solution.write_text("solution")
+    await _open(user, project_dir)
+    user.find(marker="restart-solution").click()
+    [case] = open_project(project_dir).cases
+    assert (case.restart, case.restart_ref) == ("custom", str(solution.parent))

@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from ..models import Project
+from ..restarts import RUNS_DIR, find_restart_file
 from .runner import JobRecord
 from .store import scan_jobs
 
@@ -39,3 +40,34 @@ def case_overview(project_dir: Path, project: Project) -> CaseOverview:
                 case.name, job.case_status[case.name].value, job.id, job.failure_tail.get(case.name, "")
             ))
     return CaseOverview(rows, problems, jobs)
+
+
+@dataclass(frozen=True)
+class RunSolution:
+    name: str  # the run folder: a case, maybe one of an earlier condition
+    folder: Path
+    modified: float  # when its restart file was written (time.time())
+    status: Optional[str]  # its newest job's outcome (a CaseState value); None when no job record names it
+
+
+def run_solutions(project_dir: Path, exclude: Sequence[str] = ()) -> list[RunSolution]:
+    """This project's run folders holding a restart file, newest first (a single case's Restart choices)."""
+    runs = Path(project_dir) / RUNS_DIR
+    if not runs.is_dir():
+        return []
+    jobs, _problems = scan_jobs(project_dir)
+    found = []
+    for folder in runs.iterdir():
+        if not folder.is_dir() or folder.name in exclude:
+            continue
+        solution = find_restart_file(folder)
+        if solution is None:
+            continue
+        job = next((job for job in jobs if folder.name in job.case_status), None)
+        try:
+            modified = solution.stat().st_mtime
+        except OSError:
+            continue
+        found.append(RunSolution(folder.name, folder, modified,
+                                 job.case_status[folder.name].value if job is not None else None))
+    return sorted(found, key=lambda solution: solution.modified, reverse=True)

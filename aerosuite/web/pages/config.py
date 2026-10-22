@@ -9,6 +9,7 @@ from nicegui import ui
 from ...engine.project import template_file_name, template_warnings
 from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session
+from ..restart_card import restart_card
 from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
 from ..template_editor import TemplateEditor, carry_unsaved
@@ -73,8 +74,11 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         holders["checks"] = ui.column().classes("w-full gap-2").mark("config-checks")
     holders["warnings"] = ui.column().classes("w-full gap-2")
     with ui.element("div").classes("as-columns"):
-        with card("Template", f"Saved automatically · {template_file_name(frame.session.project)}"):
-            editor = TemplateEditor(frame, state, on_saved=saved)
+        with ui.column().classes("gap-4 w-full"):
+            with card("Template", f"Saved automatically · {template_file_name(frame.session.project)}"):
+                editor = TemplateEditor(frame, state, on_saved=saved)
+            if not frame.session.project.sweep.enabled:
+                restart_card(frame, lambda: (holders["preview"](), render_checks_box()))
         holders["preview"], holders["reference"] = side_panel(frame, on_insert=editor.insert, in_config=editor.keys)
     show_warnings(template_warnings(editor.initial))
     render_checks_box()
