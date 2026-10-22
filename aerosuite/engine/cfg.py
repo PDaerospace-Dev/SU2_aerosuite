@@ -141,14 +141,19 @@ def case_mach(project: Project, case: Case, template: str) -> float:
     return case.mach if project.sweep.enabled else template_case_values(template)[0]
 
 
-def render_case(template: str, project: Project, case: Case) -> str:
-    """Template -> settings -> overrides -> case values; later layers win."""
+def case_layers(template: str, project: Project, case: Case) -> dict[str, Optional[str]]:
+    """What is written over the template for `case`: settings -> overrides -> case values; later layers win."""
     params = settings_parameters(project.settings)
     params.update(case_parameters(project, case))
     freestream = freestream_for(project.settings, case_mach(project, case, template), case_altitude(project, case))
     if freestream:
         params.update(freestream)  # per case, so it wins over a by-hand value and an override
-    return apply_parameters(template, params)
+    return params
+
+
+def render_case(template: str, project: Project, case: Case) -> str:
+    """Template -> settings -> overrides -> case values; later layers win."""
+    return apply_parameters(template, case_layers(template, project, case))
 
 
 def case_freestream(project: Project, template: str) -> list[CaseFreestream]:

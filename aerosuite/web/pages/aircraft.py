@@ -18,7 +18,8 @@ from ..layout import ProjectFrame, open_session, project_url
 from ..session import parse_optional_int, parse_optional_number
 from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
-from ..template_editor import TemplateEditor, carry_unsaved
+from ..config_tab import ConfigTab, carry_unsaved_config
+from ..template_editor import carry_unsaved
 from ..template_edit import write_template_params
 from ..ui_kit import (banner, card, card_head, field, fold_button, hint, pascals, sci, secondary_button, stat, table,
                       td, td_box, th, warning_group)
@@ -48,10 +49,11 @@ def register() -> None:
         session = open_session(project)
         if session is None:
             return
-        state: dict = {}  # the Template tab's editor state; survives body.refresh() (see carry_unsaved)
+        state: dict = {}  # the Config tab's editor state; survives body.refresh() (see carry_unsaved)
 
         def reload_body() -> None:
             carry_unsaved(state)
+            carry_unsaved_config(state)
             body.refresh()
 
         frame = ProjectFrame(session, "aircraft", on_reload=reload_body)
@@ -122,16 +124,19 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
         holders["freestream"]()  # a single case's Mach is the template's
         after()
 
-    def template_tab() -> None:
-        hint(f"Saved automatically · {template_file_name(frame.session.project)} · the form's values and "
-             "Placeholders are written over it in every config").mark("template-note")
+    def config_tab() -> Callable[[], None]:
+        hint(f"Saved automatically into {template_file_name(frame.session.project)}, or into the form field or "
+             "placeholder that writes the line").mark("template-note")
         holders["template-warnings"] = ui.column().classes("w-full gap-2")
-        editor = TemplateEditor(frame, state, on_saved=template_saved, height="55vh")
         if sweep_on:
-            warnings = template_warnings(editor.initial)
+            try:
+                warnings = template_warnings(read_template(frame.session.directory, frame.session.project))
+            except AeroSuiteError:
+                warnings = []
             if warnings:
                 with holders["template-warnings"]:
                     warning_group(warnings, mark="config-warning")
+        return ConfigTab(frame, state, on_template_saved=template_saved, on_layers_saved=redraw).render
 
     frame.actions.clear()
     with frame.actions:
@@ -163,7 +168,7 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
             holders["overrides"] = _placeholders(frame, after)
         holders["preview"], holders["reference"] = side_panel(
             frame, on_insert=lambda option: _insert(frame, option, holders, after),
-            in_config=lambda: _rendered_keys(frame), template=template_tab)
+            in_config=lambda: _rendered_keys(frame), config=config_tab)
 
 
 MODE_CHOICES = {"manual": "Set by hand", "altitude": "From altitude"}

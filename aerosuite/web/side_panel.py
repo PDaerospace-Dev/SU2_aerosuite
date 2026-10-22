@@ -14,26 +14,26 @@ def side_panel(
     frame: ProjectFrame,
     on_insert: Callable[[RefOption], Optional[str]],
     in_config: Callable[[], set[str]],
-    template: Optional[Callable[[], None]] = None,
+    config: Optional[Callable[[], Callable[[], None]]] = None,
 ) -> tuple[Callable[[], None], Callable[[], None]]:
     """Build the sticky tabbed card; returns (redraw the preview, redraw the reference results).
 
-    `template`, when given, draws a third tab between the two (Aircraft's template editor).
+    `config`, when given, draws an editable Config tab in place of the read-only Preview (Aircraft); it returns
+    its own redraw.
     """
+    first = "config" if config is not None else "preview"
     with card() as box:
         box.classes("as-side").mark("side-panel")
-        with ui.tabs(value="preview").props("dense no-caps align=left inline-label").classes(
+        with ui.tabs(value=first).props("dense no-caps align=left inline-label").classes(
                 "as-tabs w-full").mark("side-tabs") as tabs:
-            ui.tab("preview", "Preview", icon="visibility").mark("side-tab-preview")
-            if template is not None:
-                ui.tab("template", "Template", icon="description").mark("side-tab-template")
+            if config is not None:
+                ui.tab("config", "Config", icon="edit_note").mark("side-tab-config")
+            else:
+                ui.tab("preview", "Preview", icon="visibility").mark("side-tab-preview")
             ui.tab("reference", "SU2 reference", icon="menu_book").mark("side-tab-reference")
-        with ui.tab_panels(tabs, value="preview").props("keep-alive").classes("as-tab-panels w-full"):
-            with ui.tab_panel("preview").classes("gap-2"):
-                preview = preview_section(frame)
-            if template is not None:
-                with ui.tab_panel("template").classes("gap-2"):
-                    template()
+        with ui.tab_panels(tabs, value=first).props("keep-alive").classes("as-tab-panels w-full"):
+            with ui.tab_panel(first).classes("gap-2"):
+                preview = config() if config is not None else preview_section(frame)
             with ui.tab_panel("reference").classes("gap-2"):
                 reference = reference_panel(on_insert=on_insert, in_config=in_config)
     return preview, reference

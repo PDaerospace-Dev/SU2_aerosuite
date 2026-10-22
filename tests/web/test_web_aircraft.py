@@ -23,7 +23,7 @@ async def _open(user, project_dir):
 
 
 def _preview(user):
-    return _element(user, "preview").content
+    return _element(user, "config-edit").value
 
 
 async def test_without_a_profile(user: User, ready_project):
@@ -226,12 +226,13 @@ async def test_the_summary_shows_the_error_for_a_bad_altitude(user: User, ready_
     assert "outside the standard atmosphere" in _element(user, "freestream-summary-error").text
 
 
-async def test_preview_and_reference_are_tabs_on_the_right(user: User, ready_project):
+async def test_config_and_reference_are_tabs_on_the_right(user: User, ready_project):
     project_dir, _ = ready_project
     _with_x07(project_dir)
     await _open(user, project_dir)
     tabs = _element(user, "side-tabs")
-    assert tabs.value == "preview"  # the preview shows without a switch
+    assert tabs.value == "config"  # the case's config shows without a switch
+    await user.should_not_see(marker="side-tab-preview")
     assert "MACH_NUMBER= 0.8" in _preview(user)
     assert "as-side" in _element(user, "side-panel").classes  # the sticky right-hand column
     with user:
@@ -330,12 +331,57 @@ async def test_an_aircraft_study_has_no_cfg_setup_step(user: User, ready_project
     await user.should_not_see(marker="step-config")
 
 
-async def test_the_template_is_a_tab_on_the_aircraft_page(user: User, ready_project):
+def _edit_config(user, change):
+    editor = _element(user, "config-edit")
+    with user:
+        editor.set_value(change(editor.value))
+    user.find(marker="config-edit").trigger("focusout")
+
+
+async def test_a_template_line_edited_in_the_config_goes_into_the_template_in_place(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    before = (project_dir / "template.cfg").read_text()
+    await _open(user, project_dir)
+    _edit_config(user, lambda text: text.replace("MACH_NUMBER= 0.8\n", "MACH_NUMBER= 0.8\nMGLEVEL= 2\n"))
+    after = (project_dir / "template.cfg").read_text()
+    assert after == before.replace("MACH_NUMBER= 0.3\n", "MACH_NUMBER= 0.3\nMGLEVEL= 2\n")
+    assert "MGLEVEL= 2" in _preview(user)
+
+
+async def test_a_form_line_edited_in_the_config_changes_the_form(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    project = open_project(project_dir)
+    project.settings.reference.ref_area = 10.0
+    save_project(project_dir, project)
+    before = (project_dir / "template.cfg").read_text()
+    await _open(user, project_dir)
+    _edit_config(user, lambda text: text.replace("REF_AREA= 10\n", "REF_AREA= 12.5\n"))
+    assert open_project(project_dir).settings.reference.ref_area == 12.5
+    assert (project_dir / "template.cfg").read_text() == before
+    await user.should_see(marker="config-edit")  # the page redrew its form and this tab
+    assert "REF_AREA= 12.5" in _preview(user)
+
+
+async def test_a_per_case_line_goes_back_with_a_note(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    before = (project_dir / "template.cfg").read_text()
+    await _open(user, project_dir)
+    _edit_config(user, lambda text: text.replace("MACH_NUMBER= 0.8", "MACH_NUMBER= 0.95"))
+    await user.should_see(marker="config-note")
+    assert "change Mach on the Sweep page" in _element(user, "config-note").text
+    assert "MACH_NUMBER= 0.8" in _preview(user) and (project_dir / "template.cfg").read_text() == before
+
+
+async def test_the_template_file_is_behind_a_switch(user: User, ready_project):
     project_dir, _ = ready_project
     _with_x07(project_dir)
     await _open(user, project_dir)
+    await user.should_not_see(marker="config-text")
     with user:
-        _element(user, "side-tabs").set_value("template")
+        _element(user, "config-raw-switch").set_value(True)
     editor = _element(user, "config-text")
     assert editor.value.startswith("MACH_NUMBER= 0.3")
     user.find(marker="config-text").type("CFL_NUMBER= 5\n").trigger("focusout")
