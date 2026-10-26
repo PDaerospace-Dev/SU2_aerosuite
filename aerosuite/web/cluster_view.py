@@ -1,5 +1,5 @@
-"""The Slurm view rules without NiceGUI: a case's Slurm line and resubmit rules (Run page); nodes, everyone's
-queue, my jobs, the top-bar dot and the Run summary line (Cluster page, top bar)."""
+"""The Slurm view rules without NiceGUI: a case's Slurm line and resubmit rules (Run page); nodes, my jobs, the
+top-bar dot and the Run summary line (Cluster page, top bar)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, NamedTuple, Optional, Sequence
 
 from ..engine.jobs.runner import JobRecord
-from ..engine.cluster import MyJob, study_of
+from ..engine.cluster import MyJob
 from ..engine.slurm import (FAILED_STATES, QUEUED_STATES, RESUBMITTABLE, RUNNING_STATES, ClusterInfo,
                              Snapshot, parse_duration)
 
@@ -89,29 +89,6 @@ def node_groups(cluster: Optional[ClusterInfo]) -> list[tuple[str, bool, list[No
     return [(name, default, lines) for name, (default, lines) in ordered]
 
 
-@dataclass(frozen=True)
-class ClusterQueueLine:
-    job_id: str
-    user: str
-    name: str
-    state: str
-    node: str
-    time: str
-    reason: str
-    own: bool
-    study: Optional[Path]  # an AeroSuite case's study, for the link
-
-
-def cluster_queue(snapshot: Optional[Snapshot], user: str) -> list[ClusterQueueLine]:
-    """Every user's jobs: pending first, then running, each in job-id order."""
-    if snapshot is None or not snapshot.ok:
-        return []
-    rows = sorted(snapshot.queue.values(), key=lambda r: (r.state not in QUEUED_STATES, len(r.job_id), r.job_id))
-    return [ClusterQueueLine(r.job_id, r.user, r.name, r.state, r.node, r.time,
-                             "" if r.state in RUNNING_STATES else r.reason, r.user == user,
-                             study_of(r.workdir, r.name)) for r in rows]
-
-
 def cluster_status(snapshot: Optional[Snapshot], cluster: Optional[ClusterInfo]) -> tuple[str, str]:
     """The top bar's dot: red (Slurm does not answer), amber (a node is drained or down), green, grey (no answer yet)."""
     error = (snapshot.error if snapshot is not None and not snapshot.ok else None) or (
@@ -159,10 +136,6 @@ def summary_line(cluster: Optional[ClusterInfo], snapshot: Optional[Snapshot], u
             mine = [f"{queued} of yours queued"]
         parts.append(", ".join(mine))
     return " · ".join(parts), status == "amber"
-
-
-JOB_KINDS = ("all", "active", "failed")
-_FAILED_CASES = {"FAILED", "BLOCKED", "CANCELLED"}
 
 
 class SummaryParts(NamedTuple):

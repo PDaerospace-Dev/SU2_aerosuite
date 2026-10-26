@@ -4,7 +4,7 @@ from aerosuite.engine.cluster import MyJob
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
 from aerosuite.engine.slurm import ClusterInfo, QueueRow, Snapshot, parse_sinfo_nodes
 from aerosuite.web.cluster_view import (
-    can_resubmit, case_slurm_text, cluster_queue, cluster_status, filter_jobs, job_state_text, job_studies,
+    can_resubmit, case_slurm_text, cluster_status, filter_jobs, job_state_text, job_studies,
     node_groups, running_count, suggested_partition, summary_line, summary_parts,
 )
 
@@ -54,16 +54,6 @@ def test_node_groups_default_partition_first():
     assert (hpc1.cpus, hpc1.busy_percent, hpc1.memory, hpc1.load) == (
         "96 / 192", 50, "99 of 122 GB free", "48.0")
     assert node_groups(None) == []
-
-
-def test_cluster_queue_pending_first_mine_marked():
-    snap = Snapshot(queue={
-        "12": QueueRow("12", "RUNNING", "hpc1", "1:00", "hpc1", "me", "s/a", "/d/s/runs/a"),
-        "13": QueueRow("13", "PENDING", "", "0:00", "Resources", "ana", "x", ""),
-        "9": QueueRow("9", "RUNNING", "hpc2", "9:00", "hpc2", "ana", "y", "")})
-    lines = cluster_queue(snap, "me")
-    assert [(l.job_id, l.own) for l in lines] == [("13", False), ("9", False), ("12", True)]
-    assert cluster_queue(Snapshot(error="down"), "me") == []
 
 
 def test_cluster_status_tones():

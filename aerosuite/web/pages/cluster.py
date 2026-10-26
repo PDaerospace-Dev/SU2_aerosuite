@@ -1,4 +1,4 @@
-"""Cluster: every node (sinfo -N), everyone's queue (squeue) and the user's AeroSuite cases on Slurm across every
+"""Cluster: every node (sinfo -N) and the user's AeroSuite cases on Slurm across every
 study — queued, running, or ended in the last 7 days — with Cancel (one case), Resubmit and Log. Everything comes
 from the server's Slurm poller and the job records; the page never runs a Slurm command itself."""
 from contextlib import contextmanager
@@ -13,7 +13,7 @@ from ...engine.cluster import MAX_ROWS, RecordIndex, my_jobs
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.store import load_job
 from ...engine.project import open_project
-from ..cluster_view import (JOB_KINDS, cluster_queue, cluster_status, filter_jobs, job_state_text, job_studies,
+from ..cluster_view import (JOB_KINDS, cluster_status, filter_jobs, job_state_text, job_studies,
                             node_groups, sort_jobs, submitted_text)
 from ..jobs import WATCHER
 from ..layout import header, project_url
@@ -26,7 +26,7 @@ POLL_SECONDS = 2.0
 LOG_LINES = 200
 INDEX = RecordIndex()  # shared by every Cluster page: a study's records are read once per change
 KIND_LABELS = {"all": "All", "active": "Active", "failed": "Failed"}
-_COLLAPSED: set[str] = set()  # "jobs", "queue": sections the user folded, kept while the server runs
+_COLLAPSED: set[str] = set()  # "jobs": sections the user folded, kept while the server runs
 _SORT = {"key": "submitted", "descending": True}  # My jobs' order, kept while the server runs
 SORTED_COLUMNS = {"Submitted": "submitted", "Study": "study", "Case": "case", "State": "state", "Elapsed": "elapsed"}
 
@@ -104,9 +104,8 @@ class ClusterPage:
         tone, tip = cluster_status(snapshot, cluster)
         outage = tip if tone == "red" else None
         groups = tuple((name, default, tuple(nodes)) for name, default, nodes in node_groups(self.good_cluster))
-        lines = tuple(cluster_queue(self.good, WATCH.user))
         accounting_down = recent is not None and recent.error is not None
-        return (outage, groups, lines, tuple(rows), more, accounting_down, self.kind, self.study,
+        return (outage, groups, tuple(rows), more, accounting_down, self.kind, self.study,
                 _SORT["key"], _SORT["descending"])
 
     def poll(self) -> None:
@@ -120,7 +119,7 @@ class ClusterPage:
             self.nodes_note.text = self._nodes_text(data[1], data[0] is not None)
 
     def render(self, data: tuple) -> None:
-        outage, groups, lines, rows, more, accounting_down = data[:6]
+        outage, groups, rows, more, accounting_down = data[:5]
         self.down = outage is not None
         self.holder.clear()
         with self.holder:
@@ -128,7 +127,6 @@ class ClusterPage:
                 banner("error", f"{outage}. Showing the last known state, as of {_time(WATCH.last_ok)}.").mark(
                     "cluster-outage")
             self._nodes(groups)
-            self._queue(lines)
             self._jobs(list(rows), more, accounting_down)
 
     def _nodes_text(self, groups: tuple, down: bool) -> str:
@@ -187,37 +185,6 @@ class ClusterPage:
         (_COLLAPSED.discard if key in _COLLAPSED else _COLLAPSED.add)(key)
         self.shown = None
         self.poll()
-
-    # -- queue ------------------------------------------------------------------------------------------------
-
-    def _queue(self, lines: tuple) -> None:
-        mine = sum(1 for line in lines if line.own)
-        subtitle = f"{len(lines)} job{'' if len(lines) == 1 else 's'}, all users · {mine} yours · yours highlighted"
-        with self._section("queue", "Queue", subtitle, "queue-card") as (_head, opened):
-            if not opened:
-                return
-            if not lines:
-                hint("Queue empty").classes("px-4 pb-4").mark("queue-empty")
-                return
-            with table("auto minmax(5rem, .6fr) minmax(10rem, 1.6fr) minmax(7rem, .8fr) minmax(4rem, .5fr) "
-                       "auto minmax(8rem, 1fr)").classes("as-table-compact w-full"):
-                for heading in ("Job", "User", "Name", "State", "Node", "Time", "Reason"):
-                    th(heading)
-                for line in lines:
-                    own = " as-own" if line.own else ""
-                    td(line.job_id, mono=True).classes(own).mark(f"q-{line.job_id}")
-                    td(line.user).classes(own).mark(f"q-{line.job_id}-user")
-                    with td_box() as cell:
-                        cell.classes(own)
-                        if line.study is not None:
-                            ui.link(line.name, project_url("run", line.study)).classes("as-mono").mark(
-                                f"q-{line.job_id}-link")
-                        else:
-                            ui.label(line.name).classes("as-mono")
-                    td(line.state).classes(own)
-                    td(line.node or "—").classes(own)
-                    td(line.time, mono=True).classes(own)
-                    td(line.reason).classes(own)
 
     # -- my jobs ----------------------------------------------------------------------------------------------
 
