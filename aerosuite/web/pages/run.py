@@ -26,7 +26,7 @@ from ...engine.results import HISTORY_FILE, history_columns
 from ...engine.settings import AppSettings, load_settings
 from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
-from ..cluster_view import can_resubmit, case_slurm_text, summary_line
+from ..cluster_view import can_resubmit, case_slurm_text, summary_parts
 from ..fields import text_field
 from ..rerun_dialog import ask_rerun, keep_changes, kept
 from ..resubmit_dialog import resubmit_case
@@ -37,8 +37,8 @@ from ..layout import ProjectFrame, open_session, project_url
 from ..run_view import ATTENTION, case_conditions, case_groups, duration_text, layout, status_counts, time_left
 from ..session import parse_int
 from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, hint, ok_line,
-                      pill, pill_text, pill_tone, primary_button, secondary_button, stat, table, td, td_box, th,
-                      titled, warning_group)
+                      pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table, td, td_box,
+                      th, titled, warning_group)
 
 MACHINE_SECONDS = 10.0  # how often the machine strip is read again
 POLL_SECONDS = 2.0
@@ -62,6 +62,11 @@ def register() -> None:
         frame = ProjectFrame(session, "run", on_reload=lambda: pages[0].render() if pages else None)
         with frame.content:
             pages.append(RunPage(frame))
+
+
+_NODE_DOTS = {"free": "done", "busy": "attention", "bad": "red"}
+_JOB_DOTS = {"done": "done", "running": "running", "failed": "red", "unconverged": "attention", "cancelled": "plain",
+             "pending": "plain"}
 
 
 def _iterations(history) -> Optional[int]:
@@ -218,28 +223,25 @@ class RunPage:
                         if view.active is not None:
                             self._running(view)
                         else:
-                            self._launch(selection, single=kind == "single")
+                            self._launch(view, selection, single=kind == "single")
                     if view.active is not None and view.active.backend == "slurm" and kind != "single":
                         with ui.column().classes("as-run-part w-full gap-2").mark("run-add"):
                             self._add_block(view, selection)
-                    with ui.column().classes("as-run-part w-full gap-2"):
-                        ui.label("Checks").classes("as-run-head")
-                        self._checks(view, selection)
-                        self._plan(view, selection)
-                    with ui.column().classes("as-run-part w-full gap-2"):
+                    if view.active is not None:  # idle: the checks sit above Submit
+                        with ui.column().classes("as-run-part w-full gap-2"):
+                            self._checks(view, selection)
+                            self._plan(view, selection)
+                    with ui.column().classes("as-run-part as-run-foot w-full gap-1"):
                         if self.slurm:
-                            ui.label("Cluster").classes("as-run-head")
                             self._cluster_summary()
                         else:
-                            ui.label("Machine").classes("as-run-head")
                             self._machine()
-                    with ui.column().classes("as-run-part w-full gap-1"):
                         self._last_job(view, single=kind == "single")
         self._buttons_state(view, selection)
 
     # -- the panel on the right ------------------------------------------------
 
-    def _launch(self, selection: _Selection, single: bool) -> None:
+    def _launch(self, view: JobView, selection: _Selection, single: bool) -> None:
         """What will run: the ticked cases, where (this machine or Slurm) with how many cores, continuing, Submit."""
         with ui.row().classes("items-center w-full no-wrap"):
             ui.label("Run").classes("as-run-head")
@@ -266,6 +268,9 @@ class RunPage:
             text = ("No solution to continue from yet" if single else
                     f"{_plural(count, 'ticked case')} {'has' if count == 1 else 'have'} no solution to continue from")
             titled(hint(text), ", ".join(selection.no_solution)).mark("continue-missing")
+        with ui.column().classes("as-run-checks w-full gap-1"):
+            self._checks(view, selection)
+            self._plan(view, selection)
         if self.slurm and self.submit_error:
             banner("error", f"Submit failed: {self.submit_error}").mark("submit-error")
         label = "Run case" if single else f"Submit {_plural(len(selection.ticked), 'case')}"
@@ -280,7 +285,7 @@ class RunPage:
 
     def _slurm_fields(self) -> None:
         """Partition, tasks per case and time limit (saved with the project); always one node."""
-        slurm_fields(self.frame, self.settings, self.render, mark="run")
+        slurm_fields(self.frame, self.settings, self.render, mark="run", compact=True)
 
     def _running(self, view: JobView) -> None:
         """The running job: how far it is, the case running now, elapsed and a rough time left, Cancel."""
@@ -435,20 +440,21 @@ class RunPage:
         return project_url("monitor", self.directory) + (f"&case={quote(case, safe='')}" if case else "")
 
     def _last_job(self, view: JobView, single: bool) -> None:
-        ui.label("This job" if view.active is not None else "Last job").classes("as-run-head")
         job = view.latest
         if job is None:
             ui.label("No job yet").classes("as-muted").mark("last-job")
             return
         took = f" · {duration_text((job.finished - job.created).total_seconds())}" if job.finished else ""
         state = pill_text(job.state).capitalize()
-        ui.label(f"{job.id} · {state} · {_plural(len(job.cases), 'case')}{took}").classes("as-muted").mark("last-job")
-        with ui.row().classes("gap-3"):
-            flat_button("Log", on_click=lambda: self.frame.log.open(job.id), icon="terminal").props("dense").mark(
-                "last-job-log")
+        with ui.row().classes("items-center w-full no-wrap gap-2"):
+            status_dot(_JOB_DOTS.get(pill_tone(job.state), "plain"))
+            titled(ui.label(f"{state} · {_plural(len(job.cases), 'case')}{took}").classes("as-muted grow"),
+                   f"{'This job' if view.active is not None else 'Last job'} {job.id}").mark("last-job")
+            titled(flat_button("", on_click=lambda: self.frame.log.open(job.id), icon="terminal").props("dense round size=sm"),
+                   f"Log of job {job.id}").mark("last-job-log")
             if not single:
-                flat_button(f"Job history ({len(view.overview.jobs)})", on_click=lambda: self._set_tab("history"),
-                            icon="history").props("dense").mark("last-job-history")
+                titled(flat_button("", on_click=lambda: self._set_tab("history"), icon="history").props("dense round size=sm"),
+                       f"Job history ({len(view.overview.jobs)})").mark("last-job-history")
 
     def _checks(self, view: JobView, selection: _Selection) -> None:
         cases = selection.ticked or None
@@ -503,22 +509,36 @@ class RunPage:
         self.machine_usage.text = "\n".join(usage_text(item) for item in usage()) or "nothing much"
 
     def _cluster_summary(self) -> None:
-        """One line on the cluster (partitions, your jobs) and a link to the Cluster page; kept current by poll()."""
-        with ui.row().classes("items-baseline w-full no-wrap gap-2"):
-            self.summary_label = ui.label("").classes("as-muted").mark("run-cluster-summary")
-            ui.space()
+        """One pill per partition (free, share busy, or bad), your jobs under them and a link to the Cluster page;
+        kept current by poll()."""
+        self.summary_sig = None
+        with ui.row().classes("items-center w-full no-wrap gap-2"):
+            self.summary_box = ui.row().classes("items-center gap-1 grow").mark("run-cluster-summary")
             ui.link("Cluster →", cluster_url(project_url("run", self.directory))).style("white-space: nowrap").mark(
                 "run-cluster-link")
+        self.summary_mine = ui.label("").classes("as-muted").mark("run-cluster-mine")
         self._summary_values()
 
     def _summary_values(self) -> None:
-        label = getattr(self, "summary_label", None)
-        if label is None or label.is_deleted:
+        box = getattr(self, "summary_box", None)
+        if box is None or box.is_deleted:
             return
         watch = WATCHER.slurm_watch
-        text, bad = summary_line(watch.cluster, watch.snapshot, watch.user)
-        label.text = text
-        label.classes(replace="as-error-text" if bad else "as-muted")
+        parts = summary_parts(watch.cluster, watch.snapshot, watch.user)
+        if parts == self.summary_sig:
+            return  # nothing visible changed: no redraw
+        self.summary_sig = parts
+        box.clear()
+        with box:
+            if parts.message:
+                ui.label(parts.message).classes("as-error-text" if parts.bad else "as-muted").mark("run-cluster-message")
+            for name, level, text, tip in parts.nodes:
+                with ui.row().classes("as-nodepill items-center no-wrap gap-1"):
+                    status_dot(_NODE_DOTS[level])
+                    titled(ui.label(text), tip).classes("as-error-text" if level == "bad" else "").mark(
+                        f"run-node-{name}")
+        self.summary_mine.text = f"Yours: {parts.mine}" if parts.mine else ""
+        self.summary_mine.set_visibility(bool(parts.mine))
 
     def _selection(self, view: JobView) -> _Selection:
         ticked = [case.name for case in self.project.cases if case.name in self.ticked]

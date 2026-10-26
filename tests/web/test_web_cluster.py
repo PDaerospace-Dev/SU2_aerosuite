@@ -102,7 +102,7 @@ async def test_resubmit_from_the_cluster_page(user: User, cluster_study, eventua
     await eventually(lambda: bool(user.find(marker="resubmit-101").elements), 5)
     user.find(marker="resubmit-101").click()
     await eventually(lambda: bool(user.find(marker="resubmit-confirm").elements))
-    assert _element(user, "resubmit-partition").value == "node1"
+    assert _element(user, "resubmit-partition").value == "node0"  # after OUT_OF_MEMORY: the most memory (235 GB)
     user.find(marker="resubmit-confirm").click()
     await eventually(lambda: list_jobs(project_dir)[0].slurm[A0].attempts == ["101"], 10)
 

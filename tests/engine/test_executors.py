@@ -43,3 +43,11 @@ def test_slurm_options_resolve_given_then_project_then_settings():
     assert slurm_options(project, settings, ntasks=16, time_limit="").ntasks == 16
     assert slurm_options(project, settings, time_limit="").time_limit == ""
     assert slurm_options(project, settings, partition="nope").partition == "nope"  # the checks report it
+
+
+def test_exclusive_follows_the_partition_when_it_says_so():
+    settings = AppSettings()
+    project = Project(name="p")
+    assert slurm_options(project, settings, partition="node1").exclusive is True
+    assert slurm_options(project, settings, partition="node0").exclusive is False
+    assert slurm_options(project, settings, partition="node0").ntasks == 32

@@ -22,9 +22,10 @@ def run_text(project, settings: AppSettings, backend: str) -> str:
 
 
 def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], mark: str,
-                 columns: bool = False) -> None:
+                 columns: bool = False, compact: bool = False) -> None:
     """The three fields with a hint under each; `on_change` runs after a value is saved (redraw); `columns` lays them
-    out side by side (as-grid-3) instead of one under another."""
+    out side by side (as-grid-3) instead of one under another. `compact`: only partition and tasks, side by side with
+    one line under them (the time limit is shown by the caller)."""
     project = frame.session.project
     options = slurm_options(project, settings)
     partition = settings.slurm.partition(options.partition)
@@ -51,6 +52,9 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
             on_change()
         return message
 
+    if compact:
+        _compact(options, partition, names, set_partition, set_ntasks, mark)
+        return
     box = ui.element("div").classes("as-grid-3 w-full") if columns else ui.column().classes("w-full gap-2")
     with box:
         with ui.column().classes("gap-1 w-full"):
@@ -76,3 +80,20 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
             ui.label(options.time_limit or "none").classes("as-stat-value").mark(f"{mark}-time-limit")
             hint("Set for every study on the Settings page (gear, top right); Slurm stops a case that runs "
                  "longer (TIMEOUT)").mark(f"{mark}-time-note")
+
+
+def _compact(options, partition, names, set_partition, set_ntasks, mark: str) -> None:
+    """Partition and tasks in one row, then one line: the memory limit and nodes per case (or the warning)."""
+    with ui.element("div").classes("as-grid-2 w-full"):
+        ui.select(names, value=options.partition, label="Partition", on_change=lambda e: set_partition(e.value)
+                  ).classes("w-full").props("dense").mark(f"{mark}-partition")
+        text_field("Tasks per case", options.ntasks, set_ntasks, mark=f"{mark}-ntasks")
+    if partition is None:
+        hint("Not in the settings: choose another partition").classes("as-hint-warning").mark(f"{mark}-partition-note")
+        return
+    hint(f"{partition.memory_limit_mb / 1024:.0f} GB limit · {partition.default_ntasks} tasks by default · 1 node "
+         "per case" + (", exclusive" if options.exclusive else "")
+         + (f" · time limit {options.time_limit}" if options.time_limit else "")).mark(f"{mark}-partition-note")
+    if partition.ntasks_warn_above and options.ntasks > partition.ntasks_warn_above:
+        hint(f"{partition.name} gains nothing above about {partition.ntasks_warn_above} tasks").classes(
+            "as-hint-warning").mark(f"{mark}-node-note")

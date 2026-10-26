@@ -8,6 +8,7 @@ from aerosuite.engine.settings import (
     load_settings,
     save_settings,
     set_value,
+    setting_keys,
     settings_path,
     valid_time_limit,
     validated,
@@ -26,12 +27,19 @@ def test_defaults_when_no_file(home):
     assert settings.backend == "local"
     slurm = settings.slurm
     assert slurm.shared_root == "/data"
-    assert [p.name for p in slurm.partitions] == ["node1", "node2"]
+    assert [p.name for p in slurm.partitions] == ["node1", "node2", "node0"]
     assert slurm.partition(None).name == "node1"
     node2 = slurm.partition("node2")
     assert (node2.default_ntasks, node2.memory_limit_mb, node2.ntasks_warn_above, node2.block_over_memory) == (
         48, 62000, 48, True)
     assert slurm.partition("node1").memory_limit_mb == 122880
+    node0 = slurm.partition("node0")  # hpc0, the Ubuntu workstation: its own launch command and environment
+    assert (node0.default_ntasks, node0.memory_limit_mb, node0.exclusive, node0.login_shell) == (
+        32, 235000, False, False)
+    assert node0.launch_command == 'mpirun --bind-to core -np "$SLURM_NTASKS" SU2_CFD'
+    assert (node0.path, node0.unset_vars, node0.module_line, node0.job_env) == (
+        "/usr/local/bin:/usr/bin:/bin", "LD_LIBRARY_PATH", "", "")
+    assert slurm.partition("node1").launch_command == "" and slurm.partition("node1").exclusive is None
     assert slurm.partition("nope") is None
     assert slurm.exclusive and slurm.gb_per_million_cells == 3.9
     assert slurm.module_line == "module load mpi/openmpi-x86_64"
@@ -149,3 +157,21 @@ def test_job_environment_setting():
     for bad in ("A", "1A=2", "A-B=1", "=1"):
         with pytest.raises(SettingsError, match="NAME=value"):
             set_value(AppSettings(), "slurm.job_env", bad)
+
+
+@pytest.mark.parametrize("key, text", [("launch_command", "mpirun\nSU2_CFD"), ("module_line", "a\rb"),
+                                       ("path", "/usr/bin\n/bin"), ("unset_vars", "LD_LIBRARY_PATH 1BAD"),
+                                       ("job_env", "NOEQUALS")])
+def test_partition_launch_settings_are_validated(home, key, text):
+    with pytest.raises(SettingsError):
+        set_value(AppSettings(), f"slurm.partitions.node0.{key}", text)
+
+
+def test_partition_launch_settings_can_be_set_and_cleared(home):
+    settings = set_value(AppSettings(), "slurm.partitions.node1.launch_command", "mpirun -np 4 SU2_CFD")
+    assert settings.slurm.partition("node1").launch_command == "mpirun -np 4 SU2_CFD"
+    settings = set_value(settings, "slurm.partitions.node1.exclusive", "false")
+    assert settings.slurm.partition("node1").exclusive is False
+    settings = set_value(settings, "slurm.partitions.node1.exclusive", "none")
+    assert settings.slurm.partition("node1").exclusive is None
+    assert "slurm.partitions.node0.launch_command" in setting_keys(AppSettings())

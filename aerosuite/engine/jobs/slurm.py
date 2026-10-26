@@ -75,7 +75,9 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
     """The batch script of one case (see the spec's §4.2); `after` = the Slurm job id it waits for, and
     `restart_from` = (that case, its folder, the solution file): without both its 0 exit and the file, this case
     starts from scratch."""
-    lines = ["#!/bin/bash -l",
+    part = slurm.partition(options.partition)
+    own = part if part is not None and part.launch_command else None  # a partition with its own launch command
+    lines = ["#!/bin/bash" if own is not None and not own.login_shell else "#!/bin/bash -l",
              f"#SBATCH -J {job_name(study, case)}",
              f"#SBATCH -p {_safe('Partition', options.partition)}",
              "#SBATCH -N 1",
@@ -90,13 +92,25 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
     if after:
         lines += [f"#SBATCH --dependency=afterany:{_safe('Job id', after)}", "#SBATCH --kill-on-invalid-dep=yes"]
     comment = f"# Written by AeroSuite for job {job_id}, case {case}" + (f" ({note})" if note else "") + "."
-    for value in (slurm.module_line, slurm.su2_bin, slurm.srun_command, comment):
+    module_line, launch = (own.module_line, own.launch_command) if own is not None else (slurm.module_line,
+                                                                                      slurm.srun_command)
+    for value in (module_line, launch, slurm.su2_bin, comment):
         if "\n" in value or "\r" in value:
             raise JobError("Settings for the job script must be single lines")
-    lines += [comment, slurm.module_line]
-    lines += [f"export {name}={shlex.quote(value)}" for name, value in env_pairs(slurm.job_env)]
-    lines += [f"export PATH={shlex.quote(slurm.su2_bin)}:\"$PATH\"",
-              'cd "$SLURM_SUBMIT_DIR"',
+    lines.append(comment)
+    if own is not None:  # only its own environment: the Slurm-wide one is for the cluster's nodes
+        if module_line:
+            lines.append(module_line)
+        lines += [f"export {name}={shlex.quote(value)}" for name, value in env_pairs(own.job_env)]
+        if own.path:
+            lines.append(f"export PATH={shlex.quote(own.path)}")
+        if own.unset_vars.strip():
+            lines.append("unset " + " ".join(own.unset_vars.split()))
+    else:
+        lines.append(module_line)
+        lines += [f"export {name}={shlex.quote(value)}" for name, value in env_pairs(slurm.job_env)]
+        lines.append(f"export PATH={shlex.quote(slurm.su2_bin)}:\"$PATH\"")
+    lines += ['cd "$SLURM_SUBMIT_DIR"',
               f"rm -f {EXIT_FILE}",
               'echo "AeroSuite: Slurm job $SLURM_JOB_ID on $(hostname), $SLURM_NTASKS ranks, start $(date -Is)"']
     if restart_from is not None:
@@ -106,7 +120,7 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
                   f'  echo {shlex.quote(f"AeroSuite: {source} ended without a solution; starting from scratch")}',
                   "  sed -i -E 's/^RESTART_SOL[[:space:]]*=.*/RESTART_SOL= NO/' " + shlex.quote(cfg_name),
                   "fi"]
-    lines += [f"{slurm.srun_command} {shlex.quote(cfg_name)}",
+    lines += [f"{launch} {shlex.quote(cfg_name)}",
               "code=$?",
               f"echo $code > {EXIT_FILE}",
               f'echo "{EXIT_MARK} $code $(date -Is)"',

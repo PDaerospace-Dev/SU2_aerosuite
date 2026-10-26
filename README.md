@@ -235,6 +235,14 @@ aerosuite settings                   # partitions, default tasks, memory limits,
   the last 7 days — with Cancel (one case), Resubmit and Log, then everyone's queue; both lists fold. The Run page keeps
   a one-line summary. The Results page adds a **Cost** group per case (elapsed, s/iter, peak memory and CPU use from
   `sacct`/`seff`) and the study's node-hours.
+- **node0 (hpc0, the Ubuntu workstation)** is a partition like the others, but its job script does not use
+  `srun --mpi=pmix` (the nodes have PMIx 4, the workstation PMIx 5). It runs `mpirun --bind-to core -np
+  "$SLURM_NTASKS" SU2_CFD <case>.cfg` under plain `#!/bin/bash`, with `PATH=/usr/local/bin:/usr/bin:/bin` and
+  `LD_LIBRARY_PATH` unset, no `--exclusive`, and never `--export=NONE` (uid 1000 is `pdas` there and `pdas-hpc1` on
+  the nodes). The launch command, module line, PATH, unset variables and job environment are per-partition settings
+  (Settings → *Job script per partition*, or `aerosuite settings set slurm.partitions.node0.launch_command ...`); a
+  partition whose launch command is empty keeps the Slurm-wide ones. Its reference script is
+  `/data/software/templates/su2_job_ws.sh`.
 - The local backend (`mpirun` through the sweep script) is unchanged and stays the default.
 
 ### Over SSH

@@ -298,6 +298,8 @@ a.as-step:hover { background: #f6f8fa; }
 .as-run-part { padding: 14px 16px; border-top: 1px solid var(--as-hairline); }
 .as-run-part:first-child { border-top: 0; }
 .as-run-live { background: var(--as-accent-tint); border-radius: 10px 10px 0 0; }
+.as-nodepill { border: 1px solid var(--as-hairline); border-radius: 999px; padding: 1px 8px; font-size: 12px;
+  color: var(--as-muted); }
 .as-run-head { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
   color: var(--as-muted); }
 .as-run-big { font-size: 22px; font-weight: 700; line-height: 1.15; word-break: break-all; }

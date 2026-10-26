@@ -24,6 +24,15 @@ FIELDS = [  # (key under slurm., label, hint)
     ("gb_per_million_cells", "Memory per million cells (GB)", "For the pre-submit memory estimate"),
     ("poll_seconds", "Poll interval (s)", "One squeue call per interval for all jobs (5–120)"),
 ]
+PARTITION_LAUNCH_FIELDS = [  # (key, label, hint): how a job on the partition starts SU2
+    ("launch_command", "Launch command", "Followed by the case's .cfg. Empty: the Slurm-wide module line, SU2 bin "
+                                         "folder, job environment and launch command above. Set: only the fields "
+                                         "below are used"),
+    ("module_line", "Module line", "Empty: none"),
+    ("path", "PATH", "Replaces PATH in the job script, e.g. /usr/local/bin:/usr/bin:/bin; empty: PATH is left alone"),
+    ("unset_vars", "Unset", "Variable names, separated by spaces, e.g. LD_LIBRARY_PATH"),
+    ("job_env", "Job environment", "NAME=value, separated by spaces"),
+]
 PARTITION_FIELDS = [("default_ntasks", "Tasks"), ("memory_limit_mb", "Memory limit (MB)"),
                     ("ntasks_warn_above", "Warn above (tasks)")]
 
@@ -85,6 +94,10 @@ class SettingsPage:
             with card(flush=True):
                 card_head("Partitions", "The memory limit is what an --exclusive job may use before Slurm kills it")
                 self._partitions()
+            with card():
+                card_head("Job script per partition", "A partition with its own launch command (e.g. mpirun on the "
+                                                       "workstation) gets only its own environment")
+                self._launch()
             with card():
                 card_head("Open from your PC", "AeroSuite has no login, so it listens on this machine only; "
                                                "an SSH tunnel brings it to your PC")
@@ -189,6 +202,42 @@ class SettingsPage:
                         remove.set_enabled(False)
         with ui.row().classes("px-4 pb-4"):
             secondary_button("Add partition", on_click=self._add, icon="add").mark("partition-add")
+
+    def _launch(self) -> None:
+        for index, partition in enumerate(self.settings.slurm.partitions):
+            custom = bool(partition.launch_command)
+            with ui.expansion(f"{partition.name}: " + (partition.launch_command if custom else "Slurm-wide launch"),
+                              value=custom).classes("w-full").mark(f"launch-{index}"):
+                with ui.column().classes("w-full gap-2 px-4 pb-4"):
+                    for key, label, help_text in PARTITION_LAUNCH_FIELDS:
+                        text_field(label, getattr(partition, key), self._partition_text(index, key),
+                                   mark=f"partition-{index}-{key}", mono=True)
+                        hint(help_text)
+                    ui.checkbox("Login shell (#!/bin/bash -l)", value=partition.login_shell,
+                                on_change=lambda e, i=index: self._save_data(
+                                    lambda d: d["slurm"]["partitions"][i].update(login_shell=bool(e.value)))).mark(
+                        f"partition-{index}-login_shell")
+                    ui.select({"": "The Slurm-wide setting", "yes": "One job per node (--exclusive)",
+                               "no": "Jobs may share the node"},
+                              value={None: "", True: "yes", False: "no"}[partition.exclusive], label="Exclusive",
+                              on_change=lambda e, i=index: self._save_data(lambda d: d["slurm"]["partitions"][i].update(
+                                  exclusive={"": None, "yes": True, "no": False}[e.value]))).classes(
+                        "w-full").mark(f"partition-{index}-exclusive")
+
+    def _partition_text(self, index: int, key: str) -> Callable[[str], Optional[str]]:
+        def commit(text: str) -> Optional[str]:
+            data = load_settings()[0].model_dump()
+            partitions = data["slurm"]["partitions"]
+            if index >= len(partitions):
+                return "This partition is gone; reload the page"
+            partitions[index][key] = text.strip()
+            try:
+                save_settings(validated(data))
+            except SettingsError as exc:
+                return str(exc)
+            return None
+
+        return commit
 
     def _partition_committer(self, index: int, key: str) -> Callable[[str], Optional[str]]:
         def commit(text: str) -> Optional[str]:
