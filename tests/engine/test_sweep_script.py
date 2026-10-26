@@ -74,6 +74,8 @@ def _run_sweep(tmp_path, control_lines, fail=(), restart_sol="YES"):
     record = tmp_path / "record.jsonl"
     env = {**os.environ, "SU2_RUN": str(su2_dir.parent), "FAKE_SU2_RECORD": str(record),
            "FAKE_SU2_FAIL": ",".join(fail), "PYTHONIOENCODING": "utf-8"}  # the script prints ✓
+    # The script appends SU2_RUN to sys.path, so a real SU2 on the caller's PYTHONPATH would win.
+    env.pop("PYTHONPATH", None)
     done = subprocess.run(
         [sys.executable, str(SWEEP_SCRIPT), "-d", str(configs), "-c", str(control)],
         cwd=runs, input="yes\n", capture_output=True, text=True, encoding="utf-8", env=env, timeout=60,
