@@ -1,56 +1,53 @@
-"""Aircraft: the Aircraft Aero form (profile defaults as hints), placeholders, preview and the reference."""
-from typing import Callable, Optional
+"""Aircraft: an aircraft study's whole setup on one page. On top, the case strip: the case's name (or the sweep's
+count) with its naming, and what it runs at. Under it the form, as tabs: Flight & air, Solver, Boundaries,
+Reference, Start (Restarts with the sweep on) and Extra options. On the right the config (the lines AeroSuite writes,
+or the whole of it, editable) and SU2's reference. The problems and Generate sit with the Sweep | Single switch."""
+from pathlib import Path
+from typing import Callable
 
 from nicegui import ui
 
-from ...engine.cfg import (case_freestream, read_template, render_case, settings_parameters, stale_case_name,
-                           template_case_values, template_or_none)
-from ...engine.editing import MARKER_PREFIX, set_freestream, set_parameter, unset_parameter
+from ...engine.cfg import (case_freestream, read_template, render_case, stale_case_name, template_case_values,
+                           template_or_none)
+from ...engine.editing import MARKER_PREFIX, set_parameter, update_sweep
 from ...engine.errors import AeroSuiteError, ProjectError
 from ...engine.models import Project
 from ...engine.naming import format_value
+from ...engine.preflight import has_errors, preflight
 from ...engine.profiles import load_profile
+from ...engine.project import follow_template
 from ...engine.reference import RefOption, keys_in
+from ..aircraft_boundaries import boundaries_tab
+from ..aircraft_flight import flight_tab
+from ..aircraft_form import extra_tab, reference_tab, solver_tab
+from ..checks import generate_button
+from ..config_tab import ConfigTab, carry_unsaved_config
 from ..fields import text_field
-from ...engine.project import follow_template, template_file_name, template_warnings
-from ..checks import generate_button, render_checks
 from ..layout import ProjectFrame, open_session, project_url
-from ..session import parse_optional_int, parse_optional_number
+from ..naming_fields import base_name_field, naming_checkboxes
+from ..restart_card import restart_card
 from ..side_panel import side_panel
 from ..sweep_choice import sweep_toggle
-from ..config_tab import ConfigTab, carry_unsaved_config
-from ..restart_card import restart_card
+from ..sweep_view import detect_rule
 from ..template_editor import carry_unsaved
-from ..template_edit import write_template_params
-from ..ui_kit import (banner, card, card_head, field, fold_button, hint, pascals, sci, secondary_button, stat, table,
-                      td, td_box, th, warning_group)
+from ..ui_kit import banner, card, hint, sci, stat
+from .sweep import restart_rule
 
-# (label, settings group, field, kind) — kind: "float" | "int"
-NUMBER_FIELDS = {
-    "Physical and reference": [
-        ("Reference length", "reference", "ref_length", "float"),
-        ("Reference area", "reference", "ref_area", "float"),
-        ("Moment origin x", "reference", "origin_x", "float"),
-        ("Moment origin y", "reference", "origin_y", "float"),
-        ("Moment origin z", "reference", "origin_z", "float"),
-    ],
-}
-NUMERIC_TEXT = [("CFL number", "cfl", "float"), ("Iterations", "iter", "int")]
-DROPDOWNS = [
-    ("Convective", "conv_method", ["ROE", "JST", "AUSM"]),
-    ("MUSCL", "muscl", ["YES", "NO"]),
-    ("Turbulence", "turb_model", ["SST", "SA"]),
-]
-MARKER_ROWS = ["MARKER_HEATFLUX", "MARKER_FAR", "MARKER_PLOTTING", "MARKER_MONITORING"]
+TABS = [("flight", "Flight & air"), ("solver", "Solver"), ("boundaries", "Boundaries"), ("reference", "Reference"),
+        ("start", "Start"), ("extra", "Extra options")]
+RULE_WORDS = {"none": "from scratch", "previous": "from the previous case", "custom": "from a folder"}
 
 
 def register() -> None:
     @ui.page("/aircraft")
-    def aircraft_page(project: str = "") -> None:
+    def aircraft_page(project: str = "", tab: str = "") -> None:
+        """`tab`: the form tab to open (flight, solver, boundaries, reference, start, extra)."""
         session = open_session(project)
         if session is None:
             return
-        state: dict = {}  # the Config tab's editor state; survives body.refresh() (see carry_unsaved)
+        state: dict = {}  # the Config tab's editor state and the open tab; survives body.refresh()
+        if tab in dict(TABS):
+            state["form_tab"] = tab
 
         def reload_body() -> None:
             carry_unsaved(state)
@@ -95,94 +92,6 @@ def _rendered_keys(frame: ProjectFrame) -> set[str]:
         return keys_in(template)
 
 
-def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None:
-    """The form on the left; Preview | Template | SU2 reference on the right. An aircraft study has no
-    CFG setup step, so the sweep switch and (sweep off) Generate are here."""
-    hints = _hints(frame.session.project)
-    holders: dict = {}
-    sweep_on = frame.session.project.sweep.enabled
-
-    def render_checks_box() -> None:
-        box = holders.get("checks")
-        if box is None:
-            return
-        box.clear()
-        with box:
-            render_checks(frame, holders.get("generate"))
-
-    def after() -> None:
-        holders["preview"]()
-        holders["reference"]()
-        render_checks_box()
-        if "restart" in holders:  # a new Mach renames the case: its own run leaves the list
-            holders["restart"]()
-
-    def template_saved(warnings: list[str]) -> None:
-        box = holders["template-warnings"]
-        box.clear()
-        if sweep_on:  # sweep off: the checks above Generate already list these
-            with box:
-                if warnings:
-                    warning_group(warnings, mark="config-warning")
-        holders["freestream"]()  # a single case's Mach is the template's
-        after()
-
-    def config_tab() -> Callable[[], None]:
-        hint(f"Saved automatically into {template_file_name(frame.session.project)}, or into the form field or "
-             "placeholder that writes the line").mark("template-note")
-        holders["template-warnings"] = ui.column().classes("w-full gap-2")
-        if sweep_on:
-            try:
-                warnings = template_warnings(read_template(frame.session.directory, frame.session.project))
-            except AeroSuiteError:
-                warnings = []
-            if warnings:
-                with holders["template-warnings"]:
-                    warning_group(warnings, mark="config-warning")
-        return ConfigTab(frame, state, on_template_saved=template_saved, on_layers_saved=redraw).render
-
-    frame.actions.clear()
-    with frame.actions:
-        sweep_toggle(frame, mark="aircraft-sweep", then=redraw)
-        if not sweep_on:
-            holders["generate"] = generate_button(frame, render_checks_box)
-    if not sweep_on:
-        holders["checks"] = ui.column().classes("w-full gap-2").mark("aircraft-checks")
-        render_checks_box()
-
-    with ui.element("div").classes("as-columns"):
-        with ui.column().classes("gap-4 w-full"):
-            holders["freestream"] = _freestream(frame, hints, after)
-            if not sweep_on:
-                holders["restart"] = restart_card(frame, lambda: (holders["preview"](), render_checks_box()))
-            for title, rows in NUMBER_FIELDS.items():
-                with card(title, fold=f"aircraft-{title.lower().replace(' ', '-')}"):
-                    with ui.element("div").classes("as-grid-3"):
-                        for label, group, name, kind in rows:
-                            with ui.column().classes("gap-1"):
-                                _number_field(frame, hints, label, group, name, kind, after)
-            with card("Numerics", fold="aircraft-numerics"):
-                with ui.element("div").classes("as-grid-3"):
-                    for label, name, options in DROPDOWNS:
-                        with ui.column().classes("gap-1"):
-                            _dropdown(frame, label, name, options, after)
-                    for label, name, kind in NUMERIC_TEXT:
-                        with ui.column().classes("gap-1"):
-                            _number_field(frame, hints, label, "numerics", name, kind, after)
-            holders["markers"] = _markers(frame, hints, after)
-            holders["overrides"] = _placeholders(frame, after)
-        holders["preview"], holders["reference"] = side_panel(
-            frame, on_insert=lambda option: _insert(frame, option, holders, after),
-            in_config=lambda: _rendered_keys(frame), config=config_tab)
-
-
-MODE_CHOICES = {"manual": "Set by hand", "altitude": "From altitude"}
-MODE_HINTS = {
-    "manual": "One temperature and Reynolds number for every case",
-    "altitude": "Each case gets the ISA temperature and pressure of its altitude and its own Reynolds number",
-}
-
-
 def _follow_template(frame: ProjectFrame) -> None:
     """Rename the single case when the template's Mach, AoA or β changed outside AeroSuite."""
     project = frame.session.project
@@ -194,320 +103,267 @@ def _follow_template(frame: ProjectFrame) -> None:
         ui.notify(message, type="negative")
 
 
-def _freestream(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
-    with card() as whole:
-        with card_head("Freestream"):
-            ui.space()
-            ui.toggle(MODE_CHOICES, value=frame.session.project.settings.freestream.mode,
-                      on_change=lambda e: choose(e.value)).props(
-                "no-caps unelevated dense toggle-color=primary").classes("as-toggle").mark("freestream-mode")
-            fold_button(whole, "aircraft-freestream")
-        box = ui.column().classes("w-full gap-3")
+def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None:
+    hints = _hints(frame.session.project)
+    holders: dict = {}
+
+    def after() -> None:
+        """Everything that shows what a change made: the strip, the problems, the counts, the config."""
+        for name in ("strip", "problems", "counts", "preview", "reference", "start"):
+            if name in holders:
+                holders[name]()
+
+    def template_saved(_warnings: list[str]) -> None:
+        holders["flight"]()  # a single case's Mach is the template's
+        after()
+
+    def layers_saved() -> None:
+        """A form line edited in the config: the form's fields show the new values (the config keeps its place)."""
+        for name in ("flight", "solver", "boundaries", "reference-tab", "extra"):
+            holders[name]()
+        after()
+
+    def config_tab() -> Callable[[], None]:
+        return ConfigTab(frame, state, on_template_saved=template_saved, on_layers_saved=layers_saved,
+                         on_pick=lambda tab: holders["tabs"].set_value(tab)).render
+
+    frame.actions.clear()
+    with frame.actions:
+        holders["badges"] = ui.row().classes("items-center gap-1 no-wrap").mark("problem-badges")
+        sweep_toggle(frame, mark="aircraft-sweep", then=redraw)
+        holders["generate"] = generate_button(frame, lambda: holders["problems"]())
+    holders["problems"] = _problems(frame, holders)
+    open_names = _names_dialog(frame, after)
+
+    with ui.element("div").classes("as-columns as-columns-aircraft"):
+        with ui.column().classes("gap-4 w-full"):
+            holders["strip"] = _case_strip(frame, open_names)
+            with card() as tabs_card:
+                tabs_card.mark("form-card")
+                _tabs(frame, state, hints, holders, after)
+        holders["preview"], holders["reference"] = side_panel(
+            frame, on_insert=lambda option: _insert(frame, option, holders),
+            in_config=lambda: _rendered_keys(frame), config=config_tab)
+    holders["problems"]()
+    holders["counts"]()
+
+
+def _tabs(frame: ProjectFrame, state: dict, hints: dict[str, str], holders: dict, after: Callable[[], None]) -> None:
+    sweep_on = frame.session.project.sweep.enabled
+    counts: dict = {}
+    with ui.tabs(value=state.get("form_tab", "flight"),
+                 on_change=lambda e: state.update(form_tab=e.value)).props(
+            "dense no-caps align=left inline-label").classes("as-tabs as-form-tabs w-full").mark("form-tabs") as tabs:
+        for key, label in TABS:
+            with ui.tab(key, "Restarts" if key == "start" and sweep_on else label).mark(f"form-tab-{key}"):
+                if key == "extra":
+                    counts[key] = ui.label("").classes("as-tab-count").mark(f"form-tab-{key}-count")
+    holders["tabs"] = tabs
+    with ui.tab_panels(tabs, value=tabs.value).props("keep-alive").classes("as-tab-panels w-full"):
+        with ui.tab_panel("flight").classes("gap-3"):
+            holders["flight"] = flight_tab(frame, hints, after)
+        with ui.tab_panel("solver").classes("gap-3"):
+            holders["solver"] = solver_tab(frame, hints, after)
+        with ui.tab_panel("boundaries").classes("gap-3"):
+            holders["boundaries"] = boundaries_tab(frame, hints, after)
+        with ui.tab_panel("reference").classes("gap-3"):
+            holders["reference-tab"] = reference_tab(frame, hints, after)
+        with ui.tab_panel("start").classes("gap-3"):
+            _start_tab(frame, holders, after)
+        with ui.tab_panel("extra").classes("gap-3"):
+            holders["extra"] = extra_tab(frame, after)
+
+    def render_counts() -> None:
+        extra = len(frame.session.project.settings.overrides)
+        counts["extra"].text = str(extra)
+
+    holders["counts"] = render_counts
+
+
+def _start_tab(frame: ProjectFrame, holders: dict, after: Callable[[], None]) -> None:
+    """A single case's restart; with the sweep on, the rule every case follows (each case on the Sweep page)."""
+    if not frame.session.project.sweep.enabled:
+        holders["start"] = restart_card(frame, after, framed=False)
+        return
+    box = ui.column().classes("w-full gap-2").mark("restart-rules")
+
+    def render() -> None:
+        box.clear()
+        with box:
+            restart_rule(frame, both)
+            ui.link("Set a case differently: the Sweep page's Cases →",
+                    project_url("sweep", frame.session.directory)).classes("as-hint").mark("restart-sweep-link")
 
     def both() -> None:
         render()
         after()
 
-    def choose(mode: str) -> None:
-        message = frame.save(lambda p: set_freestream(p, mode=mode), then=both)
-        if message:
-            ui.notify(message, type="negative")
+    render()
+    holders["start"] = render
 
-    def number(label: str, name: str, value, placeholder: str) -> None:
-        text_field(label, "" if value is None else format_value(value),
-                   lambda text: frame.save(
-                       lambda p: set_freestream(p, **{name: parse_optional_number(text, label)}), then=both),
-                   mark=f"freestream-{name}", placeholder=placeholder)
+
+# -- the case strip --------------------------------------------------------------------------------------------
+
+def _span(values: list[float], unit: str = "") -> str:
+    if not values:
+        return "—"
+    if len(values) > 3:
+        return f"{format_value(values[0])} … {format_value(values[-1])}{unit} ({len(values)})"
+    return ", ".join(format_value(v) for v in values) + unit
+
+
+def _case_strip(frame: ProjectFrame, open_names: Callable[[], None]) -> Callable[[], None]:
+    """The case's name (a sweep's count) and what it runs at; the name opens the naming. Returns its redraw."""
+    with card() as box:
+        box.mark("case-strip")
+        row = ui.row().classes("as-case-strip w-full")
 
     def render() -> None:
-        # Plain synchronous rebuild: tests read these fields right after a change.
-        box.clear()
-        fs = frame.session.project.settings.freestream
-        sweep_on = frame.session.project.sweep.enabled
-        with box:
-            hint(MODE_HINTS[fs.mode]).mark("freestream-mode-hint")
-            with ui.element("div").classes("as-grid-3"):  # the flight condition, then the air it flies in
-                _conditions(frame, both)
-            cases = frame.session.project.cases
-            if not sweep_on and cases:  # named like a sweep case, from these values and the altitude
-                ui.label(f"Case name: {cases[0].name}").classes("as-mono as-muted").mark("freestream-case-name")
-            if fs.mode == "manual":
-                with ui.element("div").classes("as-grid-3"):
-                    for label, name in (("Temperature (K)", "temperature_K"), ("Reynolds number", "reynolds"),
-                                        ("Reynolds length", "reynolds_length")):
-                        with ui.column().classes("gap-1"):
-                            _number_field(frame, hints, label, "freestream", name, "float", both)
-                if sweep_on:
-                    ui.link("Mach, AoA and β are set on the Sweep page →",
-                            project_url("sweep", frame.session.directory)).classes("as-hint").mark(
-                        "freestream-mach-link")
-                return
-            with ui.element("div").classes("as-grid-3"):
-                with ui.column().classes("gap-1"):
-                    _altitude(frame, number)
-                with ui.column().classes("gap-1"):
-                    number("Reynolds length (m)", "reynolds_length", fs.reynolds_length,
-                           "for the Reynolds number")
-            if sweep_on:
-                ui.link("Mach, AoA, β and altitudes are set on the Sweep page →",
-                        project_url("sweep", frame.session.directory)).classes("as-hint").mark(
-                    "freestream-altitudes-link")
-            _summary(frame)
-            kept = [f"temperature {format_value(fs.temperature_K)} K" if fs.temperature_K is not None else "",
-                    f"Reynolds number {sci(fs.reynolds)}" if fs.reynolds is not None else ""]
-            kept = [part for part in kept if part]
-            if kept:
-                hint("Kept for Set by hand: " + ", ".join(kept)).mark("freestream-kept")
-
-    render()
-    return render
-
-
-def _altitude(frame: ProjectFrame, number: Callable) -> None:
-    """The altitude(s): the Sweep page's list with the sweep on, else the single case's altitude (editable)."""
-    project = frame.session.project
-    if not project.sweep.enabled:
-        number("Altitude (km)", "altitude_km", project.settings.freestream.altitude_km, "ISA, 0–100 km")
-        return
-    shown = ", ".join(format_value(a) for a in project.sweep.altitudes_km) or "—"
-    field(ui.input("Altitudes (km)", value=shown)).props("readonly").classes("w-full as-field-readonly").mark(
-        "freestream-altitudes-sweep")
-
-
-# (template key, label, the sweep's list and the field's marker name)
-CONDITIONS = (("MACH_NUMBER", "Mach", "mach"), ("AOA", "AoA α (deg)", "alpha"),
-              ("SIDESLIP_ANGLE", "Sideslip β (deg)", "beta"))
-
-
-def _conditions(frame: ProjectFrame, after: Callable[[], None]) -> None:
-    """Mach, AoA and β, one column each: the Sweep page's lists with the sweep on (shown, not edited), else the
-    template's MACH_NUMBER, AOA and SIDESLIP_ANGLE (editable)."""
-    project = frame.session.project
-    if project.sweep.enabled:
-        for _key, label, name in CONDITIONS:
-            shown = ", ".join(format_value(v) for v in getattr(project.sweep, name)) or "—"
+        row.clear()
+        project = frame.session.project
+        fs, cases = project.settings.freestream, project.cases
+        with row:
             with ui.column().classes("gap-1"):
-                field(ui.input(label, value=shown)).props("readonly").classes("w-full as-field-readonly").mark(
-                    f"freestream-{name}-sweep")
-        return
-    try:
-        template = read_template(frame.session.directory, project)
-    except AeroSuiteError:
-        template = ""
-    values = template_case_values(template) if template else (None, None, None)
-    winning = settings_parameters(project.settings)
-    for (key, label, name), value in zip(CONDITIONS, values):
-        with ui.column().classes("gap-1"):
-            _template_number(frame, after, key, label, name, value, winning.get(key))
-
-
-def _template_number(frame: ProjectFrame, after: Callable[[], None], key: str, label: str, name: str,
-                     value: Optional[float], winning: Optional[str]) -> None:
-    """One of the single case's MACH_NUMBER, AOA and SIDESLIP_ANGLE, written into the template."""
-    def commit(text: str) -> Optional[str]:
-        try:
-            number = parse_optional_number(text, label)
-        except ProjectError as exc:
-            return str(exc)
-        if key == "MACH_NUMBER" and (number is None or number <= 0):
-            return "Mach must be greater than 0"
-        if number is None:
-            return f"{label} needs a value"
-        message = write_template_params(frame, {key: format_value(number)})
-        if message is None:
-            after()
-        return message
-
-    text_field(label, "" if value is None else format_value(value), commit, mark=f"freestream-{name}",
-               placeholder=f"{key} in the template")
-    if winning is not None:
-        hint(f"A {key} placeholder ({winning}) wins over this in the config; "
-             "remove it under Placeholders for this value to take effect").classes(
-            "as-hint-warning").mark(f"freestream-{name}-wins")
-
-
-def _summary(frame: ProjectFrame) -> None:
-    """The temperature, pressure and Reynolds ranges the cases get, or why they can't be computed."""
-    project = frame.session.project
-    try:
-        template = read_template(frame.session.directory, project)
-    except AeroSuiteError:
-        template = ""
-    rows = case_freestream(project, template)
-    with ui.row().classes("as-strip as-strip-result").mark("freestream-summary"):
-        if not rows:
-            ui.label("No cases yet").classes("as-muted")
-            return
-        failed = next((row for row in rows if row.values is None), None)
-        if failed is not None:
-            ui.label(failed.error).classes("as-error-text").mark("freestream-summary-error")
-            return
-        reynolds = sorted(row.values.reynolds for row in rows)
-        machs = sorted(row.mach for row in rows)
-        low, high = (f"{format_value(round(t, 2))} K" for t in (min(r.values.temperature_K for r in rows),
-                                                                  max(r.values.temperature_K for r in rows)))
-        stat("Temperature", low if low == high else f"{low} … {high}")
-        low, high = (pascals(p) for p in (min(r.values.pressure_Pa for r in rows),
-                                           max(r.values.pressure_Pa for r in rows)))
-        stat("Pressure", low if low == high else f"{low} … {high}")
-        span = sci(reynolds[0]) if sci(reynolds[0]) == sci(reynolds[-1]) else f"{sci(reynolds[0])} … {sci(reynolds[-1])}"
-        stat("Reynolds number", span)
-        if project.sweep.enabled and len(project.sweep.altitudes_km) > 1:
-            where = f"{len(rows)} cases · from each case's altitude and Mach"
-        elif project.sweep.enabled:
-            where = (f"{len(rows)} cases · from each case's Mach" if machs[0] != machs[-1]
-                     else f"at Mach {format_value(machs[0])}")
-        else:
-            where = f"at the template's Mach {format_value(machs[0])}"
-        ui.label(where).classes("as-muted ml-auto")
-
-
-def _number_field(frame, hints, label, group, name, kind, after) -> None:
-    current = getattr(getattr(frame.session.project.settings, group), name)
-    shown = "" if current is None else (format_value(current) if kind == "float" else str(current))
-    parse = parse_optional_number if kind == "float" else parse_optional_int
-
-    def change(p: Project, text: str) -> None:
-        setattr(getattr(p.settings, group), name, parse(text, label))
-
-    text_field(label, shown, lambda text: frame.save(lambda p: change(p, text), then=after),
-               mark=f"{group}-{name}", placeholder=hints.get(f"{group}.{name}", "template value"))
-
-
-def _dropdown(frame, label, name, choices, after) -> None:
-    current = getattr(frame.session.project.settings.numerics, name)
-    options = {"": "(template value)", **{c: c for c in choices}}
-    if current and current not in options:
-        options[current] = current  # keep a template value that is not in the fixed list
-
-    def change(value) -> None:
-        message = frame.save(lambda p: setattr(p.settings.numerics, name, value or None), then=after)
-        if message:
-            ui.notify(message, type="negative")
-
-    field(ui.select(options, value=current or "", label=label,
-                    on_change=lambda e: change(e.value))).classes("w-full").mark(f"numerics-{name}")
-
-
-def _markers(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
-    mesh = ", ".join(frame.session.project.mesh.markers) or "(no .su2 mesh markers)"
-    with card("Markers", f"Mesh markers: {mesh}", fold="aircraft-markers"):
-        box = ui.column().classes("w-full gap-2")
-
-    def render() -> None:
-        # Plain synchronous rebuild: tests read these rows right after a change.
-        box.clear()
-        markers = frame.session.project.settings.markers
-        keys = MARKER_ROWS + sorted(k for k in markers if k not in MARKER_ROWS)
-        with box:
-            with ui.element("div").classes("as-grid-form"):
-                for key in keys:
-                    value = markers.get(key, "")
-                    ui.checkbox(key, value=value is not None,
-                                on_change=lambda e, k=key: include(k, e.value)).mark(f"marker-{key}-include")
-                    with ui.column().classes("gap-0"):
-                        text_field("Value", value or "", lambda text, k=key: set_value(k, text),
-                                   mark=f"marker-{key}-value", placeholder=hints.get(key, "template value"),
-                                   mono=True)
-
-    def both() -> None:
-        render()
-        after()
-
-    def include(key: str, on: bool) -> None:
-        def change(p: Project) -> None:
-            if not on:
-                p.settings.markers[key] = None  # the line is removed from every config
-            elif key in p.settings.markers and p.settings.markers[key] is None:
-                del p.settings.markers[key]  # back to the template's line
-
-        message = frame.save(change, then=both)
-        if message:
-            ui.notify(message, type="negative")
-
-    def set_value(key: str, text: str) -> Optional[str]:
-        if text.strip():
-            return frame.save(lambda p: set_parameter(p.settings, key, text), then=both)
-        if frame.session.project.settings.markers.get(key) is not None:
-            return frame.save(lambda p: unset_parameter(p.settings, key), then=both)
-        return None
+                ui.label("Cases" if project.sweep.enabled else "Case").classes("as-stat-label")
+                text = (f"{len(cases)} case{'' if len(cases) == 1 else 's'}" if project.sweep.enabled
+                        else cases[0].name if cases else "—")
+                with ui.button(on_click=open_names, color=None).props("flat no-caps dense").classes(
+                        "as-case-chip").mark("case-name"):
+                    ui.label(text).mark("case-name-text")
+                    ui.icon("edit")
+            if project.sweep.enabled:
+                sweep = project.sweep
+                stat("Mach", _span(sweep.mach)).mark("strip-mach")
+                stat("α", _span(sweep.alpha, "°")).mark("strip-alpha")
+                stat("β", _span(sweep.beta, "°")).mark("strip-beta")
+                if fs.mode == "altitude":
+                    stat("Altitudes", _span(sweep.altitudes_km, " km")).mark("strip-altitude")
+                rule, _folder, differing = detect_rule(cases)
+                stat("Restarts", RULE_WORDS[rule] + (f" ({len(differing)} differ)" if differing else "")).mark(
+                    "strip-restart")
+                return
+            try:
+                template = read_template(frame.session.directory, project)
+            except AeroSuiteError:
+                template = ""
+            mach, alpha, beta = template_case_values(template) if template else (0.0, 0.0, 0.0)
+            stat("Mach", format_value(mach)).mark("strip-mach")
+            stat("α", f"{format_value(alpha)}°").mark("strip-alpha")
+            stat("β", f"{format_value(beta)}°").mark("strip-beta")
+            if fs.mode == "altitude":
+                stat("Altitude", "—" if fs.altitude_km is None else f"{format_value(fs.altitude_km)} km").mark(
+                    "strip-altitude")
+                rows = case_freestream(project, template) if template else []
+                values = rows[0].values if rows else None
+                stat("Reynolds", sci(values.reynolds) if values else "—").mark("strip-reynolds")
+            else:
+                stat("Temperature", "template" if fs.temperature_K is None
+                     else f"{format_value(fs.temperature_K)} K").mark("strip-temperature")
+                stat("Reynolds", "template" if fs.reynolds is None else sci(fs.reynolds)).mark("strip-reynolds")
+            if cases:
+                case = cases[0]
+                start = ("fresh" if case.restart != "custom" else
+                         f"from {Path(case.restart_ref).name}" if case.restart_ref else "from a solution")
+                stat("Start", start).mark("strip-start")
 
     render()
     return render
 
 
-def _placeholders(frame: ProjectFrame, after: Callable[[], None]) -> Callable[[], None]:
-    with card("Placeholders", "Any other SU2 option, written into every config.", flush=True,
-              fold="aircraft-placeholders"):
-        box = ui.column().classes("w-full gap-0")
-        with ui.row().classes("w-full items-start no-wrap gap-2 px-4 pt-3 pb-2"):
-            key_box = field(ui.input("Option"), mono=True).classes("w-48").mark("override-new-key")
-            value_box = field(ui.input("Value")).classes("grow").mark("override-new-value")
-            secondary_button("Add", on_click=lambda: add()).mark("override-add")
-        error = ui.label("").classes("as-error-text px-4 pb-3").mark("override-add-error")
-
-    def render() -> None:
-        box.clear()
-        items = sorted(frame.session.project.settings.overrides.items())
-        if not items:
-            return
-        with box:
-            with table("minmax(10rem, 14rem) minmax(0, 1fr) 56px"):
-                for heading in ("Option", "Value", ""):
-                    th(heading)
-                for key, value in items:
-                    td(key, mono=True)
-                    with td_box():
-                        with ui.column().classes("grow gap-0"):
-                            text_field("Value", value,
-                                       lambda text, k=key: frame.save(
-                                           lambda p: set_parameter(p.settings, k, text), then=after),
-                                       mark=f"override-{key}-value", mono=True)
-                    with td_box():
-                        ui.button(icon="delete", on_click=lambda k=key: forget(k), color=None).props(
-                            "flat round dense").mark(f"override-{key}-delete")
+def _names_dialog(frame: ProjectFrame, after: Callable[[], None]) -> Callable[[], None]:
+    """What goes into a case name, as on the Sweep page (the same naming); returns what opens it."""
+    with ui.dialog() as dialog, ui.card().classes("w-[34rem] max-w-full"):
+        with ui.row().classes("w-full items-center no-wrap"):
+            ui.label("Case names").classes("as-dialog-title grow")
+            ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense").mark("names-close")
+        box = ui.column().classes("w-full gap-3").mark("names-dialog")
 
     def both() -> None:
         render()
         after()
 
-    def forget(key: str) -> None:
-        message = frame.save(lambda p: unset_parameter(p.settings, key), then=both)
-        if message:
-            ui.notify(message, type="negative")
+    def render() -> None:
+        box.clear()
+        project = frame.session.project
+        with box:
+            base_name_field(frame, both)
+            if project.settings.freestream.mode == "manual":  # from altitude, the label is the altitude's
+                text_field("Altitude label", project.sweep.altitude,
+                           lambda text: frame.save(lambda p: update_sweep(p, altitude=text.strip()), then=both),
+                           mark="names-altitude-label", side_label=True)
+            naming_checkboxes(frame, both)
+            names = [case.name for case in project.cases]
+            shown = names[0] if len(names) == 1 else f"{names[0]} … {names[-1]}" if names else "—"
+            with ui.row().classes("as-strip items-center gap-2"):
+                ui.label("Names" if len(names) > 1 else "Name").classes("as-muted")
+                ui.label(shown).classes("as-mono as-strong").mark("names-preview")
+            hint("The same naming as the Sweep page. Each case keeps its restart when its name changes.")
 
-    def add() -> None:
-        name = (key_box.value or "").strip().upper()
+    def open_names() -> None:
+        render()
+        dialog.open()
 
-        def change(p: Project) -> None:
-            if name.startswith(MARKER_PREFIX):
-                raise ProjectError("Use the Markers section for MARKER_ options")
-            set_parameter(p.settings, name, value_box.value or "")
+    return open_names
 
-        message = frame.save(change, then=both)
-        error.text = message or ""
-        if message is None:
-            key_box.value = ""
-            value_box.value = ""
 
-    render()
+def _problems(frame: ProjectFrame, holders: dict) -> Callable[[], None]:
+    """The checks as badges by Generate (a click lists them); Generate waits for the errors. Returns the redraw."""
+    with ui.dialog() as dialog, ui.card().classes("w-[44rem] max-w-full"):
+        with ui.row().classes("w-full items-center no-wrap"):
+            ui.label("Problems").classes("as-dialog-title grow")
+            ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense").mark(
+                "problems-close")
+        listing = ui.column().classes("w-full gap-2").mark("problems-list")
+
+    def render() -> None:
+        project = frame.session.project
+        found = preflight(frame.session.directory, project, "generate")
+        errors = [p.message for p in found if p.severity == "error"]
+        warnings = [p.message for p in found if p.severity != "error"]
+        generate = holders["generate"]
+        generate.set_enabled(not has_errors(found))
+        count = len(project.cases)
+        generate.text = (f"Generate {count} config{'' if count == 1 else 's'}" if project.sweep.enabled
+                         else "Generate configs")
+        badges = holders["badges"]
+        badges.clear()
+        with badges:
+            if not found:
+                ui.label("No problems").classes("as-pill as-pill-done").mark("problems-none")
+            if errors:
+                ui.label(f"{len(errors)} error{'' if len(errors) == 1 else 's'}").classes(
+                    "as-pill as-pill-failed as-problem-badge").mark("problems-errors").on("click", dialog.open)
+            if warnings:
+                ui.label(f"{len(warnings)} warning{'' if len(warnings) == 1 else 's'}").classes(
+                    "as-pill as-pill-unconverged as-problem-badge").mark("problems-warnings").on(
+                    "click", dialog.open)
+        listing.clear()
+        with listing:
+            for message in errors:
+                banner("error", f"Error: {message}").mark("problem-error")
+            for message in warnings:
+                banner("warning", message).mark("problem-warning")
+
     return render
 
 
-def _insert(frame: ProjectFrame, option: RefOption, holders: dict, after: Callable[[], None]) -> Optional[str]:
+def _insert(frame: ProjectFrame, option: RefOption, holders: dict):
+    """An option from SU2's reference: a MARKER_ line into Boundaries, anything else into Extra options."""
     settings = frame.session.project.settings
     if option.key.startswith(MARKER_PREFIX):
         if settings.markers.get(option.key):
-            return f"{option.key} is already in Markers"
-        target, place = holders["markers"], "Markers"
+            return f"{option.key} is already in Boundaries"
+        target, place = "boundaries", "Boundaries"
     else:
         if option.key in settings.overrides:
-            return f"{option.key} is already in Placeholders"
-        target, place = holders["overrides"], "Placeholders"
+            return f"{option.key} is already in Extra options"
+        target, place = "extra", "Extra options"
 
     def both() -> None:
-        target()
-        after()
+        holders[target]()
+        holders["tabs"].set_value(target)
+        for name in ("strip", "problems", "counts", "preview", "reference"):
+            holders[name]()
 
     message = frame.save(lambda p: set_parameter(p.settings, option.key, option.default_value), then=both)
     return message or f"Added {option.key} to {place}"

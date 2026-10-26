@@ -1,6 +1,7 @@
 import pytest
 
 from aerosuite.engine.editing import (
+    parse_cfl_adapt_param,
     parse_key_value,
     parse_value_list,
     set_parameter,
@@ -136,3 +137,23 @@ def test_update_sweep_takes_plain_name_parts_and_empty_ones():
     assert project.cases[0].name == "M0p8_10km_a0_b0_vt-2_b.1"
     assert update_sweep(project, base_name="", altitude="")
     assert project.cases[0].name == "M0p8_a0_b0"
+
+
+@pytest.mark.parametrize("text, written", [
+    ("( 0.1, 2.0, 10.0, 1e10 )", "( 0.1, 2.0, 10.0, 1e10 )"),
+    ("0.1 2 10 1e10", "( 0.1, 2, 10, 1e10 )"),
+    ("(0.1,2,10,1e10,0.001,0)", "( 0.1, 2, 10, 1e10, 0.001, 0 )"),
+])
+def test_cfl_adapt_param_is_written_as_su2_writes_it(text, written):
+    assert parse_cfl_adapt_param(text) == written
+
+
+@pytest.mark.parametrize("text, problem", [
+    ("0.1, 2, 10", "takes 4 to 6 numbers"),
+    ("0.1, 2, 10, 20, 1, 2, 3", "takes 4 to 6 numbers"),
+    ("0.1, two, 10, 20", "takes numbers"),
+    ("0.1, 2, 50, 20", "min CFL 50 is above its max CFL 20"),
+])
+def test_cfl_adapt_param_refuses_what_su2_cannot_use(text, problem):
+    with pytest.raises(ValueError, match=problem):
+        parse_cfl_adapt_param(text)

@@ -38,6 +38,8 @@ class Reference(BaseModel):
 class Numerics(BaseModel):
     turb_model: Optional[str] = None
     cfl: Optional[float] = None
+    cfl_adapt: Optional[str] = None  # "YES" | "NO"
+    cfl_adapt_param: Optional[str] = None  # as SU2 writes it: "( 0.1, 2.0, 10.0, 1e10 )"
     iter: Optional[int] = None
     conv_method: Optional[str] = None
     muscl: Optional[str] = None

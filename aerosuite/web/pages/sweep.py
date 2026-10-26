@@ -6,7 +6,7 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
-from ...engine.cfg import build_cases, case_freestream, read_template
+from ...engine.cfg import case_freestream, read_template
 from ...engine.editing import parse_value_list, update_sweep
 from ...engine.errors import AeroSuiteError, ProjectError
 from ...engine.models import Project
@@ -14,6 +14,7 @@ from ...engine.naming import find_collisions, format_value
 from ..checks import generate_button, render_checks
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session
+from ..naming_fields import base_name_field, naming_checkboxes
 from ..picker import pick_path
 from ..run_view import case_groups, layout
 from ..sweep_view import case_formula, detect_rule, restart_text, rule_restarts, values_text
@@ -29,13 +30,6 @@ RULE_TEXT = [  # (rule, marker, what the tile says, the small print)
      "one folder per case, e.g. another study's runs/"),
 ]
 TABS = (("conditions", "Conditions"), ("cases", "Cases"))
-NAMING = [
-    ("include_mach", "Mach"),
-    ("include_altitude", "Altitude"),
-    ("include_alpha", "α"),
-    ("include_beta", "β"),
-    ("include_base", "Base name"),
-]
 
 
 def register() -> None:
@@ -57,10 +51,10 @@ def register() -> None:
                 return
             holders["made"].clear()
             with holders["made"]:
-                _restart_rule(frame, after)
+                restart_rule(frame, after)
             holders["summary"].clear()
             with holders["summary"]:
-                _summary(frame)
+                sweep_summary(frame)
             holders["cases"].clear()
             with holders["cases"]:
                 _case_table(frame, after, state)
@@ -149,17 +143,11 @@ def _sweep_fields(frame: ProjectFrame, after: Callable[[], None]) -> None:
                            lambda text: frame.save(lambda p: update_sweep(p, altitude=text.strip()), then=after),
                            mark="sweep-altitude", side_label=True)
         with ui.column().classes("gap-1 w-full"):
-            text_field("Base name", sweep.naming.base_name,
-                       lambda text: frame.save(lambda p: update_sweep(p, base_name=text.strip()), then=after),
-                       mark="sweep-base-name", side_label=True)
-        with ui.row().classes("items-center gap-4"):
-            ui.label("Name cases with").classes("as-label")
-            for flag, label in NAMING:
-                ui.checkbox(label, value=getattr(sweep.naming, flag),
-                            on_change=lambda e, f=flag: _set_naming(frame, f, e.value, after)).mark(f"naming-{flag}")
+            base_name_field(frame, after)
+        naming_checkboxes(frame, after)
 
 
-def _restart_rule(frame: ProjectFrame, after: Callable[[], None]) -> None:
+def restart_rule(frame: ProjectFrame, after: Callable[[], None]) -> None:
     """One restart rule for the whole sweep (the one the most cases follow); a click sets every case to it."""
     cases = frame.session.project.cases
     rule, folder, differing = detect_rule(cases)
@@ -195,7 +183,7 @@ def _freestream(frame: ProjectFrame) -> dict:
     return {row.name: row for row in case_freestream(project, template)}
 
 
-def _summary(frame: ProjectFrame) -> None:
+def sweep_summary(frame: ProjectFrame) -> None:
     """What the conditions make: the count as a product, the names, one row per Mach and altitude."""
     project = frame.session.project
     sweep, cases = project.sweep, project.cases
@@ -228,16 +216,6 @@ def _summary(frame: ProjectFrame) -> None:
                 td(pascals(values.pressure_Pa) if values else "—")
                 td(sci(values.reynolds) if values else "—")
             td(str(len(group.names)))
-
-
-def _set_naming(frame: ProjectFrame, flag: str, value: bool, after: Callable[[], None]) -> None:
-    def change(p: Project) -> None:
-        setattr(p.sweep.naming, flag, value)
-        p.cases = build_cases(p)
-
-    message = frame.save(change, then=after)
-    if message:
-        ui.notify(message, type="negative")
 
 
 def _set_case(frame: ProjectFrame, name: str, after: Callable[[], None], **fields) -> None:

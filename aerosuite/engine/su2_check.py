@@ -108,8 +108,8 @@ def where(template: str, project: Project, case: Case, message: str) -> str:
         return ""
     if key in case_layers(template, project, case):
         kind = owner(project, case, template, key)
-        where = {"case": "set per case", "altitude": "from the altitude", "placeholder": "Placeholders",
-                 "marker": "Placeholders"}.get(kind, f"the form ({FORM_FIELDS[key][3]})" if key in FORM_FIELDS
+        where = {"case": "set per case", "altitude": "from the altitude", "placeholder": "Extra options",
+                 "marker": "Boundaries"}.get(kind, f"the form ({FORM_FIELDS[key][3]})" if key in FORM_FIELDS
                                                    else "the form")
         return f" ({key}, {where})"
     for number, line in enumerate(template.splitlines(), 1):

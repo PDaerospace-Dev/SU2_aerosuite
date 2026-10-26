@@ -81,6 +81,24 @@ def parse_key_value(text: str) -> tuple[str, str]:
     return key, value
 
 
+CFL_ADAPT_PARAM_HELP = "factor down, factor up, min CFL, max CFL[, linear solver tolerance, start iteration]"
+
+
+def parse_cfl_adapt_param(text: str) -> str:
+    """'0.1, 2 10 1e10' -> '( 0.1, 2, 10, 1e10 )': 4 to 6 numbers, the minimum CFL not above the maximum.
+    Raises ValueError (the Config tab's form fields do) with what is wrong."""
+    tokens = [token for token in _SPLIT_RE.split(text.strip().strip("()")) if token]
+    try:
+        values = [float(token) for token in tokens]
+    except ValueError:
+        raise ValueError(f"CFL_ADAPT_PARAM takes numbers: {CFL_ADAPT_PARAM_HELP}") from None
+    if not 4 <= len(values) <= 6 or not all(math.isfinite(value) for value in values):
+        raise ValueError(f"CFL_ADAPT_PARAM takes 4 to 6 numbers: {CFL_ADAPT_PARAM_HELP}")
+    if values[2] > values[3]:
+        raise ValueError(f"CFL_ADAPT_PARAM's min CFL {tokens[2]} is above its max CFL {tokens[3]}")
+    return "( " + ", ".join(tokens) + " )"
+
+
 def _check_key(key: str) -> str:
     key = key.strip().upper()
     if not _KEY_RE.fullmatch(key):

@@ -12,7 +12,8 @@ from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 from typing import Optional
 
-from .cfg import case_layers, case_mach, case_parameters
+from .cfg import apply_parameters, case_layers, case_mach, case_parameters
+from .editing import parse_cfl_adapt_param
 from .errors import ProjectError
 from .freestream import case_altitude, freestream_for
 from .models import Case, Project
@@ -20,21 +21,23 @@ from .models import Case, Project
 _KEY_RE = re.compile(r"^\s*([A-Z][A-Z0-9_]*)\s*=\s*(.*?)\s*$")
 _OWNED = "\x00owned:"  # stands for a layer-owned line when lining up the shown and the edited text
 
-# SU2 key -> (settings group, field, type, the form card it is on); as cfg.settings_parameters writes them
+# SU2 key -> (settings group, field, type, the Aircraft tab it is on); as cfg.settings_parameters writes them
 FORM_FIELDS = {
-    "FREESTREAM_TEMPERATURE": ("freestream", "temperature_K", float, "Freestream"),
-    "REYNOLDS_NUMBER": ("freestream", "reynolds", float, "Freestream"),
-    "REYNOLDS_LENGTH": ("freestream", "reynolds_length", float, "Freestream"),
+    "FREESTREAM_TEMPERATURE": ("freestream", "temperature_K", float, "Flight & air"),
+    "REYNOLDS_NUMBER": ("freestream", "reynolds", float, "Flight & air"),
+    "REYNOLDS_LENGTH": ("freestream", "reynolds_length", float, "Flight & air"),
     "REF_ORIGIN_MOMENT_X": ("reference", "origin_x", float, "Reference"),
     "REF_ORIGIN_MOMENT_Y": ("reference", "origin_y", float, "Reference"),
     "REF_ORIGIN_MOMENT_Z": ("reference", "origin_z", float, "Reference"),
     "REF_LENGTH": ("reference", "ref_length", float, "Reference"),
     "REF_AREA": ("reference", "ref_area", float, "Reference"),
-    "KIND_TURB_MODEL": ("numerics", "turb_model", str, "Numerics"),
-    "CFL_NUMBER": ("numerics", "cfl", float, "Numerics"),
-    "ITER": ("numerics", "iter", int, "Numerics"),
-    "CONV_NUM_METHOD_FLOW": ("numerics", "conv_method", str, "Numerics"),
-    "MUSCL_FLOW": ("numerics", "muscl", str, "Numerics"),
+    "KIND_TURB_MODEL": ("numerics", "turb_model", str, "Solver"),
+    "CFL_NUMBER": ("numerics", "cfl", float, "Solver"),
+    "CFL_ADAPT": ("numerics", "cfl_adapt", str, "Solver"),
+    "CFL_ADAPT_PARAM": ("numerics", "cfl_adapt_param", parse_cfl_adapt_param, "Solver"),
+    "ITER": ("numerics", "iter", int, "Solver"),
+    "CONV_NUM_METHOD_FLOW": ("numerics", "conv_method", str, "Solver"),
+    "MUSCL_FLOW": ("numerics", "muscl", str, "Solver"),
 }
 SWEEP_KEYS = {"MACH_NUMBER": "Mach", "AOA": "α", "SIDESLIP_ANGLE": "β"}
 
@@ -154,7 +157,7 @@ def _removed_note(project: Project, case: Case, template: str, key: str) -> str:
     if kind == "altitude":
         return f"{key} comes from the altitude: it stays"
     if kind in ("placeholder", "marker"):
-        return f"{key} is set under Placeholders: remove it there"
+        return f"{key} is set under Extra options: remove it there"
     card = FORM_FIELDS[key][3] if key in FORM_FIELDS else "the form"
     return f"{key} is set by the form ({card}): clear it there to use the template's value"
 
@@ -167,22 +170,44 @@ def apply_changes(project: Project, case: Case, template: str, changes: dict[str
         if kind == "case":
             notes.append(_per_case_note(project, key))
         elif kind == "altitude":
-            notes.append(f"{key} comes from the altitude: change the altitude or the Mach, or set the freestream "
-                         "by hand on the Freestream card")
+            notes.append(f"{key} comes from the altitude: change the altitude or the Mach, or set the air "
+                         "by hand on the Flight & air tab")
         elif kind == "placeholder":
             project.settings.overrides[key] = value
-            done.append(f"{key} (Placeholders)")
+            done.append(f"{key} (Extra options)")
         elif kind == "marker":
             project.settings.markers[key] = value
-            done.append(f"{key} (markers)")
+            done.append(f"{key} (Boundaries)")
         elif key in FORM_FIELDS:
             group, name, kind_of, card = FORM_FIELDS[key]
             try:
                 setattr(getattr(project.settings, group), name, kind_of(value))
-            except ValueError:
-                notes.append(f"{key}: {value!r} is not a{'n integer' if kind_of is int else ' number'}")
+            except ValueError as exc:
+                notes.append(f"{key}: {value!r} is not a{'n integer' if kind_of is int else ' number'}"
+                             if kind_of in (int, float) else str(exc))
                 continue
             done.append(f"{key} ({card})")
         else:
             notes.append(f"{key} is set by the form")
     return done, notes
+
+
+@dataclass
+class WrittenLine:
+    number: int  # 1-based, in the case's config
+    text: str
+    source: str  # who writes it: case, altitude, placeholder, marker or form (see owner)
+    template: Optional[str] = None  # the template's own value for the key, when it has the line
+
+
+def written_lines(template: str, project: Project, case: Case) -> list[WrittenLine]:
+    """The lines of `case`'s config that AeroSuite writes over the template, in config order: what is not the
+    template's own text. (Lines a layer removes are not shown: they are not in the config.)"""
+    params = case_layers(template, project, case)
+    own = _values(template.splitlines(), set(params))
+    lines = []
+    for number, line in enumerate(apply_parameters(template, params).splitlines(), 1):
+        key = _key(line)
+        if key in params and params[key] is not None:
+            lines.append(WrittenLine(number, line, owner(project, case, template, key), own.get(key)))
+    return lines

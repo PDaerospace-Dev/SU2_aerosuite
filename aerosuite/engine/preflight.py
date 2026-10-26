@@ -63,7 +63,7 @@ def _marker_problems(project: Project) -> list[Problem]:
             continue
         names = [part.strip() for part in value.strip().strip("()").split(",") if part.strip()]
         for name in names:
-            if not _is_number(name) and name not in known:
+            if not _is_number(name) and name not in known and name.upper() != "NONE":  # ( NONE ): no marker
                 problems.append(Problem(
                     "warning", f"{key} refers to '{name}', which is not a marker in the mesh"
                 ))

@@ -45,7 +45,8 @@ def test_duplicate_case_names(ready_project):
 
 def test_unknown_marker_is_a_warning(ready_project):
     project_dir, project = ready_project
-    project.settings.markers = {"MARKER_HEATFLUX": "( wall, fuselage, 0.0 )", "MARKER_PLOTTING": None}
+    project.settings.markers = {"MARKER_HEATFLUX": "( wall, fuselage, 0.0 )", "MARKER_PLOTTING": None,
+                                "MARKER_SYM": "( NONE )"}  # SU2's own empty list: no marker
     problems = preflight(project_dir, project, "generate")
     assert not has_errors(problems)
     assert _messages(problems, "warning") == [

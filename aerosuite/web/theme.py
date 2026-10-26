@@ -278,7 +278,7 @@ a.as-step:hover { background: #f6f8fa; }
 
 /* A compact two-way switch in a page's action bar (Config's Sweep | Single case) */
 .as-toggle { border: 1px solid var(--as-border); border-radius: 8px; overflow: hidden; background: #fff; }
-.as-toggle .q-btn { min-height: 30px; padding: 0 12px; font-weight: 500; }
+.as-toggle .q-btn { min-height: 30px; padding: 0 12px; font-weight: 500; white-space: nowrap; }
 
 .as-choice { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; }
 .as-choice > div { margin: 0 !important; }
@@ -414,6 +414,40 @@ a.as-step:hover { background: #f6f8fa; }
   .as-tiles { grid-template-columns: 1fr; }
   .as-side, .as-monitor-left { position: static; max-height: none; }
 }
+
+/* Aircraft: the case strip over the form tabs, problem badges, the config's written lines */
+.as-case-strip { gap: 22px; align-items: center; flex-wrap: wrap; }
+.as-form-tabs .q-tab { padding: 0 9px; }
+.as-columns-aircraft { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
+@media (max-width: 900px) { .as-columns-aircraft { grid-template-columns: 1fr; } }
+.as-case-chip { border: 1px solid var(--as-border); background: #f6f8fa; border-radius: 7px; padding: 2px 10px;
+  font-family: var(--as-mono); font-size: 13.5px; font-weight: 600; min-height: 32px; }
+.as-case-chip .q-icon { color: var(--as-muted); font-size: 16px; margin-left: 6px; }
+.as-tab-count { margin-left: 6px; border-radius: 9px; padding: 0 6px; font-size: 11px; font-weight: 500;
+  background: var(--as-hairline); color: #57606a; }
+.as-problem-badge { cursor: pointer; }
+.as-subhead { font-size: 11px; font-weight: 600; color: var(--as-muted); text-transform: uppercase;
+  letter-spacing: .04em; margin-top: 4px; }
+.as-cfl-adapt { border-left: 3px solid var(--as-accent); background: #fafbff; border-radius: 0 6px 6px 0;
+  padding: 8px 0 6px 12px; }
+.as-written { border: 1px solid var(--as-border); border-radius: 8px; overflow: hidden; font-family: var(--as-mono);
+  font-size: 12px; line-height: 1.6; width: 100%; }
+.as-wl { display: flex; align-items: baseline; cursor: pointer; gap: 0; flex-wrap: nowrap; width: 100%; }
+.as-wl:hover { filter: brightness(.97); }
+.as-wl-no { width: 44px; flex: none; text-align: right; padding-right: 8px; color: #9aa1a9; background: #f6f8fa; }
+.as-wl-text { flex: 1; padding-left: 8px; white-space: pre; overflow: hidden; text-overflow: ellipsis;
+  border-left: 4px solid transparent; }
+.as-wl-tag { flex: none; padding: 0 8px; color: var(--as-muted); font-family: var(--as-font); font-size: 10.5px; }
+.as-wl-was { color: #9aa1a9; font-family: var(--as-font); font-size: 10.5px; margin-left: 10px; }
+.as-wl-form { background: #f3f6ff; } .as-wl-form .as-wl-text { border-left-color: #2f6fe4; }
+.as-wl-altitude { background: #eefaff; } .as-wl-altitude .as-wl-text { border-left-color: #0a7ea4; }
+.as-wl-marker { background: #faf5ff; } .as-wl-marker .as-wl-text { border-left-color: #8250df; }
+.as-wl-placeholder { background: #fff8ef; } .as-wl-placeholder .as-wl-text { border-left-color: #bc4c00; }
+.as-wl-case { background: #f6f8fa; } .as-wl-case .as-wl-text { border-left-color: #8c959f; }
+.as-wl-gap { color: var(--as-muted); background: #fbfbfc; font-style: italic; padding-left: 56px;
+  font-family: var(--as-font); font-size: 11.5px; cursor: pointer; }
+.as-legend { gap: 12px; font-size: 11.5px; color: var(--as-muted); flex-wrap: wrap; }
+.as-legend-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
 
 .q-dialog .q-card { border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 35, 40, .14); padding: 18px; gap: 12px; }
 .as-dialog-title { font-size: 14px; font-weight: 600; }

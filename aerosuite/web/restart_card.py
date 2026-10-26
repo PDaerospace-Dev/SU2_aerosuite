@@ -33,12 +33,15 @@ def _same_place(ref: Optional[str], folder: Path) -> bool:
     return path == folder or path.parent == folder  # the folder, or its restart file
 
 
-def restart_card(frame: ProjectFrame, after: Callable[[], None]) -> Callable[[], None]:
-    """Build the card; returns its redraw."""
+def restart_card(frame: ProjectFrame, after: Callable[[], None], framed: bool = True) -> Callable[[], None]:
+    """Build the card (`framed`: in a card of its own, else just its contents); returns its redraw."""
     state = {"other": False}  # "Another file or folder" chosen, before a path is given
-    with card("Restart", "How this case starts", fold="single-restart") as whole:
-        whole.mark("restart-card")
-        box = ui.column().classes("w-full gap-2")
+    if framed:
+        with card("Restart", "How this case starts", fold="single-restart") as whole:
+            whole.mark("restart-card")
+            box = ui.column().classes("w-full gap-2")
+    else:
+        box = ui.column().classes("w-full gap-2").mark("restart-card")
 
     def save(restart: str, ref: Optional[str], other: bool = False) -> None:
         state["other"] = other

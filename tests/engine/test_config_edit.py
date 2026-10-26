@@ -2,7 +2,7 @@
 import pytest
 
 from aerosuite.engine.cfg import build_cases, render_case
-from aerosuite.engine.config_edit import apply_changes, split_edit
+from aerosuite.engine.config_edit import apply_changes, split_edit, written_lines
 from aerosuite.engine.models import Project
 
 TEMPLATE = """% wing study
@@ -64,7 +64,7 @@ def test_a_line_the_form_writes_changes_the_form_not_the_template():
     assert edit.changes == {"REF_AREA": "12.5", "ITER": "900"}
     done, notes = apply_changes(project, project.cases[0], TEMPLATE, edit.changes)
     assert (project.settings.reference.ref_area, project.settings.numerics.iter) == (12.5, 900)
-    assert done == ["REF_AREA (Reference)", "ITER (Numerics)"] and not notes
+    assert done == ["REF_AREA (Reference)", "ITER (Solver)"] and not notes
 
 
 def test_a_removed_form_line_stays_with_a_note():
@@ -79,7 +79,7 @@ def test_placeholders_change_where_they_are_set():
     assert edit.template == TEMPLATE and edit.changes == {"CFL_NUMBER": "8", "CONV_FILENAME": "conv"}
     done, _ = apply_changes(project, project.cases[0], TEMPLATE, edit.changes)
     assert project.settings.overrides == {"CFL_NUMBER": "8", "CONV_FILENAME": "conv"}
-    assert done == ["CFL_NUMBER (Placeholders)", "CONV_FILENAME (Placeholders)"]
+    assert done == ["CFL_NUMBER (Extra options)", "CONV_FILENAME (Extra options)"]
 
 
 def test_per_case_lines_are_refused_with_where_to_change_them():
@@ -99,9 +99,9 @@ def test_the_freestream_from_the_altitude_is_refused_but_its_length_is_the_forms
     edit = _edit(project, lambda t: t.replace("FREESTREAM_PRESSURE= 101325", "FREESTREAM_PRESSURE= 9")
                  .replace("REYNOLDS_LENGTH= 1", "REYNOLDS_LENGTH= 4.2"))
     done, notes = apply_changes(project, project.cases[0], TEMPLATE, edit.changes)
-    assert done == ["REYNOLDS_LENGTH (Freestream)"] and project.settings.freestream.reynolds_length == 4.2
+    assert done == ["REYNOLDS_LENGTH (Flight & air)"] and project.settings.freestream.reynolds_length == 4.2
     assert notes == ["FREESTREAM_PRESSURE comes from the altitude: change the altitude or the Mach, or set the "
-                     "freestream by hand on the Freestream card"]
+                     "air by hand on the Flight & air tab"]
 
 
 def test_a_value_that_is_not_a_number_is_refused():
@@ -109,6 +109,22 @@ def test_a_value_that_is_not_a_number_is_refused():
     edit = _edit(project, lambda t: t.replace("ITER= 500", "ITER= lots"))
     done, notes = apply_changes(project, project.cases[0], TEMPLATE, edit.changes)
     assert not done and notes == ["ITER: 'lots' is not an integer"] and project.settings.numerics.iter == 500
+
+
+def test_the_cfl_adaptation_lines_change_the_numerics_form():
+    project = _project()
+    project.settings.numerics.cfl_adapt = "YES"
+    project.settings.numerics.cfl_adapt_param = "( 0.1, 2, 10, 1e10 )"
+    edit = _edit(project, lambda t: t.replace("CFL_ADAPT= YES", "CFL_ADAPT= NO")
+                 .replace("( 0.1, 2, 10, 1e10 )", "(0.5 1.5 5 50)"))
+    done, notes = apply_changes(project, project.cases[0], TEMPLATE, edit.changes)
+    assert done == ["CFL_ADAPT (Solver)", "CFL_ADAPT_PARAM (Solver)"] and not notes
+    assert project.settings.numerics.cfl_adapt == "NO"
+    assert project.settings.numerics.cfl_adapt_param == "( 0.5, 1.5, 5, 50 )"
+    edit = _edit(project, lambda t: t.replace("( 0.5, 1.5, 5, 50 )", "( 0.5, 1.5 )"))
+    done, notes = apply_changes(project, project.cases[0], TEMPLATE, edit.changes)
+    assert not done and notes == ["CFL_ADAPT_PARAM takes 4 to 6 numbers: factor down, factor up, min CFL, max CFL"
+                                  "[, linear solver tolerance, start iteration]"]
 
 
 def test_a_single_case_edits_its_own_mach_in_the_template():
@@ -138,3 +154,19 @@ def test_trailing_blank_lines_and_a_repeated_key_survive_an_unchanged_save():
 def test_a_line_typed_after_the_written_over_lines_goes_to_the_end_of_the_template():
     edit = _edit(_project(), lambda t: t + "OUTPUT_FILES= RESTART\n")
     assert edit.template == TEMPLATE + "OUTPUT_FILES= RESTART\n" and not edit.changes
+
+
+def test_written_lines_are_what_aerosuite_writes_over_the_template():
+    project = _project(CONV_FIELD="LIFT")
+    shown = _shown(project).splitlines()
+    lines = written_lines(TEMPLATE, project, project.cases[0])
+    assert [(line.text, line.source, line.template) for line in lines] == [
+        ("MACH_NUMBER= 0.8", "case", "0.5"),
+        ("REF_AREA= 10", "form", "1.0"),
+        ("ITER= 500", "form", None),
+        ("CONV_FIELD= LIFT", "placeholder", None),
+        ("BREAKDOWN_FILENAME= M0p8_a2_b0_FB.dat", "case", None),
+        ("AOA= 2", "case", None),
+        ("SIDESLIP_ANGLE= 0", "case", None),
+    ]
+    assert all(shown[line.number - 1] == line.text for line in lines)

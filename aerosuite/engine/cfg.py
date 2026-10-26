@@ -89,6 +89,8 @@ def settings_parameters(settings: Settings) -> dict[str, Optional[str]]:
         "REF_AREA": _number(ref.ref_area),
         "KIND_TURB_MODEL": num.turb_model,
         "CFL_NUMBER": _number(num.cfl),
+        "CFL_ADAPT": num.cfl_adapt,
+        "CFL_ADAPT_PARAM": num.cfl_adapt_param,
         "ITER": None if num.iter is None else str(num.iter),
         "CONV_NUM_METHOD_FLOW": num.conv_method,
         "MUSCL_FLOW": num.muscl,

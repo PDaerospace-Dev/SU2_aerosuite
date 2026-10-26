@@ -27,6 +27,10 @@ NOT_CONDITIONS = {
     "MARKER_CHT_INTERFACE", "MARKER_PYTHON_CUSTOM", "MARKER_SOBOLEVBC", "MARKER_TURBOMACHINERY",
     "MARKER_MIXINGPLANE_INTERFACE", "MARKER_SHROUD", "MARKER_TURBO_PERFORMANCE", "MARKER_GILES_PERFORMANCE",
     "MARKER_NORMAL_DISPL", "MARKER_DISPL", "MARKER_SLIDING", "MARKER_ACTDISK_CG",
+    # data for a marker that has its condition elsewhere: an inlet's species and turbulence, a wall's species and
+    # emissivity, an actuator disk's blade element axis and centre, a marker copied while the mesh is read
+    "MARKER_INLET_SPECIES", "MARKER_INLET_TURBULENT", "MARKER_WALL_SPECIES", "MARKER_EMISSIVITY",
+    "MARKER_ACTDISK_BEM_AXIS", "MARKER_ACTDISK_BEM_CG", "MARKER_CREATE_COPY",
 }
 CONVERGENCE_FIELDS = {"AERO_COEFF", "LIFT", "DRAG", "MOMENT_Y"}  # history fields that give CL, CD, CMy
 
