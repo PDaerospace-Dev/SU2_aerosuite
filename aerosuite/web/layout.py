@@ -19,7 +19,7 @@ from .recent import add_recent, load_recent
 from .session import Change, ProjectSession
 from .status import STEPS, project_kind, step_badges, visible_steps
 from .theme import BADGE_COLORS, TOGGLE_SIDEBAR, apply_theme
-from .ui_kit import banner, status_dot
+from .ui_kit import banner, status_dot, titled
 
 WATCH_SECONDS = 2.0
 PAGE_OF_STEP = {"setup": "setup", "config": "config", "aircraft": "aircraft", "sweep": "sweep", "run": "run",
@@ -111,6 +111,12 @@ def _cluster_button() -> None:
     ui.timer(2.0, update)
 
 
+def _refresh_button() -> None:
+    """The top bar's refresh: rebuild the page from what is on disk now (the browser's reload)."""
+    titled(ui.button(icon="refresh", color=None, on_click=ui.navigate.reload).props("flat dense").classes(
+        "as-topbar-icon as-round").mark("refresh"), "Refresh: show what is on disk now")
+
+
 def _settings_button() -> None:
     """The top bar's gear: the server-wide settings (backend, Slurm)."""
     ui.button(icon="settings", color=None, on_click=lambda: ui.navigate.to("/settings")).props(
@@ -145,6 +151,7 @@ def header() -> None:
         ui.space()
         _cluster_button()
         _calculators_button()
+        _refresh_button()
         _settings_button()
         _help_button()
 
@@ -228,6 +235,7 @@ class ProjectFrame:
             ParaViewMenu(self)
             _cluster_button()
             _calculators_button(self)
+            _refresh_button()
             _settings_button()
             _help_button()
             with ui.row().classes("as-topbar-control as-switcher").props('tabindex=0 role=button').mark(

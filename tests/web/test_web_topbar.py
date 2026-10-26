@@ -85,6 +85,16 @@ async def test_the_toggle_collapses_the_sidebar(user: User, ready_project, monke
     assert sent == [TOGGLE_SIDEBAR]
 
 
+@pytest.mark.parametrize("url", ["/", "/settings", "setup", "aircraft", "run", "monitor", "results"])
+async def test_every_page_has_a_refresh_that_reloads_it(user: User, ready_project, monkeypatch, url):
+    project_dir, _ = ready_project
+    reloads = []  # the simulated user's own navigation stands in for the browser's
+    monkeypatch.setattr(user.navigate, "reload", lambda: reloads.append(True))
+    await user.open(url if url.startswith("/") else project_url(url, project_dir))
+    user.find(marker="refresh").click()
+    assert reloads == [True]
+
+
 async def test_help_shows_the_version_and_the_web_ui_guide(user: User, ready_project, eventually):
     project_dir, _ = ready_project
     await user.open(project_url("setup", project_dir))
