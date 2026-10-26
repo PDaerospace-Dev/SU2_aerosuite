@@ -156,7 +156,7 @@ def default_case(view: JobView, names: list, started: Callable[[JobRecord], Sequ
 
 def data_job(view: JobView, case: str, started: Callable[[JobRecord], Sequence[str]]) -> Optional[JobRecord]:
     """The newest job in which `case` actually started (by log banner, via `started`), if any."""
-    row = next((row for row in view.overview.rows if row.name == case), None)
+    row = next((row for row in view.overview.all_rows if row.name == case), None)
     if row is None or row.status == NOT_RUN:
         return None
     for job in view.overview.jobs:  # newest first
@@ -271,7 +271,7 @@ class MonitorPage:
         self.params.set_active(parameters)
 
     def _row(self, view: JobView):
-        return next((row for row in view.overview.rows if row.name == self.case), None)
+        return next((row for row in view.overview.all_rows if row.name == self.case), None)
 
     def _running(self, view: JobView) -> bool:
         row = self._row(view)
@@ -314,6 +314,7 @@ class MonitorPage:
                 self._show_message(f"Error: {exc}", "as-error-text")
                 return
         names = [case.name for case in self.frame.session.project.cases]
+        names += [row.name for row in view.overview.others]  # still in a running job, no longer in the sweep
         if self.mode == "case":
             if self.case not in names:
                 self.case = default_case(view, names, self._started)

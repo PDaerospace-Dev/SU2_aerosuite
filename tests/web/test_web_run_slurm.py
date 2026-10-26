@@ -384,3 +384,25 @@ async def test_earlier_attempts_restart_from_and_make_current(user: User, slurm_
     await _open(user, project_dir)
     assert _text(user, f"status-{A0}") == "CONVERGED"  # the first run's outcome again
     assert _text(user, f"attempts-{A0}") == "1 earlier attempt"  # the failed one, kept in its place
+
+
+async def test_cases_the_sweep_no_longer_makes_stay_in_view_while_their_job_runs(user: User, slurm_project):
+    from aerosuite.engine.editing import update_sweep
+
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    project = open_project(project_dir)
+    update_sweep(project, alpha=[10.0])  # the sweep changed while the job runs: A0 and A2 are no longer made
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    await user.should_see(marker="run-others")
+    await user.should_see(marker=f"other-{A0}")
+    assert _text(user, f"status-{A0}") == "RUNNING" and _text(user, f"status-{A2}") == "PENDING"
+    await user.should_not_see(marker=f"tick-{A0}")  # the job's: not ticked or submitted from here
+    assert f"case={A0}" in _element(user, f"monitor-{A0}").props["href"]
+    await user.open(project_url("monitor", project_dir) + f"&case={A0}")
+    select = _element(user, "monitor-case")
+    assert A0 in select.options and "M0p8_a10_b0" in select.options and select.value == A0

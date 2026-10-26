@@ -1,7 +1,7 @@
 """Each case's latest outcome across every job of a project (the Run table and the Run badge)."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -27,6 +27,13 @@ class CaseOverview:
     rows: list[CaseRow]
     problems: list[str]  # job records that could not be read
     jobs: list[JobRecord]  # newest first
+    # Cases a running or queued job still has that the project no longer makes (the sweep changed after they were
+    # submitted, e.g. 0 km became 10 km and the new cases were added to the job), in the job's order
+    others: list[CaseRow] = field(default_factory=list)
+
+    @property
+    def all_rows(self) -> list[CaseRow]:
+        return self.rows + self.others
 
 
 def case_overview(project_dir: Path, project: Project) -> CaseOverview:
@@ -45,7 +52,16 @@ def case_overview(project_dir: Path, project: Project) -> CaseOverview:
             rows.append(CaseRow(
                 case.name, job.case_status[case.name].value, job.id, job.failure_tail.get(case.name, "")
             ))
-    return CaseOverview(rows, problems, jobs)
+    names = {case.name for case in project.cases}
+    others = []
+    for job in jobs:
+        if not job.is_active:
+            continue
+        for name in job.cases:
+            if name not in names and name in job.case_status:
+                names.add(name)
+                others.append(CaseRow(name, job.case_status[name].value, job.id, job.failure_tail.get(name, "")))
+    return CaseOverview(rows, problems, jobs, others)
 
 
 @dataclass(frozen=True)

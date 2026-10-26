@@ -18,7 +18,7 @@ from ...engine.jobs.rerun import describe
 from ...engine.jobs.store import JOBS_DIR
 from ...engine.jobs.plan import plan_restarts
 from ...engine.machine import machine, partitions_note, usage, usage_text
-from ...engine.naming import format_value
+from ...engine.naming import format_value, parse_case_name
 from ...engine.packages import effective
 from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import RUNS_DIR, restart_file
@@ -92,7 +92,7 @@ def _snapshot(view: JobView) -> tuple:
         (active.id, active.state) if active is not None else None,
         tuple((name, sc.job_id, sc.state, sc.node, sc.reason) for job in view.overview.jobs[:1]
               for name, sc in job.slurm.items()),
-        tuple((row.name, row.status, row.job_id, row.failure_tail) for row in view.overview.rows),
+        tuple((row.name, row.status, row.job_id, row.failure_tail) for row in view.overview.all_rows),
         tuple((job.id, job.state, job.finished) for job in view.overview.jobs),
         tuple(view.overview.problems),
     )
@@ -210,6 +210,8 @@ class RunPage:
                             self._history(view)
                         else:
                             self._cases(view, selection, grouped=kind == "groups")
+                    if view.overview.others and not (kind != "single" and self.tab == "history"):
+                        self._others(view)
                 with ui.column().classes("as-run-panel gap-0").mark("run-panel"):
                     with ui.column().classes("as-run-part w-full gap-2" + (
                             " as-run-live" if view.active is not None else "")):
@@ -674,6 +676,39 @@ class RunPage:
                     if opened:
                         for row in members:
                             self._case_row(row, cases.get(row.name))
+
+    def _others(self, view: JobView) -> None:
+        """The cases a running job still has that the sweep no longer makes (it changed after they were submitted):
+        their status, their Slurm job and Monitor. They are the job's: they cannot be ticked or submitted here."""
+        others = view.overview.others
+        with card(flush=True) as box:
+            box.mark("run-others")
+            card_head("In the running job, not in the sweep now",
+                      f"{_plural(len(others), 'case')} submitted before the sweep changed; they run as submitted. "
+                      "Put them back in the sweep to run them again.")
+            with table("minmax(10rem, 1.4fr) repeat(3, minmax(3rem, .4fr)) minmax(8rem, 1fr) minmax(13rem, 1fr) "
+                       "80px").classes("as-table-compact"):
+                for heading in ("Case", "Mach", "α", "β", "Status", "Job", ""):
+                    th(heading)
+                for row in others:
+                    parsed = parse_case_name(row.name)
+                    td(row.name, strong=True).mark(f"other-{row.name}")
+                    for value in (parsed.mach, parsed.alpha, parsed.beta):
+                        td("" if value is None else format_value(value))
+                    with td_box():
+                        pill(row.status).mark(f"status-{row.name}")
+                    job = self.jobs_by_id.get(row.job_id)
+                    if job is not None and job.backend == "slurm":
+                        with td_box():
+                            with ui.column().classes("gap-0 min-w-0"):
+                                ui.label(row.job_id).classes("as-mono").mark(f"job-{row.name}")
+                                ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted as-small").mark(
+                                    f"slurm-{row.name}")
+                    else:
+                        td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
+                    with td_box():
+                        ui.link("Monitor", self._monitor_url(row.name)).classes("as-hint").mark(
+                            f"monitor-{row.name}")
 
     def _case_row(self, row, case) -> None:
         with td_box():

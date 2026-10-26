@@ -81,3 +81,23 @@ def test_run_solutions_lists_runs_with_a_restart_file_newest_first(ready_project
         ("M1p2_0km_a0_b0", "UNCONVERGED", 2000), ("M0p8_0km_a2_b0", None, 1000)]
     assert [s.name for s in run_solutions(project_dir, exclude=["M1p2_0km_a0_b0"])] == ["M0p8_0km_a2_b0"]
     assert run_solutions(project_dir / "missing") == []
+
+
+def test_a_running_job_keeps_the_cases_the_sweep_no_longer_makes(ready_project):
+    """The sweep changed (0 km became 10 km) and the new cases were added to the running job: the old ones are
+    still the job's, listed apart from the project's own."""
+    project_dir, project = ready_project
+    old = "M0p8_0km_a0_b0"
+    job = JobRecord(
+        id="run", backend="slurm", cases=[old, A0], log_path="jobs/run.log", created=T0, state=JobState.RUNNING,
+        case_status={old: CaseState.RUNNING, A0: CaseState.PENDING},
+    )
+    save_job(project_dir, job)
+    overview = case_overview(project_dir, project)
+    assert [(r.name, r.status) for r in overview.rows] == [(A0, "PENDING"), (A2, NOT_RUN), (A4, NOT_RUN)]
+    assert [(r.name, r.status, r.job_id) for r in overview.others] == [(old, "RUNNING", "run")]
+    assert [r.name for r in overview.all_rows] == [A0, A2, A4, old]
+    job.state = JobState.DONE  # once the job ends, they are no longer shown
+    job.case_status[old] = CaseState.CONVERGED
+    save_job(project_dir, job)
+    assert case_overview(project_dir, project).others == []
