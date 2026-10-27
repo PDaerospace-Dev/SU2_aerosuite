@@ -78,7 +78,8 @@ def test_job_script_options():
                       restart_from=("b", "/r/b", "/r/b/restart_flow.dat"))
     assert "#SBATCH -t 12:00:00" in text and "#SBATCH -A" not in text and "--exclusive" not in text
     assert "#SBATCH --dependency=afterany:101\n#SBATCH --kill-on-invalid-dep=yes\n" in text
-    assert 'if [ "$(cat /r/b/aerosuite_exit 2>/dev/null)" != 0 ] || [ ! -f /r/b/restart_flow.dat ]; then' in text
+    assert ('if [ "$(cat /r/b/aerosuite_exit 2>/dev/null)" != 0 ] || ! { [ -f /r/b/restart_flow.dat ] || '
+            '[ -f /r/b/restart_flow.dat.dat ] || [ -f /r/b/restart_flow.dat.csv ]; }; then') in text
     assert "case c (restarts from b)." in text
 
 
@@ -108,6 +109,27 @@ def test_a_restarting_case_starts_from_scratch_without_a_solution(tmp_path, exit
     assert ("RESTART_SOL= YES" if restarts else "RESTART_SOL= NO") in (folder / "a2.cfg").read_text()
     assert ("starting from scratch" in done.stdout) is not restarts
     assert (folder / "aerosuite_exit").read_text().strip() == "0"  # for the case after this one
+
+
+@pytest.mark.parametrize("written", ["restart_flow.dat", "restart_flow.csv", "restart_flow"])
+def test_a_restart_finds_the_solution_su2_wrote_from_the_name_in_the_config(tmp_path, written):
+    # SOLUTION_FILENAME names it without an extension (as SU2 is given it); SU2 writes restart_flow.dat (or .csv)
+    import subprocess
+
+    before, folder = tmp_path / "a0", tmp_path / "a2"
+    before.mkdir(), folder.mkdir()
+    (before / "aerosuite_exit").write_text("0\n")
+    (before / written).write_text("solution")
+    (folder / "a2.cfg").write_text("RESTART_SOL= YES\n")
+    settings = SlurmSettings(module_line=":", srun_command="true")
+    text = job_script("s", "a2", "a2.cfg", OPTIONS, settings, "j", after="101",
+                      restart_from=("a0", str(before), str(before / "restart_flow")))
+    (folder / "su2_job.sh").write_text(text)
+    done = subprocess.run(["bash", "su2_job.sh"], cwd=folder, env={"PATH": "/usr/bin:/bin", "SLURM_SUBMIT_DIR": str(folder)},
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert "RESTART_SOL= YES" in (folder / "a2.cfg").read_text()
+    assert "starting from scratch" not in done.stdout
 
 
 @pytest.mark.parametrize("change", [dict(partition="node1\n#SBATCH -p x"), dict(account="a b"),
@@ -183,7 +205,8 @@ def test_previous_restarts_wait_for_the_case_before(slurm_study):
     assert job.slurm[A2].scratch_fallback and not job.slurm[A0].scratch_fallback
     script = (project_dir / "runs" / A4 / "su2_job.sh").read_text()
     assert "#SBATCH --kill-on-invalid-dep=yes" in script
-    assert f"[ ! -f {project_dir / 'runs' / A2 / 'restart_flow'} ]" in script
+    solution = project_dir / "runs" / A2 / "restart_flow"
+    assert f"[ -f {solution} ] || [ -f {solution}.dat ] || [ -f {solution}.csv ]" in script
     assert f"cat {project_dir / 'runs' / A2 / 'aerosuite_exit'}" in script
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
     assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg

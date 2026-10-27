@@ -116,7 +116,9 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
     if restart_from is not None:
         source, folder, solution = restart_from
         exit_file = shlex.quote(str(Path(folder) / EXIT_FILE))
-        lines += [f'if [ "$(cat {exit_file} 2>/dev/null)" != 0 ] || [ ! -f {shlex.quote(solution)} ]; then',
+        # The solution as SU2 wrote it: the name as given, or with the .dat or .csv SU2 adds (find_restart_file's rule)
+        found = " || ".join(f"[ -f {shlex.quote(solution + suffix)} ]" for suffix in ("", ".dat", ".csv"))
+        lines += [f'if [ "$(cat {exit_file} 2>/dev/null)" != 0 ] || ! {{ {found}; }}; then',
                   f'  echo {shlex.quote(f"AeroSuite: {source} ended without a solution; starting from scratch")}',
                   "  sed -i -E 's/^RESTART_SOL[[:space:]]*=.*/RESTART_SOL= NO/' " + shlex.quote(cfg_name),
                   "fi"]
