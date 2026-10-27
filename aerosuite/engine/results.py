@@ -10,6 +10,7 @@ import pandas as pd
 
 from .cfg import CASE_INDEX_FILE
 from .errors import ProjectError
+from .imported import read_name
 from .naming import parse_case_name
 
 HISTORY_FILE = "history.csv"
@@ -242,8 +243,9 @@ def summarize(
             mach, alpha, beta = values.get("mach"), values.get("alpha"), values.get("beta")
             altitude = values.get("altitude_km")
             temperature, config = values.get("temperature_K"), values.get("config")
-        else:
+        else:  # e.g. a case an earlier Generate made (cases.json holds the last one's): its name tells
             mach, alpha, beta = parse_case_name(name)
+            altitude = read_name(name).altitude_km
         if alpha is None:
             warnings.append(f"{name}: cannot determine alpha from the case name, skipped")
             continue
