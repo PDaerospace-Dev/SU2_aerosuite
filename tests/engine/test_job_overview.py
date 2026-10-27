@@ -101,3 +101,19 @@ def test_a_running_job_keeps_the_cases_the_sweep_no_longer_makes(ready_project):
     job.case_status[old] = CaseState.CONVERGED
     save_job(project_dir, job)
     assert case_overview(project_dir, project).others == []
+
+
+def test_cases_an_earlier_sweep_ran_are_kept_apart(ready_project):
+    # 0 km ran in a finished job, then the sweep moved on: its cases are the earlier ones, while their folders last
+    project_dir, project = ready_project
+    old = ["M0p8_0km_a0", "M0p8_0km_a2", "M0p8_0km_a4"]
+    _job(project_dir, "old", T0, {old[0]: CaseState.CONVERGED, old[1]: CaseState.UNCONVERGED,
+                                  old[2]: CaseState.CANCELLED, A0: CaseState.FAILED})
+    _job(project_dir, "newer", T0 + timedelta(hours=1), {old[1]: CaseState.CONVERGED})
+    for name in old[:2]:
+        (project_dir / "runs" / name).mkdir(parents=True)  # the cancelled one never got a folder
+    overview = case_overview(project_dir, project)
+    assert [(r.name, r.status, r.job_id) for r in overview.earlier] == [
+        (old[0], "CONVERGED", "old"), (old[1], "CONVERGED", "newer")]
+    assert {r.name for r in overview.all_rows} == {A0, A2, A4}  # never selected for a run
+    assert [r.name for r in overview.known_rows][-2:] == old[:2]

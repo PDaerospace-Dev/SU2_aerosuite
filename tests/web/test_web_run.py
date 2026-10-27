@@ -186,7 +186,8 @@ async def test_counts_pills_and_the_failure_box(user: User, ready_project, su2_e
     project_dir, project = ready_project
     _run_to_end(project_dir, project, **{A2: "fail"})
     await _open(user, project_dir)
-    assert (_text(user, "count-converged"), _text(user, "count-failed")) == ("2 converged", "1 failed")
+    assert (_text(user, "count-converged"), _text(user, "count-failed")) == ("2", "1")  # numbers in the bar
+    assert _element(user, "count-failed").props["title"] == "1 failed"  # its words on hover
     await user.should_not_see(marker="count-running")
     assert _element(user, "select-failed").text == "Failed 1" and _element(user, "select-all").text == "All 3"
     assert "as-pill-failed" in _element(user, f"status-{A2}").classes
@@ -345,3 +346,27 @@ async def test_the_list_groups_cases_by_state(user: User, ready_project, su2_env
     user.find(marker="list-attention").click()  # folds
     await user.should_not_see(marker=f"tick-{A2}")
     assert "Failed" in _text(user, "last-job") and "1 converged" in _text(user, "last-job")
+
+
+async def test_an_altitude_head_names_only_its_failed_cases(user: User, ready_project):
+    from datetime import datetime
+
+    from aerosuite.engine.jobs.runner import CaseState, JobRecord
+    from aerosuite.engine.jobs.store import save_job
+
+    project_dir, project = ready_project
+    update_sweep(project, mach=[0.6, 0.8])  # a grid: two Machs by three αs
+    save_project(project_dir, project)
+    names = [case.name for case in project.cases]
+    statuses = {names[0]: CaseState.FAILED, names[1]: CaseState.CONVERGED, names[2]: CaseState.UNCONVERGED}
+    save_job(project_dir, JobRecord(id="j1", backend="local", cases=names[:3], log_path="jobs/j1.log",
+                                    created=datetime(2026, 10, 27, 9, 0), state=JobState.DONE, case_status=statuses))
+    await _open(user, project_dir)
+    await user.should_see("1 failed", marker="board-failed-|0")
+    head = _element(user, "board-head-|0")
+    pills = [child.text for child in head.default_slot.children if "as-pill" in child.classes]
+    assert pills == ["1 failed"]  # the other counts are in the bar only
+    assert _text(user, "count-converged") == "1"
+    user.find(marker="run-density-compact").click()
+    await user.should_see(marker="run-density-compact")
+    assert "as-icon-toggle-on" in _element(user, "run-density-compact").classes

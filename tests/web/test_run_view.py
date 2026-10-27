@@ -94,3 +94,14 @@ def test_a_case_is_read_back_from_its_name():
     assert (case.mach, case.alpha, case.beta, case.altitude_km) == (0.6, -2.5, 0.0, 20.0)
     assert case_from_name("M0p8_a2_b1").altitude_km is None
     assert case_from_name("study") is None
+
+
+def test_earlier_cases_group_by_altitude_lowest_first():
+    from aerosuite.web.run_view import earlier_groups
+    rows = [CaseRow(name, "CONVERGED", "j") for name in
+            ("M0p6_10km_a0", "M0p3_10km_a5", "M0p3_0km_a10", "M0p3_0km_a5", "odd_case")]
+    groups = earlier_groups(rows)
+    assert [(g.label, g.key) for g in groups] == [("0 km", "0"), ("10 km", "10"), ("Other cases", "other")]
+    assert [r.name for r in groups[0].rows] == ["M0p3_0km_a5", "M0p3_0km_a10"]  # by α, not by name
+    assert [r.name for r in groups[1].rows] == ["M0p3_10km_a5", "M0p6_10km_a0"]
+    assert groups[2].cases == []  # no Mach or α in the name: listed, not drawn on a grid

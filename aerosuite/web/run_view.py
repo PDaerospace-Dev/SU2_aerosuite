@@ -178,3 +178,35 @@ def state_sections(rows: Sequence) -> list[tuple[str, str, list]]:
         if members:
             out.append((key, title, members))
     return out
+
+
+# -- earlier sweeps ----------------------------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class EarlierGroup:
+    """The earlier sweeps' cases at one altitude (None: names without one), for the Earlier sweeps tab."""
+    altitude: Optional[float]
+    rows: list  # their CaseRows, by Mach, α and β
+    cases: list  # NamedCase per row that has a Mach and an α (the grid's cells)
+
+    @property
+    def key(self) -> str:
+        return "other" if self.altitude is None else format_value(self.altitude)
+
+    @property
+    def label(self) -> str:
+        return "Other cases" if self.altitude is None else f"{format_value(self.altitude)} km"
+
+
+def earlier_groups(rows: Sequence) -> list[EarlierGroup]:
+    """The earlier sweeps' cases by the altitude in their names, lowest first; names without one come last."""
+    found: dict[Optional[float], list] = {}
+    for row in rows:
+        case = case_from_name(row.name)
+        found.setdefault(case.altitude_km if case else None, []).append((row, case))
+    groups = []
+    for altitude in sorted(found, key=lambda a: (a is None, a or 0)):
+        members = sorted(found[altitude], key=lambda pair: (
+            (pair[1].mach, pair[1].beta, pair[1].alpha) if pair[1] else (float("inf"), 0, 0), pair[0].name))
+        groups.append(EarlierGroup(altitude, [row for row, _ in members], [case for _, case in members if case]))
+    return groups

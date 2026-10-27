@@ -302,16 +302,25 @@ Across the top: the running job (*6 of 20 cases done*, a progress bar, the case 
 long is left) with **Monitor**, **Log** and **Cancel**. With none running, how the last one ended (*Done · job
 20261024-1151 · 40 cases · 2 converged · 38 unconverged*) with its **Log** and **Job history**.
 
-#### Board, List and Job history
-The cases are in three tabs (`?tab=board|list|history` in the address opens one, `&case=<name>` a case's details).
+#### Board, List, Earlier and Job history
+The cases are in tabs (`?tab=board|list|earlier|history` in the address opens one, `&case=<name>` a case's details).
 
+- Above the cases, one bar shows every status at a glance: each part is coloured as its tiles and holds its count
+  (*3 · 2 · 29 · 6*; hover a part for its words, the ⓘ for the order). On the Board, the two icons next to it size
+  the tiles, large or compact (compact from 40 cases).
 - **Board** (when the cases make a grid): a grid per altitude (and per β when β is swept), Mach down and α across,
   one coloured tile per case: running, queued (with its place, *#3*), converged (*✓ 812 it*), unconverged
-  (*1500 it*), failed (*! failed*, red border) or not run. *Large* / *Compact* sizes the tiles (compact from 40
-  cases). An altitude folds to one line with its counts, and opens by itself while something runs, waits or failed
-  there.
+  (*1500 it*), failed (*! failed*, red border) or not run. An altitude's head names only its failed cases
+  (*0 km · 20 cases · 2 failed*). It folds to that one line, and opens by itself while something runs, waits or
+  failed there.
 - **List**: the cases by state: *Running now*, *Queued* (with the next one), *Needs a look* (failed first, then
   unconverged and cancelled), *Not run yet* and *Done*, each with *Select all*; a long Queued or Done folds.
+- **Earlier** (earlier sweeps, when there are any): the cases a finished job ran that the sweep no longer makes, e.g. 0 km
+  and 10 km after the altitudes became 20 km, while their run folders are there. Their runs, histories and results
+  are kept (Results and Monitor show them), but they are not part of the next run. One folded line per altitude
+  gives its cases, their outcomes and the jobs; open it for its grid, and click a case for it in Monitor.
+  **Add to sweep** (an altitude sweep) puts that altitude back in the sweep: its cases, named as before, are the
+  sweep's again with their outcomes, ready to generate and continue.
 - **Job history**: every job, each with a *Log* button for its log.
 - Cases a running job still has that the sweep no longer makes (it changed after they were submitted) are on the
   board and in the list too, marked as the job's; they cannot be selected.
@@ -370,8 +379,8 @@ With a Slurm job running, the rerun is added to it.
 ### Monitor
 Residuals and coefficients against iteration, live while a case runs.
 
-- Pick a case, or **Open file…** any history file. Tick columns on or off, **Normalize**, and **Stop** / **Start**
-  live updating.
+- Pick a case (type to search; an earlier sweep's cases are listed after the sweep's, marked *earlier sweep*), or
+  **Open file…** any history file. Tick columns on or off, **Normalize**, and **Stop** / **Start** live updating.
 - **Parameters** tab: plots of any columns of the history file. *Add plot* lists every column (grouped, with a
   search box); the columns ticked together share one plot, and each plot has its own value axis.
 - Zoom a plot with the mouse wheel, drag to move, or use the bar under it. The zoom is kept while new iterations

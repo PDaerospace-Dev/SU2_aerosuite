@@ -343,8 +343,13 @@ a.as-step:hover { background: #f6f8fa; }
 @media (max-width: 700px) { .as-side-field { flex-wrap: wrap; } .as-side-label { width: 100%; } }
 .as-machine-usage { border-top: 1px solid var(--as-hairline); padding-top: 8px; }
 .as-usage { white-space: pre-line; font-size: 11.5px; }
-.as-status-bar { height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; }
-.as-status-seg { height: 100%; min-width: 4px; }
+.as-status-bar { height: 22px; border-radius: 6px; overflow: hidden; gap: 2px; }
+.as-status-seg { height: 100%; min-width: 24px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600; color: #fff; cursor: default; }
+.as-seg-pending { color: #57606a; }
+.as-icon-toggle { border: 1px solid var(--as-border); border-radius: 8px; overflow: hidden; background: #fff; gap: 0; }
+.as-icon-toggle .q-btn { border-radius: 0; min-height: 28px; padding: 0 7px; color: var(--as-muted); }
+.as-icon-toggle .as-icon-toggle-on { background: var(--as-accent); color: #fff; }
 .as-seg-done { background: #2da44e; } .as-seg-running { background: var(--as-running, #2f6fe4); }
 .as-seg-failed { background: #cf222e; } .as-seg-unconverged { background: #d4a72c; }
 .as-seg-pending { background: #d0d7de; } .as-seg-cancelled { background: #8c959f; }
@@ -510,6 +515,12 @@ a.as-step:hover { background: #f6f8fa; }
 
 .q-dialog .q-card { border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 35, 40, .14); padding: 18px; gap: 12px; }
 .as-dialog-title { font-size: 14px; font-weight: 600; }
+
+/* Run's Earlier sweeps tab: kept cases, quieter than the board's */
+.as-earlier { background: #fbfbfc; padding: 10px 14px; }
+.as-earlier .as-tile { opacity: .85; cursor: pointer; }
+.as-earlier-head { cursor: pointer; min-height: 32px; }
+.as-earlier-head .as-strong { white-space: nowrap; }
 
 /* Settings: tabs; the partitions as cards, the chosen one's settings under them */
 .as-settings { max-width: 1080px; }

@@ -30,10 +30,19 @@ class CaseOverview:
     # Cases a running or queued job still has that the project no longer makes (the sweep changed after they were
     # submitted, e.g. 0 km became 10 km and the new cases were added to the job), in the job's order
     others: list[CaseRow] = field(default_factory=list)
+    # Cases a finished job ran that the project no longer makes (an earlier sweep, e.g. 0 km before the altitudes
+    # became 20 km), whose run folder is still there: kept to look at, never part of the next run
+    earlier: list[CaseRow] = field(default_factory=list)
 
     @property
     def all_rows(self) -> list[CaseRow]:
+        """The cases a run can select: the project's, and those a running job still has."""
         return self.rows + self.others
+
+    @property
+    def known_rows(self) -> list[CaseRow]:
+        """Every case with an outcome to show, the earlier sweeps' included."""
+        return self.rows + self.others + self.earlier
 
 
 def case_overview(project_dir: Path, project: Project) -> CaseOverview:
@@ -61,7 +70,14 @@ def case_overview(project_dir: Path, project: Project) -> CaseOverview:
             if name not in names and name in job.case_status:
                 names.add(name)
                 others.append(CaseRow(name, job.case_status[name].value, job.id, job.failure_tail.get(name, "")))
-    return CaseOverview(rows, problems, jobs, others)
+    earlier = []
+    runs = Path(project_dir) / RUNS_DIR
+    for job in jobs:  # newest first: a case's newest outcome wins
+        for name in job.cases:
+            if name not in names and name in job.case_status and (runs / name).is_dir():
+                names.add(name)
+                earlier.append(CaseRow(name, job.case_status[name].value, job.id, job.failure_tail.get(name, "")))
+    return CaseOverview(rows, problems, jobs, others, sorted(earlier, key=lambda row: row.name))
 
 
 @dataclass(frozen=True)
