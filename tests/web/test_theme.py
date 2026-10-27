@@ -10,7 +10,8 @@ def test_every_pill_tone_has_css():
 
 
 def test_the_tokens_are_the_specs():
-    assert theme.PAGE_BG == "#f4f5f7" and theme.CARD_BORDER == "#e3e5e8" and theme.TOPBAR == "#0f1b2d"
+    assert theme.PAGE_BG == "#e6e9ee" and theme.CARD_BORDER == "#e3e5e8" and theme.TOPBAR == "#0f1b2d"
+    assert theme.FRAME == "#c4cbd4"  # firmer than the lines inside a card
     assert theme.PILL_COLORS["failed"][:2] == ("#ffebe9", "#a40e26")
     assert theme.PILL_COLORS["cancelled"] == ("#ffffff", "#57606a", "#d0d7de")
 
