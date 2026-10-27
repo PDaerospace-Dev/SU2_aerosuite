@@ -4,8 +4,8 @@ from aerosuite.engine.cluster import MyJob
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
 from aerosuite.engine.slurm import ClusterInfo, QueueRow, Snapshot, parse_sinfo_nodes
 from aerosuite.web.cluster_view import (
-    can_resubmit, case_slurm_text, cluster_queue, cluster_status, filter_jobs, job_state_text, job_studies,
-    node_groups, running_count, suggested_partition, summary_line,
+    can_resubmit, case_slurm_text, cluster_status, filter_jobs, job_state_text, job_studies,
+    node_groups, running_count, suggested_partition, summary_line, summary_parts,
 )
 
 NODES = ("hpc1|node1*|alloc|192/0/0/192|125000|20000|96.1|none\n"
@@ -54,16 +54,6 @@ def test_node_groups_default_partition_first():
     assert (hpc1.cpus, hpc1.busy_percent, hpc1.memory, hpc1.load) == (
         "96 / 192", 50, "99 of 122 GB free", "48.0")
     assert node_groups(None) == []
-
-
-def test_cluster_queue_pending_first_mine_marked():
-    snap = Snapshot(queue={
-        "12": QueueRow("12", "RUNNING", "hpc1", "1:00", "hpc1", "me", "s/a", "/d/s/runs/a"),
-        "13": QueueRow("13", "PENDING", "", "0:00", "Resources", "ana", "x", ""),
-        "9": QueueRow("9", "RUNNING", "hpc2", "9:00", "hpc2", "ana", "y", "")})
-    lines = cluster_queue(snap, "me")
-    assert [(l.job_id, l.own) for l in lines] == [("13", False), ("9", False), ("12", True)]
-    assert cluster_queue(Snapshot(error="down"), "me") == []
 
 
 def test_cluster_status_tones():
@@ -144,3 +134,13 @@ def test_sort_jobs_by_each_column():
     assert ids("case", True) == ["3", "1", "2"]
     assert ids("state", False) == ["2", "1", "3"]  # Converged, Failed, Unconverged
     assert ids("elapsed", True) == ["2", "1", "3"]  # 1:02:00, 10:00; no time last
+
+
+def test_summary_parts_give_a_pill_per_partition_and_your_jobs():
+    parts = summary_parts(_cluster("hpc1|node1*|mix|96/96/0/192|1|1|0|none\nhpc2|node2|idle|0/192/0/192|1|1|0|none\n"
+                                   "hpc3|node3|drain|0/0/192/192|1|1|0|bad DIMM\n"), Snapshot(), "me")
+    assert [(n[0], n[1], n[2]) for n in parts.nodes] == [("node1", "busy", "node1 50%"), ("node2", "free", "node2 free"),
+                                                          ("node3", "bad", "node3 drain")]
+    assert parts.bad and parts.message == "" and parts.mine == ""
+    assert summary_parts(None, None, "me").message == "Asking Slurm…"
+    assert summary_parts(_cluster(), Snapshot(error="x"), "me") == ("Slurm controller unreachable", True, (), "")

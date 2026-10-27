@@ -76,3 +76,105 @@ def case_conditions(config: str, mesh: Optional[str]) -> list[tuple[str, str]]:
              ("β (deg)", _option(config, "SIDESLIP_ANGLE")), ("Iterations (max)", _option(config, "ITER")),
              ("Mesh", Path(mesh).name if mesh else None)]
     return [(label, value) for label, value in items if value]
+
+
+# -- the board and the list by state ---------------------------------------------------------------------------
+
+_ALTITUDE_RE = re.compile(r"^(\d+)(?:p(\d+))?km$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class NamedCase:
+    """A case known only by its name (still in a running job, no longer in the sweep): what the name says."""
+    name: str
+    mach: float
+    alpha: float
+    beta: float
+    altitude_km: Optional[float]
+
+
+def case_from_name(name: str) -> Optional[NamedCase]:
+    """Mach, α, β and altitude read back from a case name; None without a Mach and an α."""
+    from ..engine.naming import parse_case_name
+    parsed = parse_case_name(name)
+    if parsed.mach is None or parsed.alpha is None:
+        return None
+    altitude = None
+    for token in name.split("_"):
+        match = _ALTITUDE_RE.match(token)
+        if match:
+            altitude = float(match[1] + ("." + match[2] if match[2] else ""))
+    return NamedCase(name, parsed.mach, parsed.alpha, parsed.beta or 0.0, altitude)
+
+COMPACT_FROM = 40  # more cases show as compact tiles
+
+
+@dataclass(frozen=True)
+class BoardSection:
+    key: str  # "10|0": altitude and β, for folding
+    label: str  # "10 km", "10 km · β 2°", or "" for a sweep at one altitude and β
+    machs: list  # the rows, ascending
+    alphas: list  # the columns, ascending
+    cells: dict  # (mach, alpha) -> case name
+
+
+def board_sections(cases: Sequence) -> list[BoardSection]:
+    """The cases as grids, one per altitude (and β, when β is swept): Mach down, α across."""
+    betas = sorted({case.beta for case in cases})
+    found: dict[tuple, dict] = {}
+    for case in cases:
+        found.setdefault((case.altitude_km, case.beta), {})[(case.mach, case.alpha)] = case.name
+    sections = []
+    for (altitude, beta), cells in sorted(found.items(), key=lambda item: (item[0][0] or 0, item[0][1])):
+        parts = [f"{format_value(altitude)} km"] if altitude is not None else []
+        if len(betas) > 1:
+            parts.append(f"β {format_value(beta)}°")
+        sections.append(BoardSection(
+            f"{'' if altitude is None else format_value(altitude)}|{format_value(beta)}", " · ".join(parts),
+            sorted({mach for mach, _ in cells}), sorted({alpha for _, alpha in cells}), cells))
+    return sections
+
+
+def has_board(cases: Sequence) -> bool:
+    """Whether the cases make a grid worth drawing as one: some altitude has at least two Machs and two αs."""
+    return any(len(section.machs) > 1 and len(section.alphas) > 1 for section in board_sections(cases))
+
+
+TILE_WORDS = {"CONVERGED": "Converged", "UNCONVERGED": "Unconverged", "RUNNING": "Running", "PENDING": "Queued",
+              "FAILED": "Failed", "BLOCKED": "Blocked", "CANCELLED": "Cancelled", NOT_RUN: "Not run"}
+
+
+def tile_text(status: str, iterations: Optional[int] = None, place: Optional[int] = None) -> str:
+    """A tile's small line: ✓ and the iterations, the iterations so far, the place in the queue, or the outcome."""
+    if status == "CONVERGED":
+        return f"✓ {iterations} it" if iterations else "✓"
+    if status in ("UNCONVERGED", "RUNNING", "CANCELLED") and iterations:
+        return f"{iterations} it"
+    if status == "PENDING" and place:
+        return f"#{place}"
+    if status in ("FAILED", "BLOCKED"):
+        return "! " + TILE_WORDS[status].lower()
+    return "—" if status == NOT_RUN else TILE_WORDS.get(status, status).lower()
+
+
+# (key, title, the statuses it holds); the list shows them in this order
+STATE_SECTIONS = [
+    ("running", "Running now", {"RUNNING"}),
+    ("queued", "Queued", {"PENDING"}),
+    ("attention", "Needs a look", {"FAILED", "BLOCKED", "UNCONVERGED", "CANCELLED"}),
+    ("not-run", "Not run yet", {NOT_RUN}),
+    ("done", "Done", {"CONVERGED"}),
+]
+
+
+def state_sections(rows: Sequence) -> list[tuple[str, str, list]]:
+    """(key, title, its rows) for the sections that have rows, failed ones first within Needs a look."""
+    order = {"FAILED": 0, "BLOCKED": 1, "UNCONVERGED": 2, "CANCELLED": 3}
+    out = []
+    for key, title, statuses in STATE_SECTIONS:
+        members = [row for row in rows if row.status in statuses]
+        if key == "attention":
+            members.sort(key=lambda row: order.get(row.status, 9))
+        if members:
+            out.append((key, title, members))
+    return out

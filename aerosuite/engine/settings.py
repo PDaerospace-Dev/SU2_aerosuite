@@ -56,6 +56,16 @@ class PartitionSettings(BaseModel):
     memory_limit_mb: int = Field(ge=1)
     ntasks_warn_above: Optional[int] = Field(default=None, ge=1)  # no speed-up beyond this many tasks
     block_over_memory: bool = False  # an estimate over the limit blocks the submit (else a warning)
+    # How a job on this partition starts SU2. With launch_command empty the job script uses the Slurm-wide module
+    # line, su2_bin, job_env and srun_command; with it set, the script uses only the fields below (and never
+    # --export, so the job keeps the submitting user's environment).
+    launch_command: str = ""  # followed by the case's .cfg, e.g. mpirun --bind-to core -np "$SLURM_NTASKS" SU2_CFD
+    module_line: str = ""  # "" = none
+    path: str = ""  # exported as PATH, replacing it; "" = PATH is left alone
+    unset_vars: str = ""  # names unset in the script, separated by spaces, e.g. LD_LIBRARY_PATH
+    job_env: str = ""  # NAME=value pairs exported in the script, separated by spaces
+    login_shell: bool = True  # #!/bin/bash -l; False: #!/bin/bash
+    exclusive: Optional[bool] = None  # None: the Slurm-wide setting
 
     @field_validator("name")
     @classmethod
@@ -64,12 +74,40 @@ class PartitionSettings(BaseModel):
             raise ValueError(f"partition name {value!r} must be letters, digits, '_', '.' or '-'")
         return value
 
+    @field_validator("job_env")
+    @classmethod
+    def _env(cls, value: str) -> str:
+        env_pairs(value)  # raises ValueError
+        return value
+
+    @field_validator("unset_vars")
+    @classmethod
+    def _unset(cls, value: str) -> str:
+        for name in value.split():
+            if not _ENV_NAME_RE.match(name):
+                raise ValueError(f"unset_vars must be variable names separated by spaces, not {name!r}")
+        return value
+
+    @field_validator("launch_command", "module_line", "path")
+    @classmethod
+    def _one_line(cls, value: str) -> str:
+        if "\n" in value or "\r" in value:
+            raise ValueError("must be a single line")
+        return value.strip()
+
 
 def _default_partitions() -> list[PartitionSettings]:
     return [
         PartitionSettings(name="node1", default_ntasks=96, memory_limit_mb=122880),
         PartitionSettings(name="node2", default_ntasks=48, memory_limit_mb=62000, ntasks_warn_above=48,
                           block_over_memory=True),
+        # hpc0, the old Ubuntu workstation: its own SU2 and Open MPI (PMIx 5; the nodes have pmix_v4, so no
+        # srun --mpi=pmix), started with mpirun. Not --exclusive: the workstation is also used by hand.
+        PartitionSettings(name="node0", default_ntasks=32, memory_limit_mb=235000, ntasks_warn_above=64,
+                          block_over_memory=True,
+                          launch_command='mpirun --bind-to core -np "$SLURM_NTASKS" SU2_CFD',
+                          path="/usr/local/bin:/usr/bin:/bin", unset_vars="LD_LIBRARY_PATH", login_shell=False,
+                          exclusive=False),
     ]
 
 

@@ -64,4 +64,5 @@ def slurm_options(project: Project, settings: AppSettings, partition: Optional[s
     tasks = ntasks or project.run.slurm.ntasks or (part.default_ntasks if part else 1)
     if time_limit is None:
         time_limit = slurm.default_time_limit
-    return SlurmOptions(chosen, tasks, time_limit, slurm.exclusive, slurm.account)
+    exclusive = part.exclusive if part is not None and part.exclusive is not None else slurm.exclusive
+    return SlurmOptions(chosen, tasks, time_limit, exclusive, slurm.account)

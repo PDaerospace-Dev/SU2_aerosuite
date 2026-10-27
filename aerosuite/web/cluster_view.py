@@ -1,14 +1,14 @@
-"""The Slurm view rules without NiceGUI: a case's Slurm line and resubmit rules (Run page); nodes, everyone's
-queue, my jobs, the top-bar dot and the Run summary line (Cluster page, top bar)."""
+"""The Slurm view rules without NiceGUI: a case's Slurm line and resubmit rules (Run page); nodes, my jobs, the
+top-bar dot and the Run summary line (Cluster page, top bar)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Mapping, Optional, Sequence
+from typing import Iterable, Mapping, NamedTuple, Optional, Sequence
 
 from ..engine.jobs.runner import JobRecord
-from ..engine.cluster import MyJob, study_of
+from ..engine.cluster import MyJob
 from ..engine.slurm import (FAILED_STATES, QUEUED_STATES, RESUBMITTABLE, RUNNING_STATES, ClusterInfo,
                              Snapshot, parse_duration)
 
@@ -89,29 +89,6 @@ def node_groups(cluster: Optional[ClusterInfo]) -> list[tuple[str, bool, list[No
     return [(name, default, lines) for name, (default, lines) in ordered]
 
 
-@dataclass(frozen=True)
-class ClusterQueueLine:
-    job_id: str
-    user: str
-    name: str
-    state: str
-    node: str
-    time: str
-    reason: str
-    own: bool
-    study: Optional[Path]  # an AeroSuite case's study, for the link
-
-
-def cluster_queue(snapshot: Optional[Snapshot], user: str) -> list[ClusterQueueLine]:
-    """Every user's jobs: pending first, then running, each in job-id order."""
-    if snapshot is None or not snapshot.ok:
-        return []
-    rows = sorted(snapshot.queue.values(), key=lambda r: (r.state not in QUEUED_STATES, len(r.job_id), r.job_id))
-    return [ClusterQueueLine(r.job_id, r.user, r.name, r.state, r.node, r.time,
-                             "" if r.state in RUNNING_STATES else r.reason, r.user == user,
-                             study_of(r.workdir, r.name)) for r in rows]
-
-
 def cluster_status(snapshot: Optional[Snapshot], cluster: Optional[ClusterInfo]) -> tuple[str, str]:
     """The top bar's dot: red (Slurm does not answer), amber (a node is drained or down), green, grey (no answer yet)."""
     error = (snapshot.error if snapshot is not None and not snapshot.ok else None) or (
@@ -159,6 +136,39 @@ def summary_line(cluster: Optional[ClusterInfo], snapshot: Optional[Snapshot], u
             mine = [f"{queued} of yours queued"]
         parts.append(", ".join(mine))
     return " · ".join(parts), status == "amber"
+
+
+class SummaryParts(NamedTuple):
+    message: str  # "Slurm controller unreachable" / "Asking Slurm…"; "" when the nodes are known
+    bad: bool  # a drained or down node, or Slurm not answering
+    nodes: tuple  # (partition, level "free" | "busy" | "bad", text, tooltip)
+    mine: str  # "1 running · 15 queued" (the user's jobs), "" when none
+
+
+def summary_parts(cluster: Optional[ClusterInfo], snapshot: Optional[Snapshot], user: str) -> SummaryParts:
+    """The Run page's footer: one pill per partition (free, a share busy, or bad) and the user's jobs."""
+    status, _tip = cluster_status(snapshot, cluster)
+    if status == "red":
+        return SummaryParts("Slurm controller unreachable", True, (), "")
+    if status == "grey":
+        return SummaryParts("Asking Slurm…", False, (), "")
+    nodes = []
+    for name, _default, lines in node_groups(cluster):
+        allocated, total = sum(n.allocated for n in lines), sum(n.total for n in lines)
+        bad = [n for n in lines if n.bad]
+        tip = f"{allocated}/{total} busy"
+        if bad:
+            states = ", ".join(dict.fromkeys(n.state for n in bad))
+            nodes.append((name, "bad", f"{name} {states}", f"{tip}; {', '.join(n.node for n in bad)} {states}"))
+        elif allocated == 0:
+            nodes.append((name, "free", f"{name} free", tip))
+        else:
+            nodes.append((name, "busy", f"{name} {round(100 * allocated / total) if total else 0}%", tip))
+    rows = [r for r in snapshot.queue.values() if r.user == user] if snapshot is not None else []
+    running = sum(1 for r in rows if r.state in RUNNING_STATES)
+    queued = sum(1 for r in rows if r.state in QUEUED_STATES)
+    mine = " · ".join(text for count, text in ((running, f"{running} running"), (queued, f"{queued} queued")) if count)
+    return SummaryParts("", status == "amber", tuple(nodes), mine)
 
 
 JOB_KINDS = ("all", "active", "failed")

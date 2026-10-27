@@ -10,7 +10,7 @@ from nicegui import ui
 
 from ..engine.errors import AeroSuiteError
 from ..engine.jobs.store import active_lock
-from .guide import app_version, web_ui_guide
+from .guide import app_version, guide_sections, section_for
 from .calc_panel import CalcPanel
 from .jobs import WATCHER, job_progress
 from .log_panel import LogPanel
@@ -117,23 +117,59 @@ def _refresh_button() -> None:
         "as-topbar-icon as-round").mark("refresh"), "Refresh: show what is on disk now")
 
 
-def _settings_button() -> None:
-    """The top bar's gear: the server-wide settings (backend, Slurm)."""
-    ui.button(icon="settings", color=None, on_click=lambda: ui.navigate.to("/settings")).props(
-        "flat dense").classes("as-topbar-icon as-round").mark("settings")
+def _settings_step() -> None:
+    """Settings (server-wide: backend, Slurm) at the bottom of a project's sidebar, under its steps."""
+    with ui.link(target="/settings").classes("as-step row").mark("settings"):
+        ui.icon("settings", size="20px")
+        ui.label("Settings").classes("as-step-name")
+        ui.tooltip("Settings").classes("as-step-tip")
 
 
-def _help_button() -> None:
-    """A help icon with the version and "Web UI guide" (the README's web UI section in a dialog)."""
+def _settings_corner() -> None:
+    """Settings at the bottom left of a page without a sidebar, where a project page has it."""
+    ui.button("Settings", icon="settings", color=None, on_click=lambda: ui.navigate.to("/settings")).props(
+        "flat dense no-caps").classes("as-settings-corner").mark("settings")
+
+
+def _help_button(page: str = "") -> None:
+    """A help icon with the version and "Web UI guide": the README's web UI section in a dialog, its
+    sections listed on the left, opened on this page's section."""
     # Built outside the menu: a dialog created inside a menu item would be unmounted as the menu closes.
-    with ui.dialog() as dialog, ui.card().classes("w-[48rem] max-w-full"):
-        with ui.row().classes("w-full items-center no-wrap"):
-            ui.label("Web UI guide").classes("as-dialog-title grow")
+    with ui.dialog() as dialog, ui.card().classes("as-guide"):
+        with ui.row().classes("as-guide-head w-full"):
+            ui.icon("menu_book", size="20px").classes("as-guide-head-icon")
+            ui.label("Web UI guide").classes("as-dialog-title")
+            ui.label(f"AeroSuite {app_version()}").classes("as-muted")
+            ui.space()
             ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense").mark("guide-close")
-        guide = ui.markdown("").classes("w-full").mark("guide-text")
+        with ui.row().classes("as-guide-body w-full"):
+            nav = ui.column().classes("as-guide-nav").mark("guide-nav")
+            with ui.column().classes("as-guide-page") as page_area:
+                title = ui.label("").classes("as-guide-title").mark("guide-title")
+                guide = ui.markdown("").classes("as-guide-text w-full").mark("guide-text")
+
+    sections: list[tuple[str, str]] = []
+    links: list = []
+
+    def show(index: int) -> None:
+        title.text = sections[index][0]
+        guide.set_content(sections[index][1])
+        for i, link in enumerate(links):
+            if i == index:
+                link.classes(add="as-guide-current")
+            else:
+                link.classes(remove="as-guide-current")
+        page_area.run_method("scrollTo", 0, 0)
 
     def show_guide() -> None:
-        guide.set_content(web_ui_guide())
+        sections[:] = guide_sections()
+        nav.clear()
+        links.clear()
+        with nav:
+            for i, (name, _) in enumerate(sections):
+                links.append(ui.button(name, on_click=lambda i=i: show(i), color=None).props(
+                    "flat dense no-caps align=left").classes("as-guide-link").mark(f"guide-link-{i}"))
+        show(section_for(page, [name for name, _ in sections]))
         dialog.open()
 
     with ui.button(icon="help_outline", color=None).props("flat dense").classes(
@@ -143,8 +179,9 @@ def _help_button() -> None:
             ui.menu_item("Web UI guide", on_click=show_guide).mark("help-guide")
 
 
-def header() -> None:
-    """The top bar of pages outside a project (Projects, or a project that cannot be opened)."""
+def header(page: str = "") -> None:
+    """The top bar of pages outside a project (Projects, or a project that cannot be opened), and their
+    Settings button; `page` opens the help on its section, and "settings" leaves the button out."""
     apply_theme()
     with ui.row().classes("as-topbar w-full"):
         _brand()
@@ -152,8 +189,9 @@ def header() -> None:
         _cluster_button()
         _calculators_button()
         _refresh_button()
-        _settings_button()
-        _help_button()
+        _help_button(page)
+    if page != "settings":
+        _settings_corner()
 
 
 def open_session(project: str) -> Optional[ProjectSession]:
@@ -199,7 +237,10 @@ class ProjectFrame:
         apply_theme()
         self._top_bar()
         with ui.row().classes("as-body w-full"):
-            self._sidebar = ui.column().classes("as-sidebar").mark("sidebar")
+            with ui.column().classes("as-sidebar").mark("sidebar"):
+                self._steps = ui.column().classes("as-steps w-full")
+                with ui.column().classes("as-sidebar-foot w-full"):
+                    _settings_step()
             with ui.column().classes("as-main"):
                 with ui.row().classes("as-crumbs w-full"):
                     ui.link("Projects", "/").classes("as-crumb-link").mark("crumb-projects")
@@ -236,8 +277,7 @@ class ProjectFrame:
             _cluster_button()
             _calculators_button(self)
             _refresh_button()
-            _settings_button()
-            _help_button()
+            _help_button(self.active)
             with ui.row().classes("as-topbar-control as-switcher").props('tabindex=0 role=button').mark(
                     "project-switcher") as switcher:
                 self._initials = ui.label("").classes("as-initials")
@@ -264,8 +304,8 @@ class ProjectFrame:
         self._initials.style(f"background: {badge_color(project.name)}")
         self._crumb_project.text = project.name
         badges = step_badges(self.session.directory, project)
-        self._sidebar.clear()
-        with self._sidebar:
+        self._steps.clear()
+        with self._steps:
             for key, label in visible_steps(project):
                 self._step(key, label, badges[key])
         self._update_job()

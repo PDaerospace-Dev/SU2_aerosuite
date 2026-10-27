@@ -97,11 +97,26 @@ async def test_every_page_has_a_refresh_that_reloads_it(user: User, ready_projec
 
 async def test_help_shows_the_version_and_the_web_ui_guide(user: User, ready_project, eventually):
     project_dir, _ = ready_project
-    await user.open(project_url("setup", project_dir))
+    await user.open(project_url("run", project_dir))
     await user.should_see(f"AeroSuite {app_version()}", marker="help-version")
     _element(user, "help-menu").open()
     user.find(marker="help-guide").click()
-    await eventually(lambda: "Pages:" in _element(user, "guide-text").content)
+    await eventually(lambda: _element(user, "guide-title").text == "Run")  # the page's own section
+    assert "job bar" in _element(user, "guide-text").content
+    user.find(marker="guide-link-0").click()
+    await eventually(lambda: _element(user, "guide-title").text == "Getting started")
+    assert "aerosuite service install" in _element(user, "guide-text").content
+
+
+async def test_settings_is_at_the_bottom_of_a_projects_sidebar(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("setup", project_dir))
+    settings, sidebar = _element(user, "settings"), _element(user, "sidebar")
+    assert settings.props["href"] == "/settings"
+    parent = settings
+    while parent is not None and parent is not sidebar:
+        parent = parent.parent_slot.parent if parent.parent_slot else None
+    assert parent is sidebar
 
 
 async def test_the_job_indicator_follows_a_job_started_elsewhere(user: User, ready_project, eventually,

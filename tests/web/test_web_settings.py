@@ -54,14 +54,14 @@ async def test_invalid_values_are_refused(user: User):
 async def test_add_rename_and_remove_partitions(user: User):
     await user.open("/settings")
     user.find(marker="partition-add").click()
-    await user.should_see(marker="partition-2-name")
-    assert [p.name for p in load_settings()[0].slurm.partitions] == ["node1", "node2", "node3"]
+    await user.should_see(marker="partition-3-name")
+    assert [p.name for p in load_settings()[0].slurm.partitions] == ["node1", "node2", "node0", "node4"]
     await _commit(user, "partition-0-name", "big")
     settings, _ = load_settings()
     assert settings.slurm.default_partition == "big" and settings.slurm.partitions[0].name == "big"
-    user.find(marker="partition-2-remove").click()
-    await user.should_not_see(marker="partition-2-name")
-    assert [p.name for p in load_settings()[0].slurm.partitions] == ["big", "node2"]
+    user.find(marker="partition-3-remove").click()
+    await user.should_not_see(marker="partition-3-name")
+    assert [p.name for p in load_settings()[0].slurm.partitions] == ["big", "node2", "node0"]
 
 
 async def test_an_unreadable_file_is_reported(user: User):
@@ -71,7 +71,7 @@ async def test_an_unreadable_file_is_reported(user: User):
     await user.should_see(marker="settings-warning")
 
 
-async def test_the_gear_opens_the_settings(user: User):
+async def test_the_settings_button_opens_the_settings(user: User):
     await user.open("/")
     user.find(marker="settings").click()
     await user.should_see(marker="settings-backend")
@@ -97,3 +97,17 @@ async def test_open_from_your_pc_gives_the_tunnel_and_launchers(user: User, monk
     assert _element(user, "remote-command").text == "ssh -N -L 8080:127.0.0.1:8080 pdas@100.106.223.105"
     await _commit(user, "settings-ssh_address", "bad address")
     assert load_settings()[0].ssh_address == "pdas@100.106.223.105"
+
+
+async def test_a_partitions_launch_command_and_environment_are_edited_and_saved(user: User):
+    await user.open("/settings")
+    assert _element(user, "partition-2-launch_command").value == 'mpirun --bind-to core -np "$SLURM_NTASKS" SU2_CFD'
+    assert _element(user, "partition-2-path").value == "/usr/local/bin:/usr/bin:/bin"
+    assert _element(user, "partition-2-unset_vars").value == "LD_LIBRARY_PATH"
+    assert _element(user, "partition-2-login_shell").value is False
+    assert _element(user, "partition-2-exclusive").value == "no"
+    assert _element(user, "partition-1-launch_command").value == ""  # node2 uses the Slurm-wide launch
+    await _commit(user, "partition-2-job_env", "OMPI_MCA_btl=self,vader")
+    assert load_settings()[0].slurm.partition("node0").job_env == "OMPI_MCA_btl=self,vader"
+    await _commit(user, "partition-2-unset_vars", "LD_LIBRARY_PATH 1BAD")
+    assert load_settings()[0].slurm.partition("node0").unset_vars == "LD_LIBRARY_PATH"  # refused, not saved

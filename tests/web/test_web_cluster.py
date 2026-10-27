@@ -40,7 +40,7 @@ async def _open(user):
     await WATCH.poll_once()  # ... and the poller brings their records up to date
 
 
-async def test_nodes_queue_and_my_jobs(user: User, cluster_study, eventually):
+async def test_nodes_and_my_jobs_without_the_queue(user: User, cluster_study, eventually):
     project_dir, project, fake = cluster_study
     runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
     fake.run("101", node="hpc1")
@@ -52,8 +52,7 @@ async def test_nodes_queue_and_my_jobs(user: User, cluster_study, eventually):
     await eventually(lambda: _text(user, "node-hpc2-note") == "bad DIMM", 5)
     assert _text(user, "node-hpc1-cpus") == "192 / 192" and _text(user, "node-hpc1-memory") == "20 of 122 GB free"
     assert "as-node-bad" in _element(user, "node-card-hpc2").classes
-    assert _text(user, "q-900-user") == "ana"
-    assert _element(user, "q-101-link").props["href"].startswith("/run?project=")
+    await user.should_not_see(marker="queue-card")  # everyone's queue is not shown
     await eventually(lambda: _text(user, "job-101-state") == "Running", 5)  # the page re-renders every 2 s
     assert _text(user, "job-102-state").startswith("Pending")
     await user.should_not_see(marker="job-900")  # someone else's
@@ -102,7 +101,7 @@ async def test_resubmit_from_the_cluster_page(user: User, cluster_study, eventua
     await eventually(lambda: bool(user.find(marker="resubmit-101").elements), 5)
     user.find(marker="resubmit-101").click()
     await eventually(lambda: bool(user.find(marker="resubmit-confirm").elements))
-    assert _element(user, "resubmit-partition").value == "node1"
+    assert _element(user, "resubmit-partition").value == "node0"  # after OUT_OF_MEMORY: the most memory (235 GB)
     user.find(marker="resubmit-confirm").click()
     await eventually(lambda: list_jobs(project_dir)[0].slurm[A0].attempts == ["101"], 10)
 
@@ -139,10 +138,9 @@ async def test_accounting_down_lists_active_cases_only(user: User, cluster_study
     await _open(user)
     await eventually(lambda: bool(user.find(marker="jobs-accounting").elements), 5)
     await user.should_see(marker="job-101")
-    assert _element(user, "queue-card").id < _element(user, "jobs-card").id  # Queue drawn above My jobs
 
 
-async def test_my_jobs_and_queue_fold_and_stay_folded(user: User, cluster_study, eventually):
+async def test_my_jobs_fold_and_stay_folded(user: User, cluster_study, eventually):
     from aerosuite.web.pages import cluster as cluster_page
 
     cluster_page._COLLAPSED.clear()
@@ -152,8 +150,6 @@ async def test_my_jobs_and_queue_fold_and_stay_folded(user: User, cluster_study,
     await eventually(lambda: bool(user.find(marker="job-101").elements), 5)
     user.find(marker="jobs-card-toggle").click()
     await user.should_not_see(marker="job-101")
-    user.find(marker="queue-card-toggle").click()
-    await user.should_not_see(marker="q-101")
     await user.open("/cluster")  # a new page: the sections stay folded
     await user.should_see(marker="jobs-card-toggle")
     await user.should_not_see(marker="job-101")

@@ -31,6 +31,47 @@ def test_job_script_matches_the_reference_script():
     assert "--dependency" not in text and "-t " not in text and "RESTART_SOL" not in text
 
 
+def test_node0_script_launches_with_mpirun_and_a_clean_environment():
+    options = SlurmOptions(partition="node0", ntasks=32, time_limit="", exclusive=False, account="pdas")
+    text = job_script("X07 cruise", "M0p8_a2", "M0p8_a2.cfg", options, SlurmSettings(), "20261019-1412")
+    lines = text.splitlines()
+    assert lines[:7] == ["#!/bin/bash", "#SBATCH -J X07_cruise/M0p8_a2", "#SBATCH -p node0", "#SBATCH -N 1",
+                         "#SBATCH -n 32", "#SBATCH -A pdas", "#SBATCH -o slurm-%j.out"]
+    assert "export PATH=/usr/local/bin:/usr/bin:/bin" in lines
+    assert "unset LD_LIBRARY_PATH" in lines
+    launch = 'mpirun --bind-to core -np "$SLURM_NTASKS" SU2_CFD M0p8_a2.cfg'
+    assert launch in lines
+    assert lines.index("export PATH=/usr/local/bin:/usr/bin:/bin") < lines.index("unset LD_LIBRARY_PATH") \
+        < lines.index('cd "$SLURM_SUBMIT_DIR"') < lines.index(launch)
+    # the cluster nodes' environment is not for this machine
+    assert "srun" not in text and "pmix" not in text and "module load" not in text and "OMPI_MCA" not in text
+    assert "/opt/su2/bin" not in text and "--exclusive" not in text
+    assert "--export" not in text  # the job keeps the submitting user's environment (uid 1000 is pdas there)
+    assert lines[-4:] == ["code=$?", "echo $code > aerosuite_exit", 'echo "AEROSUITE_EXIT $code $(date -Is)"',
+                          "exit $code"]
+
+
+def test_node0_script_with_its_own_module_line_and_environment():
+    slurm = SlurmSettings()
+    node0 = slurm.partition("node0")
+    node0.module_line = "module load openmpi"
+    node0.job_env = "OMPI_MCA_btl=self,vader"
+    node0.login_shell = True
+    options = SlurmOptions(partition="node0", ntasks=8, time_limit="", exclusive=False, account="")
+    lines = job_script("s", "c", "c.cfg", options, slurm, "j").splitlines()
+    assert lines[0] == "#!/bin/bash -l"
+    assert lines.index("module load openmpi") < lines.index("export OMPI_MCA_btl=self,vader") \
+        < lines.index("export PATH=/usr/local/bin:/usr/bin:/bin")
+
+
+def test_node0_restart_check_still_runs_before_mpirun():
+    options = SlurmOptions(partition="node0", ntasks=32, time_limit="", exclusive=False, account="pdas")
+    text = job_script("s", "a2", "a2.cfg", options, SlurmSettings(), "j", after="101",
+                      restart_from=("a0", "/data/s/runs/a0", "/data/s/runs/a0/restart_flow.dat"))
+    assert text.index("RESTART_SOL= NO") < text.index("mpirun")
+    assert "#SBATCH --dependency=afterany:101" in text
+
+
 def test_job_script_options():
     options = SlurmOptions(partition="node2", ntasks=48, time_limit="12:00:00", exclusive=False, account="")
     text = job_script("s", "c", "c.cfg", options, SlurmSettings(), "j", after="101", note="restarts from b",

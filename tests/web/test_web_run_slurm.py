@@ -128,12 +128,12 @@ async def test_resubmit_out_of_memory_proposes_more_memory(user: User, slurm_pro
     assert "OUT_OF_MEMORY" in _text(user, f"slurm-{A0}")
     user.find(marker=f"resubmit-{A0}").click()
     await eventually(lambda: bool(user.find(marker="resubmit-confirm").elements))
-    assert _element(user, "resubmit-partition").value == "node1"
+    assert _element(user, "resubmit-partition").value == "node0"  # the most memory now: node0, 235 GB
     await user.should_see(marker="resubmit-suggestion")
     user.find(marker="resubmit-confirm").click()
     await eventually(lambda: list_jobs(project_dir)[0].slurm[A0].attempts == ["101"], 10)
     job = list_jobs(project_dir)[0]
-    assert job.slurm[A0].partition == "node1" and job.slurm[A0].ntasks == 96 and job.is_active
+    assert job.slurm[A0].partition == "node0" and job.slurm[A0].ntasks == 32 and job.is_active
 
 
 async def test_a_blocked_case_shows_why(user: User, slurm_project, eventually):
@@ -181,8 +181,10 @@ async def test_add_cases_to_the_running_job_on_the_other_node(user: User, slurm_
     await user.should_see(marker="run-add")
     assert _element(user, "add-partition").value == "node2"  # the node this job does not use
     assert _element(user, "add-ntasks").value == "48"
-    assert _text(user, "add-cases") == "Add 1 case to the running job"  # A0 and A2 are busy
-    assert _text(user, "add-skipped") == "2 ticked cases are already queued or running in this job: skipped"
+    assert _text(user, "add-cases") == "Add 1 case to the running job"  # A4: the one not run yet
+    user.find(marker="select-all").click()  # A0 and A2 are busy
+    assert _text(user, "add-skipped") == "2 selected cases are already queued or running in this job: skipped"
+    assert _text(user, "add-cases") == "Add 1 case to the running job"
     user.find(marker="add-cases").click()
     await eventually(lambda: A4 in list_jobs(project_dir)[0].slurm, 10)
     job = list_jobs(project_dir)[0]
@@ -208,7 +210,7 @@ async def test_slurm_mode_shows_a_cluster_summary_and_the_slurm_fields(user: Use
     await _open(user, project_dir)
     await user.should_not_see(marker="run-machine")
     await user.should_not_see(marker="run-partitions")
-    assert _text(user, "run-cluster-summary") == "node1 96/192 busy · node2 free"
+    assert _text(user, "run-node-node1") == "node1 50%" and _text(user, "run-node-node2") == "node2 free"
     assert _element(user, "run-cluster-link").props["href"].startswith("/cluster?back=%2Frun%3Fproject%3D")
     assert _element(user, "run-backend").value == "slurm"
     assert _element(user, "run-partition").value == "node1"
@@ -223,11 +225,12 @@ async def test_the_summary_turns_red_for_a_drained_node_or_an_outage(user: User,
     WATCH.show_cluster()
     await WATCH.poll_once()
     await _open(user, project_dir)
-    summary = _element(user, "run-cluster-summary")
-    assert summary.text == "node1 free · node2 1 drain, 0/192 busy" and "as-error-text" in summary.classes
+    assert _text(user, "run-node-node1") == "node1 free"
+    bad = _element(user, "run-node-node2")
+    assert bad.text == "node2 drain" and "as-error-text" in bad.classes
     fake.update(controller_down=True)
     await WATCH.poll_once()
-    await eventually(lambda: _text(user, "run-cluster-summary") == "Slurm controller unreachable", 5)
+    await eventually(lambda: _text(user, "run-cluster-message") == "Slurm controller unreachable", 5)
 
 
 DIVERGED_OUT = """AeroSuite: Slurm job 101 on hpc1, 96 ranks, start 2026-10-22T11:43:00+09:00
@@ -398,11 +401,11 @@ async def test_cases_the_sweep_no_longer_makes_stay_in_view_while_their_job_runs
     update_sweep(project, alpha=[10.0])  # the sweep changed while the job runs: A0 and A2 are no longer made
     save_project(project_dir, project)
     await _open(user, project_dir)
-    await user.should_see(marker="run-others")
-    await user.should_see(marker=f"other-{A0}")
+    await user.should_see(marker=f"other-{A0}")  # in the list by state, marked as the job's
     assert _text(user, f"status-{A0}") == "RUNNING" and _text(user, f"status-{A2}") == "PENDING"
-    await user.should_not_see(marker=f"tick-{A0}")  # the job's: not ticked or submitted from here
-    assert f"case={A0}" in _element(user, f"monitor-{A0}").props["href"]
+    await user.should_not_see(marker=f"tick-{A0}")  # the job's: not selected or submitted from here
+    user.find(marker=f"details-{A0}").click()
+    await user.should_see(marker="details-other")
     await user.open(project_url("monitor", project_dir) + f"&case={A0}")
     select = _element(user, "monitor-case")
     assert A0 in select.options and "M0p8_a10_b0" in select.options and select.value == A0
