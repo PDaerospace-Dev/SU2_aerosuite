@@ -477,6 +477,13 @@ the case folder), newest first.
 - A case opens its surface and volume files in ParaView on the workstation's screen; *All cases* opens every case's
   surface files in one session.
 - From a browser on another PC, a case copies its folder path instead.
+- **Write ASCII from restart…**: pick a case with a restart file, and SU2_SOL rebuilds its `flow.vtk` and
+  `surface_flow.vtk` (ParaView ASCII) from it, into the case folder. Handy when the sweep writes binary `.vtu`
+  (`OUTPUT_FILES= PARAVIEW, SURFACE_PARAVIEW, RESTART`, several times smaller and quicker to write) or no volume
+  file. It uses the case's config with its own restart as the solution, writes on the node's own disk first, then
+  moves the files. With Slurm it is a batch job on the study's partition, started as that partition starts SU2_CFD
+  and stopped after 2 h (its output in `to_ascii-<job id>.out`); else it runs on this machine (`to_ascii.log`).
+  The mesh must still be where the config says.
 - `AEROSUITE_PARAVIEW` names another executable than `paraview`.
 
 ### Log

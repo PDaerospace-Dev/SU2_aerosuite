@@ -69,16 +69,14 @@ def job_name(study: str, case: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.+-]", "_", study) + "/" + re.sub(r"[^A-Za-z0-9_.+-]", "_", case)
 
 
-def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slurm: SlurmSettings, job_id: str,
-               after: Optional[str] = None, note: str = "",
-               restart_from: Optional[tuple[str, str, str]] = None) -> str:
-    """The batch script of one case (see the spec's §4.2); `after` = the Slurm job id it waits for, and
-    `restart_from` = (that case, its folder, the solution file): without both its 0 exit and the file, this case
-    starts from scratch."""
+def script_head(name: str, options: SlurmOptions, slurm: SlurmSettings, comment: str, out: str = "slurm-%j.out",
+                after: Optional[str] = None) -> tuple[list[str], str]:
+    """A batch script's start: the #SBATCH lines, `comment`, the environment (the partition's own, else the
+    Slurm-wide one) and `cd "$SLURM_SUBMIT_DIR"`; and the launch command that starts SU2_CFD there."""
     part = slurm.partition(options.partition)
     own = part if part is not None and part.launch_command else None  # a partition with its own launch command
     lines = ["#!/bin/bash" if own is not None and not own.login_shell else "#!/bin/bash -l",
-             f"#SBATCH -J {job_name(study, case)}",
+             f"#SBATCH -J {name}",
              f"#SBATCH -p {_safe('Partition', options.partition)}",
              "#SBATCH -N 1",
              f"#SBATCH -n {int(options.ntasks)}"]
@@ -88,10 +86,9 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
         lines.append(f"#SBATCH -A {_safe('Account', options.account)}")
     if options.time_limit:
         lines.append(f"#SBATCH -t {_safe('Time limit', options.time_limit)}")
-    lines.append("#SBATCH -o slurm-%j.out")
+    lines.append(f"#SBATCH -o {out}")
     if after:
         lines += [f"#SBATCH --dependency=afterany:{_safe('Job id', after)}", "#SBATCH --kill-on-invalid-dep=yes"]
-    comment = f"# Written by AeroSuite for job {job_id}, case {case}" + (f" ({note})" if note else "") + "."
     module_line, launch = (own.module_line, own.launch_command) if own is not None else (slurm.module_line,
                                                                                       slurm.srun_command)
     for value in (module_line, launch, slurm.su2_bin, comment):
@@ -110,8 +107,19 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
         lines.append(module_line)
         lines += [f"export {name}={shlex.quote(value)}" for name, value in env_pairs(slurm.job_env)]
         lines.append(f"export PATH={shlex.quote(slurm.su2_bin)}:\"$PATH\"")
-    lines += ['cd "$SLURM_SUBMIT_DIR"',
-              f"rm -f {EXIT_FILE}",
+    lines.append('cd "$SLURM_SUBMIT_DIR"')
+    return lines, launch
+
+
+def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slurm: SlurmSettings, job_id: str,
+               after: Optional[str] = None, note: str = "",
+               restart_from: Optional[tuple[str, str, str]] = None) -> str:
+    """The batch script of one case (see the spec's §4.2); `after` = the Slurm job id it waits for, and
+    `restart_from` = (that case, its folder, the solution file): without both its 0 exit and the file, this case
+    starts from scratch."""
+    comment = f"# Written by AeroSuite for job {job_id}, case {case}" + (f" ({note})" if note else "") + "."
+    lines, launch = script_head(job_name(study, case), options, slurm, comment, after=after)
+    lines += [f"rm -f {EXIT_FILE}",
               'echo "AeroSuite: Slurm job $SLURM_JOB_ID on $(hostname), $SLURM_NTASKS ranks, start $(date -Is)"']
     if restart_from is not None:
         source, folder, solution = restart_from
