@@ -662,8 +662,8 @@ class RunPage:
             ui.label("Run").classes("as-run-head")
             ui.space()
             ui.toggle({"local": "This machine", "slurm": "Slurm"}, value=self.backend,
-                      on_change=lambda e: self._set_backend(e.value)).props("dense no-caps unelevated").mark(
-                "run-backend")
+                      on_change=lambda e: self._set_backend(e.value)).props(
+                "dense no-caps unelevated toggle-color=primary").classes("as-toggle").mark("run-backend")
         if single:
             ui.label(self.project.cases[0].name).classes("as-run-big as-mono").mark("run-what")
         else:

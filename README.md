@@ -478,16 +478,22 @@ output as it runs, along the bottom of the page.
 - Jobs are named by date and minute (`20260928-1358`, then `-2` for a second job in the same minute).
 
 ### Settings
-At the bottom left of every page. Server-wide settings, saved for every study; the same as `aerosuite settings`.
+At the bottom left of every page: the server-wide settings, saved for every study (the same as
+`aerosuite settings`). Four tabs; `/settings?tab=partitions&partition=node0` opens one, on that partition. Hover a
+field's ⓘ for what it does.
 
-- **Execution**: where jobs run by default (this machine with mpirun, or Slurm; each study can choose on its Run
-  page), and *Check each case's config with SU2* (see *Checks before a run*).
-- **Slurm**: the default partition, one job per node (`--exclusive`), the shared root, module line, SU2 bin folder,
-  launch command, job environment, account, default time limit, memory per million cells and the poll interval.
-- **Partitions**: each partition's limits, including the memory an `--exclusive` job may use before Slurm kills it,
-  and whether to block a submit over it.
-- **Job script per partition**: a partition with its own launch command (e.g. `mpirun` on the workstation) gets
-  only its own environment.
+- **General**: where jobs run by default (this machine with mpirun, or Slurm; each study can choose on its Run page),
+  and *Check each case's config with SU2* (see *Checks before a run*).
+- **Slurm**: *Submitting* (the default partition, the shared root, one job per node with `--exclusive`, account and
+  default time limit), the *Job script* for partitions without their own (module line, SU2 bin folder, launch
+  command, job environment), and *Estimates and polling* (memory per million cells, the poll interval).
+- **Partitions**: one card per partition, with its tasks, memory limit, warn-above and whether it blocks or warns
+  over memory, and *own script* when it has its own job script. Click a card for all its settings under the cards:
+  name, tasks per case, memory limit (what an `--exclusive` job may use before Slurm kills it), warn above, over the
+  memory limit (*Warn* or *Block*), *Make default* and *Remove* (not the default partition), its launch command and
+  *Exclusive* (Slurm-wide, one job per node, or share the node). Give a partition a launch command of its own (e.g.
+  `mpirun` on the workstation) and its own job script's fields appear: PATH, Unset, module line, job environment
+  and login shell; only those are used for it. *Add partition* is above the cards.
 - **Open from your PC**: the SSH address of this machine, the launchers and the tunnel command (see *Getting
   started*).
 
@@ -549,7 +555,7 @@ aerosuite settings                   # partitions, default tasks, memory limits,
   "$SLURM_NTASKS" SU2_CFD <case>.cfg` under plain `#!/bin/bash`, with `PATH=/usr/local/bin:/usr/bin:/bin` and
   `LD_LIBRARY_PATH` unset, no `--exclusive`, and never `--export=NONE` (uid 1000 is `pdas` there and `pdas-hpc1` on
   the nodes). The launch command, module line, PATH, unset variables and job environment are per-partition settings
-  (Settings → *Job script per partition*, or `aerosuite settings set slurm.partitions.node0.launch_command ...`); a
+  (Settings → *Partitions* → node0, or `aerosuite settings set slurm.partitions.node0.launch_command ...`); a
   partition whose launch command is empty keeps the Slurm-wide ones. Its reference script is
   `/data/software/templates/su2_job_ws.sh`.
 - The local backend (`mpirun` through the sweep script) is unchanged and stays the default.

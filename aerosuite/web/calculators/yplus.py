@@ -46,7 +46,8 @@ def build(ctx: CalcContext) -> None:
             ui.label(ctx.handoff["source"]).classes("as-strip as-muted").mark("yplus-from")
         with ui.row().classes("items-center gap-3"):
             domain = ui.toggle(["External", "Internal"], value="External",
-                               on_change=lambda _: recompute()).props("no-caps unelevated").mark("yplus-domain")
+                               on_change=lambda _: recompute()).props(
+                "dense no-caps unelevated toggle-color=primary").classes("as-toggle").mark("yplus-domain")
             hint("external: flow over a body · internal: duct or pipe")
         boxes = {}
         with ui.element("div").classes("as-grid-3"):

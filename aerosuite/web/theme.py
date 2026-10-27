@@ -112,7 +112,8 @@ a.as-step:hover { background: #f6f8fa; }
 .as-step .as-dot { position: absolute; top: 6px; left: 26px; border: 1.5px solid #fff; box-sizing: content-box; }
 .as-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
 .as-dot-todo { background: #fff; box-shadow: inset 0 0 0 1.5px #8c959f; }
-.as-main { flex: 1; min-width: 0; padding: 14px 28px 28px; gap: 14px; }
+/* bottom padding: the last of a long page scrolls clear of the floating Log and Settings buttons */
+.as-main { flex: 1; min-width: 0; padding: 14px 28px 76px; gap: 14px; }
 .as-crumbs { gap: 10px; min-height: 36px; align-items: center; flex-wrap: nowrap; }
 .as-crumb-link { color: var(--as-muted); text-decoration: none; }
 .as-crumb-link:hover { color: var(--as-accent); }
@@ -120,7 +121,7 @@ a.as-step:hover { background: #f6f8fa; }
 .as-crumb-sep { color: #c4c9cf; }
 .as-crumb-current { font-weight: 600; }
 .as-content { gap: 14px; }
-.as-page { padding: 14px 28px 28px; gap: 14px; }
+.as-page { padding: 14px 28px 76px; gap: 14px; }
 
 .as-card { background: #fff; border: 1px solid var(--as-frame); border-radius: 10px; padding: 16px 18px;
   gap: 12px; box-shadow: 0 1px 3px rgba(15, 27, 45, .10); }
@@ -198,7 +199,9 @@ a.as-step:hover { background: #f6f8fa; }
 .as-recent-row > .as-tag, .as-recent-row > .as-pill { flex: none; }
 .as-recent-row:hover { background: #f6f8fa; }
 
-.as-btn { text-transform: none; border-radius: 8px; font-weight: 500; min-height: 32px; padding: 0 14px; }
+.as-btn { text-transform: none; border-radius: 8px; font-weight: 500; min-height: 32px; padding: 0 14px;
+  flex: none; white-space: nowrap; }
+.as-btn .q-btn__content { flex-wrap: nowrap; }
 .as-btn-primary { background: #1f2328; color: #fff; }
 .as-btn-secondary { background: #fff; color: var(--as-text); border: 1px solid var(--as-border); }
 .as-btn-danger { background: #fff; color: #a40e26; border: 1px solid #ffd7d5; }
@@ -507,6 +510,19 @@ a.as-step:hover { background: #f6f8fa; }
 
 .q-dialog .q-card { border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 35, 40, .14); padding: 18px; gap: 12px; }
 .as-dialog-title { font-size: 14px; font-weight: 600; }
+
+/* Settings: tabs; the partitions as cards, the chosen one's settings under them */
+.as-settings { max-width: 1080px; }
+.as-settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px;
+  align-items: start; }
+.as-field-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 16px; }
+.as-section-title { margin-top: 8px; }
+.as-partition-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.as-partition-card { cursor: pointer; gap: 4px; padding: 10px 14px; }
+.as-partition-card:hover { border-color: #8c959f; }
+.as-partition-current, .as-partition-current:hover { border-color: var(--as-accent);
+  box-shadow: 0 0 0 3px rgba(47, 111, 228, .15); }
+.as-partition-name { font-size: 14px; font-weight: 600; }
 
 /* The web UI guide: its sections on the left, one at a time on the right */
 .q-dialog .q-card.as-guide { width: 68rem; max-width: 96vw; height: 84vh; padding: 0; gap: 0; }

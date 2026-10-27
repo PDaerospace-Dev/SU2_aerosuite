@@ -119,7 +119,9 @@ def line_options(x: list, df, columns: list, normalize: bool = False, colors: Op
     return {
         "animation": False,
         "tooltip": {"trigger": "axis"},
-        "legend": {"data": list(columns), "orient": "vertical", "right": 10, "top": "middle"},
+        # the legend in a column of its own on the right, clear of the lines (it scrolls when long)
+        "legend": {"data": list(columns), "type": "scroll", "orient": "vertical", "right": 8, "top": "middle"},
+        "grid": {"left": 64, "right": 140, "top": 40, "bottom": 56},
         # onZero False keeps the axis line at the bottom of the grid instead of at y = 0, where
         # ECharts puts a value axis by default (residuals are negative, so that's mid-chart).
         "xAxis": {"type": "value", "name": "Iteration", "nameLocation": "middle", "nameGap": 30,
