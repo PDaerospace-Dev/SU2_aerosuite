@@ -255,7 +255,7 @@ async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User,
     assert "about 4 cores free now" in _text(user, "machine-note")
 
 
-# -- the list and the panel on the right (layout "B") ---------------------------------------------
+# -- the job bar, the list, the board and the panel on the right ----------------------------------
 
 
 async def test_the_panel_says_what_will_run_and_sets_the_cores(user: User, ready_project, su2_env):
@@ -270,7 +270,7 @@ async def test_the_panel_says_what_will_run_and_sets_the_cores(user: User, ready
     await user.should_see(marker="run-partitions-error")
     assert open_project(project_dir).run.partitions == 12
     user.find(marker="select-none").click()
-    assert not _element(user, "submit").enabled and _text(user, "submit-blocked") == "Tick at least one case"
+    assert not _element(user, "submit").enabled and _text(user, "submit-blocked") == "Select at least one case"
 
 
 async def test_the_panel_follows_a_running_job(user: User, ready_project, su2_env, eventually):
@@ -279,7 +279,7 @@ async def test_the_panel_follows_a_running_job(user: User, ready_project, su2_en
     await _open(user, project_dir)
     user.find(marker="submit").click()
     await eventually(lambda: _text(user, f"status-{A2}") == "RUNNING", timeout=20)
-    assert _text(user, "run-what") == "2" and _text(user, "run-current") == A2  # the second of three
+    assert _text(user, "run-what") == "1 of 3" and _text(user, "run-current") == A2  # the second of three
     assert _text(user, "run-elapsed").startswith("Elapsed ") and "left" in _text(user, "run-elapsed")
     assert _element(user, "run-progress").value == pytest.approx(1 / 3)
     await user.should_not_see(marker="run-partitions")
@@ -303,18 +303,45 @@ async def test_a_single_case_is_a_card(user: User, tmp_path, su2_env):
     await user.should_see(marker="history-none")
 
 
-async def test_many_cases_fold_by_mach_and_altitude(user: User, ready_project, su2_env):
+async def test_a_grid_of_cases_is_a_board(user: User, ready_project, su2_env):
     project_dir, project = ready_project
     update_sweep(project, mach=[0.6, 0.8], alpha=[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
     save_project(project_dir, project)
+    first = open_project(project_dir).cases[0].name  # M0p6_a0_b0
     await _open(user, project_dir)
-    await user.should_see(marker="group-0")
-    await user.should_see(marker="group-1")
-    first = open_project(project_dir).cases[0].name
-    await user.should_not_see(marker=f"tick-{first}")  # folded: nothing needs attention
-    assert _text(user, "run-what") == "14"
-    user.find(marker="group-0").click()
-    await user.should_see(marker=f"tick-{first}")
-    with user:
-        _element(user, "group-tick-1").set_value(False)
+    assert _element(user, "run-tabs").value == "board"
+    await user.should_see(marker=f"tile-{first}")
+    assert _text(user, "run-what") == "14"  # nothing has run: every case is selected
+    user.find(marker="board-row-|0-0.6").click()  # a row's name: all selected, so unselect them
     assert _text(user, "run-what") == "7"
+    user.find(marker="board-col-|0-3").click()  # a column: select its cases
+    assert _text(user, "run-what") == "8"
+    assert "as-tile-selected" not in _element(user, f"tile-{first}").classes
+    user.find(marker=f"tile-{first}").click()  # a click shows its details
+    await user.should_see(marker="case-details")
+    assert _text(user, "details-name") == first
+    with user:
+        _element(user, "details-tick").set_value(True)
+    assert _text(user, "run-what") == "9" and "as-tile-selected" in _element(user, f"tile-{first}").classes
+    user.find(marker="details-close").click()
+    await user.should_not_see(marker="case-details")
+    with user:
+        _element(user, "run-tabs").set_value("list")
+    await user.should_see(marker=f"tick-{first}")
+    await user.should_see(marker="list-not-run")
+
+
+async def test_the_list_groups_cases_by_state(user: User, ready_project, su2_env):
+    project_dir, project = ready_project
+    _run_to_end(project_dir, project, **{A2: "fail", A4: "diverge"})
+    await _open(user, project_dir)
+    assert _element(user, "run-tabs").value == "list"  # one Mach: no grid to draw
+    await user.should_see(marker="list-attention")
+    await user.should_see(marker="list-done")
+    await user.should_not_see(marker="list-not-run")
+    user.find(marker="list-select-attention").click()  # every case that needs a look
+    assert _element(user, f"tick-{A2}").value and _element(user, f"tick-{A4}").value
+    assert not _element(user, f"tick-{A0}").value
+    user.find(marker="list-attention").click()  # folds
+    await user.should_not_see(marker=f"tick-{A2}")
+    assert "Failed" in _text(user, "last-job") and "1 converged" in _text(user, "last-job")

@@ -181,8 +181,10 @@ async def test_add_cases_to_the_running_job_on_the_other_node(user: User, slurm_
     await user.should_see(marker="run-add")
     assert _element(user, "add-partition").value == "node2"  # the node this job does not use
     assert _element(user, "add-ntasks").value == "48"
-    assert _text(user, "add-cases") == "Add 1 case to the running job"  # A0 and A2 are busy
-    assert _text(user, "add-skipped") == "2 ticked cases are already queued or running in this job: skipped"
+    assert _text(user, "add-cases") == "Add 1 case to the running job"  # A4: the one not run yet
+    user.find(marker="select-all").click()  # A0 and A2 are busy
+    assert _text(user, "add-skipped") == "2 selected cases are already queued or running in this job: skipped"
+    assert _text(user, "add-cases") == "Add 1 case to the running job"
     user.find(marker="add-cases").click()
     await eventually(lambda: A4 in list_jobs(project_dir)[0].slurm, 10)
     job = list_jobs(project_dir)[0]
@@ -399,11 +401,11 @@ async def test_cases_the_sweep_no_longer_makes_stay_in_view_while_their_job_runs
     update_sweep(project, alpha=[10.0])  # the sweep changed while the job runs: A0 and A2 are no longer made
     save_project(project_dir, project)
     await _open(user, project_dir)
-    await user.should_see(marker="run-others")
-    await user.should_see(marker=f"other-{A0}")
+    await user.should_see(marker=f"other-{A0}")  # in the list by state, marked as the job's
     assert _text(user, f"status-{A0}") == "RUNNING" and _text(user, f"status-{A2}") == "PENDING"
-    await user.should_not_see(marker=f"tick-{A0}")  # the job's: not ticked or submitted from here
-    assert f"case={A0}" in _element(user, f"monitor-{A0}").props["href"]
+    await user.should_not_see(marker=f"tick-{A0}")  # the job's: not selected or submitted from here
+    user.find(marker=f"details-{A0}").click()
+    await user.should_see(marker="details-other")
     await user.open(project_url("monitor", project_dir) + f"&case={A0}")
     select = _element(user, "monitor-case")
     assert A0 in select.options and "M0p8_a10_b0" in select.options and select.value == A0

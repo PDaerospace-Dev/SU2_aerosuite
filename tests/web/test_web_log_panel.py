@@ -99,7 +99,7 @@ async def test_job_history_is_its_own_tab_and_opens_a_jobs_log(user: User, ready
     _, job = _run(project_dir, project)
     await user.open(project_url("run", project_dir))
     tabs = _element(user, "run-tabs")
-    assert tabs.value == "cases"
+    assert tabs.value == "list"
     await user.should_not_see(marker="history-none")
     await user.should_see(marker=f"status-{A0}")
     await user.should_not_see(marker=f"history-{job.id}")

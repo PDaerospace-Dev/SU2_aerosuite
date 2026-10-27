@@ -48,3 +48,49 @@ def test_a_single_cases_conditions_come_from_its_config():
         ("Solver", "RANS · SA"), ("Mach", "0.8"), ("α (deg)", "1.25"), ("β (deg)", "0.0"),
         ("Iterations (max)", "5000"), ("Mesh", "mesh_NACA0012_inv.su2")]
     assert case_conditions("SOLVER= EULER\nKIND_TURB_MODEL= NONE\n", None) == [("Solver", "EULER")]
+
+
+def test_board_sections_are_one_grid_per_altitude_and_beta():
+    from aerosuite.engine.models import Case
+    from aerosuite.web.run_view import board_sections, has_board
+
+    cases = [Case(name=f"M{m}_{h}km_a{a}_b{b}", mach=m, alpha=a, beta=b, altitude_km=h)
+             for h in (0.0, 10.0) for m in (0.3, 0.6) for a in (0.0, 5.0) for b in (0.0, 2.0)]
+    sections = board_sections(cases)
+    assert [s.label for s in sections] == ["0 km · β 0°", "0 km · β 2°", "10 km · β 0°", "10 km · β 2°"]
+    first = sections[0]
+    assert (first.key, first.machs, first.alphas) == ("0|0", [0.3, 0.6], [0.0, 5.0])
+    assert first.cells[(0.6, 5.0)] == "M0.6_0.0km_a5.0_b0.0"
+    assert has_board(cases)
+    one_mach = [Case(name=f"a{a}", mach=0.8, alpha=a, beta=0.0) for a in (0.0, 2.0, 4.0)]
+    assert not has_board(one_mach) and board_sections(one_mach)[0].label == ""
+
+
+def test_tile_text():
+    from aerosuite.engine.jobs.overview import NOT_RUN
+    from aerosuite.web.run_view import tile_text
+
+    assert tile_text("CONVERGED", 812) == "✓ 812 it" and tile_text("CONVERGED") == "✓"
+    assert tile_text("UNCONVERGED", 1500) == "1500 it" and tile_text("RUNNING", 930) == "930 it"
+    assert tile_text("PENDING", place=3) == "#3" and tile_text("FAILED") == "! failed"
+    assert tile_text(NOT_RUN) == "—"
+
+
+def test_state_sections_put_failed_first_in_needs_a_look():
+    from aerosuite.engine.jobs.overview import NOT_RUN, CaseRow
+    from aerosuite.web.run_view import state_sections
+
+    rows = [CaseRow("a", "UNCONVERGED", "j"), CaseRow("b", "CONVERGED", "j"), CaseRow("c", "FAILED", "j"),
+            CaseRow("d", "RUNNING", "j"), CaseRow("e", NOT_RUN, None), CaseRow("f", "PENDING", "j")]
+    sections = state_sections(rows)
+    assert [(key, [r.name for r in members]) for key, _title, members in sections] == [
+        ("running", ["d"]), ("queued", ["f"]), ("attention", ["c", "a"]), ("not-run", ["e"]), ("done", ["b"])]
+
+
+def test_a_case_is_read_back_from_its_name():
+    from aerosuite.web.run_view import case_from_name
+
+    case = case_from_name("M0p6_20km_an2p5_b0")
+    assert (case.mach, case.alpha, case.beta, case.altitude_km) == (0.6, -2.5, 0.0, 20.0)
+    assert case_from_name("M0p8_a2_b1").altitude_km is None
+    assert case_from_name("study") is None

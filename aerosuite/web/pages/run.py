@@ -1,6 +1,7 @@
-"""Run: the cases on the left (a case card, a list, or the list folded by Mach and altitude) and a panel on the
-right that stays in view: what will run and Submit (or the running job and Cancel), checks, the machine (or, with
-the Slurm backend, a one-line cluster summary), the last job."""
+"""Run: a job bar across the top (the running job, or the last one), the cases on the left as a Board (a grid per
+altitude: Mach down, α across, one tile per case) or a List by state (running, queued, needs a look, not run, done),
+and a panel on the right that stays in view: a case's details when one is clicked, then what will run and Submit (or,
+while a Slurm job runs, adding cases to it), checks, the machine or the cluster. A single case is a card."""
 from datetime import datetime
 from typing import NamedTuple, Optional
 from urllib.parse import quote
@@ -34,7 +35,8 @@ from .cluster import cluster_url
 from ..slurm_fields import slurm_fields
 from ..jobs import WATCHER, JobView, job_progress
 from ..layout import ProjectFrame, open_session, project_url
-from ..run_view import ATTENTION, case_conditions, case_groups, duration_text, layout, status_counts, time_left
+from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, duration_text,
+                        has_board, layout, state_sections, status_counts, tile_text, time_left)
 from ..session import parse_int
 from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, hint, ok_line,
                       pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table, td, td_box,
@@ -54,14 +56,16 @@ KEY_VALUES = 6  # a single case's card shows this many of the Results page's cho
 
 def register() -> None:
     @ui.page("/run")
-    def run_page(project: str = "") -> None:
+    def run_page(project: str = "", tab: str = "", case: str = "") -> None:
+        """`tab`: board, list or history; `case`: the case whose details open."""
         session = open_session(project)
         if session is None:
             return
         pages: list = []
         frame = ProjectFrame(session, "run", on_reload=lambda: pages[0].render() if pages else None)
         with frame.content:
-            pages.append(RunPage(frame))
+            pages.append(RunPage(frame, tab=tab if tab in ("board", "list", "history") else None,
+                                 focus=case or None))
 
 
 _NODE_DOTS = {"free": "done", "busy": "attention", "bad": "red"}
@@ -103,6 +107,28 @@ def _snapshot(view: JobView) -> tuple:
     )
 
 
+class _Row(NamedTuple):
+    status: str
+
+
+def _ago(when: datetime) -> str:
+    """"just now", "25 min ago", "3 h ago", "2 days ago"."""
+    seconds = max(0.0, (datetime.now() - when).total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{int(seconds // 60)} min ago"
+    if seconds < 86400:
+        return f"{int(seconds // 3600)} h ago"
+    days = int(seconds // 86400)
+    return f"{days} day{'' if days == 1 else 's'} ago"
+
+
+def _tone(status: str) -> str:
+    """A tile's colour family: as the pills, with not run apart from queued."""
+    return "notrun" if status == NOT_RUN else pill_tone(status)
+
+
 def _answer(dialog: ui.dialog, value: bool) -> None:
     """Submit a dialog's result and delete it immediately (see the comment in confirm_cancel)."""
     dialog.submit(value)
@@ -110,20 +136,22 @@ def _answer(dialog: ui.dialog, value: bool) -> None:
 
 
 class _Selection(NamedTuple):
-    ticked: list[str]  # ticked case names, in case order
+    ticked: list[str]  # the selected cases, in case order
     chosen: bool  # "Continue from each case's last solution" is ticked
-    no_solution: list[str]  # ticked cases with nothing to continue from
+    no_solution: list[str]  # selected cases with nothing to continue from
 
 
 class RunPage:
-    def __init__(self, frame: ProjectFrame) -> None:
+    def __init__(self, frame: ProjectFrame, tab: Optional[str] = None, focus: Optional[str] = None) -> None:
         self.frame = frame
-        self.ticked = {case.name for case in frame.session.project.cases}
-        self.continue_choice: Optional[bool] = None  # None: the default for the ticked cases
+        self.ticked: Optional[set] = None  # the selected cases; chosen at the first draw (see _default_ticked)
+        self.continue_choice: Optional[bool] = None  # None: the default for the selected cases
         self.continue_cases: list[str] = []
         self.opened: set[str] = set()  # failed cases whose "why it failed" box is open
-        self.tab = "cases"  # or "history"; kept across redraws
-        self.groups_open: dict[str, bool] = {}  # folded groups the user opened or closed (by label)
+        self.tab: Optional[str] = tab  # "board", "list" or "history"; chosen at the first draw, kept across redraws
+        self.compact: Optional[bool] = None  # small tiles; None: by the number of cases
+        self.sections_open: dict[str, bool] = {}  # board and list sections the user opened or closed
+        self.focus: Optional[str] = focus  # the case whose details the panel shows
         self.clock: Optional[tuple] = None  # (job started, cases finished, cases in all) while a job runs
         self.has_errors = False
         self.was_active = False
@@ -190,59 +218,446 @@ class RunPage:
         self.was_active = view.active is not None
         self.shown = _snapshot(view)
         self._load_settings()
-        self.ticked &= {case.name for case in self.project.cases}  # the cases may have been rebuilt
+        names = {case.name for case in self.project.cases}
+        if self.ticked is None:
+            self.ticked = self._default_ticked(view)
+        self.ticked &= names  # the cases may have been rebuilt
+        if self.tab is None:
+            self.tab = "board" if has_board(self._shown_cases(view)) else "list"
+        if self.focus is not None and self.focus not in {row.name for row in view.overview.all_rows}:
+            self.focus = None
         self.jobs_by_id = {job.id: job for job in view.overview.jobs}
         self.holder.clear()
         self.frame.actions.clear()
         selection = self._selection(view)
         kind = layout(self.project.cases)
         with self.holder:
+            self._job_bar(view, single=kind == "single")
             with ui.element("div").classes("as-run w-full"):
-                with ui.column().classes("as-run-main gap-4"):
+                with ui.column().classes("as-run-main gap-3"):
                     if kind == "single":
                         self._case_card(view)
+                        if view.overview.others:  # the running job's cases the sweep no longer makes
+                            self._list(view, view.overview.others)
                         self._history(view)
+                    elif kind == "none":
+                        ui.label("No cases yet: set up the sweep first.").classes("as-muted").mark("run-no-cases")
                     else:
-                        if view.overview.rows:
-                            self._summary(view)
-                        with ui.tabs(value=self.tab, on_change=lambda e: self._set_tab(e.value)).props(
-                                "dense no-caps align=left inline-label").classes(
-                                "as-tabs as-page-tabs w-full").mark("run-tabs"):
-                            ui.tab("cases", "Cases", icon="view_list").mark("run-tab-cases")
-                            ui.tab("history", f"Job history ({len(view.overview.jobs)})", icon="history").mark(
-                                "run-tab-history")
+                        self._views(view)
                         if self.tab == "history":
                             self._history(view)
                         else:
-                            self._cases(view, selection, grouped=kind == "groups")
-                    if view.overview.others and not (kind != "single" and self.tab == "history"):
-                        self._others(view)
-                with ui.column().classes("as-run-panel gap-0").mark("run-panel"):
-                    with ui.column().classes("as-run-part w-full gap-2" + (
-                            " as-run-live" if view.active is not None else "")):
-                        if view.active is not None:
-                            self._running(view)
+                            self._status_bar(view)
+                            if self.tab == "board":
+                                self._board(view)
+                            else:
+                                self._list(view)
+                            self._selection_bar(selection)
+                with ui.column().classes("as-run-side gap-3").mark("run-side"):
+                    if self.focus is not None and (kind != "single" or self.focus != self.project.cases[0].name):
+                        self._details(view)
+                    with ui.column().classes("as-run-panel gap-0").mark("run-panel"):
+                        if view.active is None:
+                            with ui.column().classes("as-run-part w-full gap-2"):
+                                self._launch(view, selection, single=kind == "single")
+                        elif view.active.backend == "slurm" and kind != "single":
+                            with ui.column().classes("as-run-part w-full gap-2").mark("run-add"):
+                                self._add_block(view, selection)
                         else:
-                            self._launch(view, selection, single=kind == "single")
-                    if view.active is not None and view.active.backend == "slurm" and kind != "single":
-                        with ui.column().classes("as-run-part w-full gap-2").mark("run-add"):
-                            self._add_block(view, selection)
-                    if view.active is not None:  # idle: the checks sit above Submit
-                        with ui.column().classes("as-run-part w-full gap-2"):
-                            self._checks(view, selection)
-                            self._plan(view, selection)
-                    with ui.column().classes("as-run-part as-run-foot w-full gap-1"):
-                        if self.slurm:
-                            self._cluster_summary()
-                        else:
-                            self._machine()
-                        self._last_job(view, single=kind == "single")
+                            with ui.column().classes("as-run-part w-full gap-2").mark("run-wait"):
+                                ui.label("One job at a time").classes("as-run-head")
+                                hint("Cases can be run again once this job ends, or after Cancel.")
+                        if view.active is not None:  # idle: the checks sit above Submit
+                            with ui.column().classes("as-run-part w-full gap-2"):
+                                self._checks(view, selection)
+                                self._plan(view, selection)
+                        with ui.column().classes("as-run-part as-run-foot w-full gap-1"):
+                            if self.slurm:
+                                self._cluster_summary()
+                            else:
+                                self._machine()
         self._buttons_state(view, selection)
+
+    def _default_ticked(self, view: JobView) -> set:
+        """What is selected when the page opens: every case when none has run yet, else the cases not run yet."""
+        rows = view.overview.rows
+        if all(row.status == NOT_RUN for row in rows):
+            return {row.name for row in rows}
+        return {row.name for row in rows if row.status == NOT_RUN}
+
+    # -- the job bar -------------------------------------------------------------------------------------------
+
+    def _job_bar(self, view: JobView, single: bool) -> None:
+        """The running job across the top (how far, the case now, time, Monitor, Log, Cancel), or the last job."""
+        job = view.active
+        with ui.row().classes("as-jobbar w-full items-center no-wrap" + (" as-jobbar-live" if job else "")).mark(
+                "job-bar"):
+            if job is None:
+                self._last_job(view, single)
+                return
+            progress = job_progress(view)
+            with ui.column().classes("gap-0"):
+                where = f" · Slurm {job.slurm[next(iter(job.slurm))].partition}" if job.slurm else ""
+                ui.label(f"Running · job {job.id}{where}").classes("as-muted as-small").mark("run-job")
+                with ui.row().classes("items-baseline gap-2 no-wrap"):
+                    ui.label(f"{progress.finished} of {progress.total}").classes("as-run-big").mark("run-what")
+                    ui.label("cases done").classes("as-muted")
+            with ui.column().classes("gap-1 grow min-w-0"):
+                ui.linear_progress(progress.finished / progress.total if progress.total else 0,
+                                   show_value=False).props("rounded size=8px").classes("as-jobbar-progress").mark(
+                    "run-progress")
+                with ui.row().classes("items-baseline gap-1 no-wrap min-w-0"):
+                    if progress.current:
+                        ui.label("Now").classes("as-muted")
+                        ui.label(progress.current).classes("as-mono as-strong as-truncate").mark("run-current")
+                        ui.label("·").classes("as-muted")
+                    self.clock = (job.created, progress.finished, progress.total)
+                    self.clock_label = ui.label("").classes("as-muted as-truncate").mark("run-elapsed")
+                    self._tick_clock()
+            secondary_button("Monitor", icon="show_chart",
+                             on_click=lambda: ui.navigate.to(self._monitor_url(progress.current))).mark("run-monitor")
+            secondary_button("Log", icon="terminal", on_click=lambda: self.frame.log.open(job.id)).mark("run-log")
+            if self.cancelling or WATCHER.is_cancelling(self.directory):
+                danger_button("Cancelling…").mark("cancel").set_enabled(False)
+            else:
+                danger_button("Cancel", on_click=self.confirm_cancel, icon="stop").mark("cancel")
+
+    # -- the views: board, list, job history ------------------------------------------------------------------
+
+    def _views(self, view: JobView) -> None:
+        rows = {row.name: row for row in view.overview.rows}
+        with ui.row().classes("items-center w-full gap-2"):
+            with ui.tabs(value=self.tab, on_change=lambda e: self._set_tab(e.value)).props(
+                    "dense no-caps align=left inline-label").classes("as-tabs as-view-tabs").mark("run-tabs"):
+                if has_board(self._shown_cases(view)):
+                    ui.tab("board", "Board", icon="grid_view").mark("run-tab-board")
+                ui.tab("list", "List", icon="view_list").mark("run-tab-list run-tab-cases")
+                ui.tab("history", f"Job history ({len(view.overview.jobs)})", icon="history").mark("run-tab-history")
+            ui.space()
+            if self.tab != "history" and rows:
+                ui.label("Select").classes("as-label")
+                for label, statuses in SELECTORS:
+                    count = len(rows) if statuses is None else sum(1 for row in rows.values() if row.status in statuses)
+                    chip = chip_button(label if statuses == set() else f"{label} {count}",
+                                       on_click=lambda s=statuses: self._select(view, s))
+                    chip.mark(f"select-{label.lower().replace(' ', '-')}")
+                    if statuses and not count:
+                        chip.props("disable")
+
+    def _compact(self) -> bool:
+        return self.compact if self.compact is not None else len(self.project.cases) > COMPACT_FROM
+
+    def _set_compact(self, value: bool) -> None:
+        self.compact = value
+        self.render()
+
+    def _status_bar(self, view: JobView) -> None:
+        """Every case's status at a glance: one bar, one count per status."""
+        counts = status_counts(view.overview.rows)
+        if not counts:
+            return
+        with ui.row().classes("items-center w-full no-wrap gap-3").mark("run-status-bar"):
+            with ui.row().classes("as-status-bar grow no-wrap"):
+                for status, count in counts:
+                    ui.element("span").classes(f"as-status-seg as-seg-{pill_tone(status)}").style(f"flex: {count}")
+            with ui.row().classes("items-center gap-1 no-wrap"):
+                for status, count in counts:
+                    ui.label(f"{count} {pill_text(status).lower()}").classes(
+                        f"as-pill as-pill-{pill_tone(status)}").mark(f"count-{status.lower()}")
 
     # -- the panel on the right ------------------------------------------------
 
+    # -- the board -------------------------------------------------------------------------------------------
+
+    def _rows(self, view: JobView) -> dict:
+        return {row.name: row for row in view.overview.rows}
+
+    def _places(self, view: JobView) -> dict[str, int]:
+        """Each queued case's place in the running job (1 = next)."""
+        job = view.active
+        if job is None:
+            return {}
+        queued = [name for name in job.cases if job.case_status.get(name) is not None
+                  and job.case_status[name].value == "PENDING"]
+        return {name: index for index, name in enumerate(queued, 1)}
+
+    def _open(self, key: str, members: list, first: bool, default: bool = False) -> bool:
+        """Whether a section shows its cases: as the user left it; else open when something happens there (running,
+        queued, failed), when it is the first one, or by `default`."""
+        if key in self.sections_open:
+            return self.sections_open[key]
+        return first or default or any(row.status in ("RUNNING", "FAILED", "BLOCKED", "PENDING") for row in members)
+
+    def _shown_cases(self, view: JobView) -> list:
+        """The project's cases, then the cases a running job has that the sweep no longer makes (by their names)."""
+        others = [case_from_name(row.name) for row in view.overview.others]
+        return list(self.project.cases) + [case for case in others if case is not None]
+
+    def _board(self, view: JobView) -> None:
+        rows = {row.name: row for row in view.overview.all_rows}
+        places = self._places(view)
+        others = {row.name for row in view.overview.others}
+        sections = board_sections(self._shown_cases(view))
+        compact = self._compact()
+        with ui.row().classes("as-legend w-full items-center"):
+            for status in ("RUNNING", "PENDING", "CONVERGED", "UNCONVERGED", "FAILED", NOT_RUN):
+                with ui.row().classes("items-center gap-1 no-wrap"):
+                    ui.element("span").classes(f"as-tile-swatch as-tile-{_tone(status)}")
+                    ui.label(TILE_WORDS[status].lower())
+            ui.label("Click a case for its details; Ctrl+click, or a row or column name, to select").classes(
+                "as-muted")
+            ui.space()
+            ui.toggle({False: "Large", True: "Compact"}, value=compact,
+                      on_change=lambda e: self._set_compact(e.value)).props(
+                "dense no-caps unelevated toggle-color=primary").classes("as-toggle").mark("run-density")
+        for index, section in enumerate(sections):
+            members = [rows[name] for name in section.cells.values() if name in rows]
+            key = f"board:{section.key}"
+            opened = self._open(key, members, first=index == 0)
+            with ui.column().classes("as-card w-full gap-2").mark(f"board-{section.key}"):
+                with ui.row().classes("items-center w-full gap-2 no-wrap as-section-head").mark(
+                        f"board-head-{section.key}") as head:
+                    ui.icon("expand_more" if opened else "chevron_right").classes("as-muted")
+                    ui.label(section.label or "Cases").classes("as-strong")
+                    ui.label(_plural(len(members), "case")).classes("as-muted")
+                    if members and all(row.name in others for row in members):
+                        ui.label("in the running job, not in the sweep now").classes("as-muted as-small").mark(
+                            f"board-others-{section.key}")
+                    ui.space()
+                    for status, count in status_counts(members):
+                        ui.label(f"{count} {pill_text(status).lower()}").classes(f"as-pill as-pill-{pill_tone(status)}")
+                head.on("click", lambda _, k=key, o=opened: self._fold(k, not o))
+                if not opened:
+                    continue
+                with ui.element("div").classes("as-board" + (" as-board-compact" if compact else "")).style(
+                        f"grid-template-columns: 64px repeat({len(section.alphas)}, minmax(0, 1fr))"):
+                    corner = ui.label("Mach \\ α").classes("as-board-col as-board-corner").mark(
+                        f"board-all-{section.key}")
+                    corner.on("click", lambda _, n=list(section.cells.values()): self._toggle_names(n))
+                    for alpha in section.alphas:
+                        names = [name for (m, a), name in section.cells.items() if a == alpha]
+                        col = ui.label(f"α {format_value(alpha)}°").classes("as-board-col").mark(
+                            f"board-col-{section.key}-{format_value(alpha)}")
+                        col.on("click", lambda _, n=names: self._toggle_names(n))
+                    for mach in section.machs:
+                        names = [name for (m, a), name in section.cells.items() if m == mach]
+                        head_cell = ui.label(f"M {format_value(mach)}").classes("as-board-row").mark(
+                            f"board-row-{section.key}-{format_value(mach)}")
+                        head_cell.on("click", lambda _, n=names: self._toggle_names(n))
+                        for alpha in section.alphas:
+                            name = section.cells.get((mach, alpha))
+                            if name is None or name not in rows:
+                                ui.element("div")
+                                continue
+                            self._tile(rows[name], places.get(name), compact, other=name in others)
+
+    def _tile(self, row, place: Optional[int], compact: bool, other: bool = False) -> None:
+        iterations = (_iterations(self.directory / RUNS_DIR / row.name / HISTORY_FILE)
+                      if row.status in ("CONVERGED", "UNCONVERGED", "RUNNING", "CANCELLED") else None)
+        text = tile_text(row.status, iterations, place)
+        classes = f"as-tile as-tile-{_tone(row.status)}"
+        if row.name in self.ticked:
+            classes += " as-tile-selected"
+        if row.name == self.focus:
+            classes += " as-tile-focus"
+        with ui.column().classes(classes + " gap-0").mark(f"tile-{row.name}") as tile:
+            if not compact:
+                ui.label(TILE_WORDS.get(row.status, row.status)).classes("as-tile-word")
+            ui.label(text).classes("as-tile-text")
+        titled(tile, f"{row.name} · {TILE_WORDS.get(row.status, row.status)}"
+               + (" · in the running job, not in the sweep now" if other else "")
+               + ("" if row.name not in self.ticked else " · selected"))
+        tile.on("click", lambda e, n=row.name: self._tile_click(n, e.args), ["ctrlKey", "metaKey", "shiftKey"])
+
+    def _tile_click(self, name: str, keys) -> None:
+        keys = keys if isinstance(keys, dict) else {}
+        if keys.get("ctrlKey") or keys.get("metaKey") or keys.get("shiftKey"):
+            self._tick(name, name not in self.ticked)
+            return
+        self.focus = None if self.focus == name else name
+        self.render()
+
+    def _toggle_names(self, names: list) -> None:
+        """Select these cases, or, when all of them are selected, unselect them."""
+        names = [name for name in names if name in {case.name for case in self.project.cases}]
+        if names and all(name in self.ticked for name in names):
+            self.ticked -= set(names)
+        else:
+            self.ticked |= set(names)
+        self.continue_choice = None
+        self.render()
+
+    def _fold(self, key: str, opened: bool) -> None:
+        self.sections_open[key] = opened
+        self.render()
+
+    # -- the list by state -------------------------------------------------------------------------------------
+
+    def _list(self, view: JobView, rows: Optional[list] = None) -> None:
+        """The cases by state (`rows`: only these, e.g. a single case's running job's others)."""
+        cases = {case.name: case for case in self.project.cases}
+        places = self._places(view)
+        sections = state_sections(view.overview.all_rows if rows is None else rows)
+        cases.update({c.name: c for c in self._shown_cases(view) if c.name not in cases})
+        own = {case.name for case in self.project.cases}
+        with ui.column().classes("as-card as-card-flush w-full gap-0").mark("run-list"):
+            for key, title, members in sections:
+                skey = f"list:{key}"
+                # Queued and done fold when long; the rest is what to look at or act on
+                opened = self.sections_open.get(skey, key in ("running", "attention", "not-run") or len(members) <= 8)
+                ticked = [row.name for row in members if row.name in self.ticked]
+                selectable = [row.name for row in members if row.name in own]
+                with ui.row().classes(f"as-list-section as-list-{key} items-center w-full no-wrap gap-2").mark(
+                        f"list-{key}") as head:
+                    ui.icon("expand_more" if opened else "chevron_right").classes("as-muted")
+                    ui.label(title).classes("as-strong")
+                    for status, count in status_counts(members):
+                        ui.label(f"{count} {pill_text(status).lower()}").classes(f"as-pill as-pill-{pill_tone(status)}")
+                    ui.space()
+                    if key == "queued" and places:
+                        nxt = min(places, key=places.get)
+                        ui.label(f"next: {nxt}").classes("as-muted as-small")
+                    if key in ("attention", "not-run", "done") and selectable:
+                        everyone = len(ticked) == len(selectable)
+                        flat_button("Unselect all" if everyone else f"Select all {len(selectable)}",
+                                    on_click=lambda n=selectable: self._toggle_names(n)).props(
+                            "dense").mark(f"list-select-{key}")
+                head.on("click", lambda _, k=skey, o=opened: self._fold(k, not o))
+                if not opened:
+                    continue
+                with table("36px minmax(10rem, 1.5fr) minmax(9rem, 1fr) minmax(8rem, .9fr) minmax(12rem, 1.2fr) "
+                           "72px").classes("as-table-compact"):
+                    for row in members:
+                        self._list_row(row, cases.get(row.name), places.get(row.name), own=row.name in own)
+
+    def _list_row(self, row, case, place: Optional[int], own: bool = True) -> None:
+        with td_box():
+            if own:  # a case the sweep no longer makes is the job's: it cannot be selected
+                ui.checkbox(value=row.name in self.ticked,
+                            on_change=lambda e, n=row.name: self._tick(n, e.value)).props("dense").mark(
+                    f"tick-{row.name}")
+            else:
+                titled(ui.icon("lock", size="16px").classes("as-muted"),
+                       "In the running job, not in the sweep now").mark(f"other-{row.name}")
+        found = self._diagnosis(row)
+        with td_box():
+            with ui.column().classes("gap-0 min-w-0"):
+                ui.label(row.name).classes("as-strong as-mono")
+                if found is not None:
+                    ui.label(found.summary).classes("as-failure-reason as-truncate").mark(f"why-{row.name}")
+                self._ran_with(row)
+                self._attempts_link(row.name)
+        conditions = [f"M {format_value(case.mach)}", f"α {format_value(case.alpha)}"] if case else []
+        if case is not None and len({c.beta for c in self.project.cases}) > 1:
+            conditions.append(f"β {format_value(case.beta)}")
+        if case is not None and case.altitude_km is not None:
+            conditions.append(f"{format_value(case.altitude_km)} km")
+        td(" · ".join(conditions)).classes("as-muted")
+        with td_box():
+            self._status(row)
+            if place:
+                ui.label(f"#{place}").classes("as-muted as-small")
+        job = self.jobs_by_id.get(row.job_id)
+        if job is not None and job.backend == "slurm":
+            with td_box() as cell:
+                cell.classes("as-slurm-cell")
+                with ui.column().classes("gap-0 min-w-0"):
+                    ui.label(row.job_id).classes("as-mono as-small").mark(f"job-{row.name}")
+                    ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted as-small").mark(
+                        f"slurm-{row.name}")
+                self._resubmit_button(job, row.name)
+        else:
+            td(row.job_id or "—", mono=True).classes("as-small").mark(f"job-{row.name}")
+        with td_box():
+            flat_button("Details", on_click=lambda n=row.name: self._focus(n)).props("dense").mark(
+                f"details-{row.name}")
+        if row.name in self.attempts_open:
+            with ui.element("div").style("grid-column: 1 / -1"):
+                self._attempts_list(row.name)
+
+    def _focus(self, name: str) -> None:
+        self.focus = None if self.focus == name else name
+        self.render()
+
+    def _selection_bar(self, selection: _Selection) -> None:
+        if not selection.ticked:
+            return
+        with ui.row().classes("as-selbar w-full items-center no-wrap gap-3").mark("selection-bar"):
+            ui.label(f"{len(selection.ticked)} selected").classes("as-strong").mark("selection-count")
+            shown = ", ".join(selection.ticked[:4]) + (f" … and {len(selection.ticked) - 4} more"
+                                                       if len(selection.ticked) > 4 else "")
+            ui.label(shown).classes("as-mono as-small as-truncate grow")
+            flat_button("Clear", on_click=lambda: self._select(None, set())).props("dense").mark("selection-clear")
+
+    # -- a case's details ----------------------------------------------------------------------------------------
+
+    def _details(self, view: JobView) -> None:
+        """The clicked case: where it stands, why it failed and what to try, what it ran with, its earlier attempts,
+        and its buttons."""
+        row = next((r for r in view.overview.all_rows if r.name == self.focus), None)
+        if row is None:
+            return
+        case = next((c for c in self.project.cases if c.name == row.name), None)
+        with ui.column().classes("as-run-panel as-details w-full gap-2").mark("case-details"):
+            with ui.row().classes("items-center w-full no-wrap gap-2"):
+                ui.label(row.name).classes("as-mono as-strong as-truncate").mark("details-name")
+                pill(row.status).mark("details-status")
+                ui.space()
+                ui.button(icon="close", on_click=lambda: self._focus(row.name), color=None).props(
+                    "flat round dense size=sm").mark("details-close")
+            parsed = parse_case_name(row.name)
+            mach = case.mach if case else parsed.mach
+            alpha = case.alpha if case else parsed.alpha
+            parts = [f"Mach {format_value(mach)}" if mach is not None else "",
+                     f"α {format_value(alpha)}°" if alpha is not None else "",
+                     f"β {format_value(case.beta)}°" if case else "",
+                     f"{format_value(case.altitude_km)} km" if case and case.altitude_km is not None else ""]
+            hint(" · ".join(p for p in parts if p)).mark("details-conditions")
+            if case is None:
+                hint("In the running job, no longer in the sweep").mark("details-other")
+            values = self._key_values(row)
+            iterations = _iterations(self.directory / RUNS_DIR / row.name / HISTORY_FILE)
+            if iterations:
+                values = [("Iterations", str(iterations))] + values
+            if values:
+                with ui.column().classes("w-full gap-0"):
+                    for label, value in values:
+                        with ui.row().classes("as-detail-row w-full no-wrap"):
+                            ui.label(label).classes("as-muted grow")
+                            ui.label(value).classes("as-strong").mark(f"details-{label}")
+            job = self.jobs_by_id.get(row.job_id)
+            if job is not None and job.backend == "slurm":
+                with ui.row().classes("items-center gap-2"):
+                    ui.label(f"{row.job_id} · {case_slurm_text(job, row.name)}").classes(
+                        "as-mono as-muted as-small").mark("details-slurm")
+                    self._resubmit_button(job, row.name)
+            elif row.job_id:
+                ui.label(f"job {row.job_id}").classes("as-mono as-muted as-small").mark("details-job")
+            if self._diagnosis(row) is not None:
+                self._failure(row)
+            self._ran_with(row)
+            with ui.row().classes("gap-2"):
+                flat_button("Monitor", icon="show_chart", on_click=lambda: ui.navigate.to(
+                    self._monitor_url(row.name))).props("dense").mark("details-monitor")
+                if case is not None and row.status in ("UNCONVERGED", "CANCELLED") and \
+                        restart_file(self.directory, row.name) is not None:
+                    secondary_button("Continue it", icon="play_arrow",
+                                     on_click=lambda: self._only(row.name, continue_=True)).props("dense").mark(
+                        "details-continue")
+                if case is not None and row.status == "UNCONVERGED":
+                    self._rerun_button(row.name, "unconverged")
+                if row.status in ("CONVERGED", "UNCONVERGED"):
+                    flat_button("Results", icon="bar_chart", on_click=lambda: ui.navigate.to(
+                        project_url("results", self.directory))).props("dense").mark("details-results")
+            if case is not None:
+                ui.checkbox("Selected for the next run", value=row.name in self.ticked,
+                            on_change=lambda e: self._tick(row.name, e.value)).props("dense").mark("details-tick")
+            self._attempts_link(row.name)
+            if row.name in self.attempts_open:
+                self._attempts_list(row.name)
+
     def _launch(self, view: JobView, selection: _Selection, single: bool) -> None:
-        """What will run: the ticked cases, where (this machine or Slurm) with how many cores, continuing, Submit."""
+        """What will run: the selected cases, where (this machine or Slurm) with how many cores, continuing, Submit."""
         with ui.row().classes("items-center w-full no-wrap"):
             ui.label("Run").classes("as-run-head")
             ui.space()
@@ -254,7 +669,7 @@ class RunPage:
         else:
             with ui.row().classes("items-baseline gap-2 no-wrap"):
                 ui.label(str(len(selection.ticked))).classes("as-run-big").mark("run-what")
-                ui.label(f"of {_plural(len(self.project.cases), 'case')} ticked").classes("as-muted")
+                ui.label(f"of {_plural(len(self.project.cases), 'case')} selected").classes("as-muted")
         if self.slurm:
             self._slurm_fields()
         else:
@@ -266,7 +681,7 @@ class RunPage:
             box.disable()
             count = len(selection.no_solution)
             text = ("No solution to continue from yet" if single else
-                    f"{_plural(count, 'ticked case')} {'has' if count == 1 else 'have'} no solution to continue from")
+                    f"{_plural(count, 'selected case')} {'has' if count == 1 else 'have'} no solution to continue from")
             titled(hint(text), ", ".join(selection.no_solution)).mark("continue-missing")
         with ui.column().classes("as-run-checks w-full gap-1"):
             self._checks(view, selection)
@@ -287,31 +702,6 @@ class RunPage:
         """Partition, tasks per case and time limit (saved with the project); always one node."""
         slurm_fields(self.frame, self.settings, self.render, mark="run", compact=True)
 
-    def _running(self, view: JobView) -> None:
-        """The running job: how far it is, the case running now, elapsed and a rough time left, Cancel."""
-        progress = job_progress(view)
-        job = view.active
-        ui.label("Running").classes("as-run-head")
-        with ui.row().classes("items-baseline gap-2 no-wrap"):
-            ui.label(str(min(progress.finished + 1, progress.total))).classes("as-run-big").mark("run-what")
-            ui.label(f"of {_plural(progress.total, 'case')}").classes("as-muted")
-        ui.linear_progress(progress.finished / progress.total if progress.total else 0, show_value=False).props(
-            "rounded size=8px").mark("run-progress")
-        if progress.current:
-            with ui.row().classes("items-baseline gap-1 no-wrap w-full"):
-                ui.label("Now").classes("as-muted")
-                ui.label(progress.current).classes("as-mono as-strong as-truncate").mark("run-current")
-        self.clock = (job.created, progress.finished, progress.total)
-        self.clock_label = ui.label("").classes("as-muted").mark("run-elapsed")
-        self._tick_clock()
-        with ui.row().classes("w-full gap-2 no-wrap"):
-            if self.cancelling or WATCHER.is_cancelling(self.directory):
-                danger_button("Cancelling…").classes("grow").mark("cancel").set_enabled(False)
-            else:
-                danger_button("Cancel job", on_click=self.confirm_cancel, icon="stop").classes("grow").mark("cancel")
-            secondary_button("Monitor", on_click=lambda: ui.navigate.to(self._monitor_url(progress.current))).mark(
-                "run-monitor")
-
     def _add_block(self, view: JobView, selection: _Selection) -> None:
         """More cases into the running Slurm job, e.g. on the other node while it runs; the partition and tasks
         are for this batch only."""
@@ -327,7 +717,7 @@ class RunPage:
         part = self.settings.slurm.partition(self.add_partition)
         ntasks = self.add_ntasks or (part.default_ntasks if part else 1)
         ui.label("Add cases").classes("as-run-head")
-        hint("Run more ticked cases in this job while it runs, e.g. on the other node").mark("add-note")
+        hint("Run more selected cases in this job while it runs, e.g. on the other node").mark("add-note")
         ui.select(names, value=self.add_partition, label="Partition",
                   on_change=lambda e: self._set_add_partition(e.value)).classes("w-full").props("dense").mark(
             "add-partition")
@@ -342,10 +732,10 @@ class RunPage:
             "w-full").mark("add-cases")
         button.set_enabled(bool(addable) and not self.submitting)
         if skipped:
-            count = f"{skipped} ticked case{' is' if skipped == 1 else 's are'}"
+            count = f"{skipped} selected case{' is' if skipped == 1 else 's are'}"
             hint(f"{count} already queued or running in this job: skipped").mark("add-skipped")
         elif not selection.ticked:
-            hint("Tick the cases to add").mark("add-skipped")
+            hint("Select cases to add them to this job").mark("add-skipped")
 
     def _set_add_partition(self, name: str) -> None:
         if name != self.add_partition:
@@ -419,7 +809,7 @@ class RunPage:
             self.submit_button.set_enabled(bool(selection.ticked) and not self.has_errors and not self.submitting
                                            and not self.checking)
             self.blocked.text = ("Fix the error below to run" if self.has_errors else
-                                 "Tick at least one case" if not selection.ticked else "")
+                                 "Select at least one case" if not selection.ticked else "")
 
     def _set_backend(self, backend: str) -> None:
         if backend == self.backend:
@@ -440,21 +830,27 @@ class RunPage:
         return project_url("monitor", self.directory) + (f"&case={quote(case, safe='')}" if case else "")
 
     def _last_job(self, view: JobView, single: bool) -> None:
+        """No job running: the last job's outcome, its log and the job history."""
         job = view.latest
+        with ui.column().classes("gap-0"):
+            ui.label("No job running").classes("as-muted as-small")
+            ui.label("Last job finished " + _ago(job.finished) if job is not None and job.finished else
+                     "Nothing has run yet" if job is None else "Last job").classes("as-jobbar-title").mark(
+                "last-job-when")
         if job is None:
+            ui.space()
             ui.label("No job yet").classes("as-muted").mark("last-job")
             return
         took = f" · {duration_text((job.finished - job.created).total_seconds())}" if job.finished else ""
+        counts = " · ".join(f"{count} {pill_text(status).lower()}" for status, count in
+                            status_counts([_Row(status.value) for status in job.case_status.values()]))
         state = pill_text(job.state).capitalize()
-        with ui.row().classes("items-center w-full no-wrap gap-2"):
-            status_dot(_JOB_DOTS.get(pill_tone(job.state), "plain"))
-            titled(ui.label(f"{state} · {_plural(len(job.cases), 'case')}{took}").classes("as-muted grow"),
-                   f"{'This job' if view.active is not None else 'Last job'} {job.id}").mark("last-job")
-            titled(flat_button("", on_click=lambda: self.frame.log.open(job.id), icon="terminal").props("dense round size=sm"),
-                   f"Log of job {job.id}").mark("last-job-log")
-            if not single:
-                titled(flat_button("", on_click=lambda: self._set_tab("history"), icon="history").props("dense round size=sm"),
-                       f"Job history ({len(view.overview.jobs)})").mark("last-job-history")
+        titled(ui.label(f"{state} · job {job.id} · {_plural(len(job.cases), 'case')}" + (f" · {counts}" if counts else "")
+                        + took).classes("as-muted grow as-truncate"), f"Last job {job.id}").mark("last-job")
+        secondary_button("Log", icon="terminal", on_click=lambda: self.frame.log.open(job.id)).mark("last-job-log")
+        if not single:
+            secondary_button("Job history", icon="history", on_click=lambda: self._set_tab("history")).mark(
+                "last-job-history")
 
     def _checks(self, view: JobView, selection: _Selection) -> None:
         cases = selection.ticked or None
@@ -564,18 +960,6 @@ class RunPage:
 
     # -- the cases on the left -------------------------------------------------
 
-    def _summary(self, view: JobView) -> None:
-        """Every case's status at a glance: one bar, one count per status."""
-        counts = status_counts(view.overview.rows)
-        with card():
-            with ui.row().classes("as-status-bar w-full no-wrap"):
-                for status, count in counts:
-                    ui.element("span").classes(f"as-status-seg as-seg-{pill_tone(status)}").style(f"flex: {count}")
-            with ui.row().classes("items-center gap-2 w-full"):
-                for status, count in counts:
-                    ui.label(f"{count} {pill_text(status).lower()}").classes(
-                        f"as-pill as-pill-{pill_tone(status)}").mark(f"count-{status.lower()}")
-
     def _case_card(self, view: JobView) -> None:
         """A single case: its status, what it runs, and after a run the Results page's chosen values."""
         row = view.overview.rows[0]
@@ -645,124 +1029,6 @@ class RunPage:
             status.props(f'title="{"Hide" if opened else "Show"} why it failed"')
             ui.icon("expand_less" if opened else "expand_more").classes("as-pill-chevron").on(
                 "click", lambda n=row.name: self._toggle(n))
-
-    def _cases(self, view: JobView, selection: _Selection, grouped: bool) -> None:
-        rows = {row.name: row for row in view.overview.rows}
-        with card(flush=True):
-            with card_head("Cases"):
-                if rows:
-                    ui.label("Tick").classes("as-label")
-                    for label, statuses in SELECTORS:
-                        count = len(rows) if statuses is None else sum(
-                            1 for row in rows.values() if row.status in statuses)
-                        chip = chip_button(label if statuses == set() else f"{label} {count}",
-                                           on_click=lambda s=statuses: self._select(view, s))
-                        chip.mark(f"select-{label.lower().replace(' ', '-')}")
-                        if statuses and not count:
-                            chip.props("disable")
-            if not rows:
-                ui.label("No cases yet: set up the sweep first.").classes("as-muted px-4 pb-4")
-                return
-            cases = {case.name: case for case in self.project.cases}
-            with table("36px minmax(10rem, 1.4fr) repeat(3, minmax(3rem, .4fr)) minmax(8rem, 1fr) "
-                       "minmax(13rem, 1fr)").classes("as-table-compact"):
-                for heading in ("", "Case", "Mach", "α", "β", "Status", "Last job"):
-                    th(heading)
-                if not grouped:
-                    for row in rows.values():
-                        self._case_row(row, cases.get(row.name))
-                    return
-                for index, group in enumerate(case_groups(self.project.cases)):
-                    members = [rows[name] for name in group.names if name in rows]
-                    opened = self.groups_open.get(group.label, any(r.status in ATTENTION for r in members))
-                    ticked = [r.name for r in members if r.name in self.ticked]
-                    with td_box() as cell:
-                        cell.classes("as-group-cell")
-                        state = True if len(ticked) == len(members) else None if ticked else False
-                        ui.checkbox(value=state, on_change=lambda e, g=group: self._tick_group(
-                            g.names, e.value)).props("dense").mark(f"group-tick-{index}")
-                    with td_box() as name:
-                        name.classes("as-group-cell as-group-name").style("grid-column: span 4").mark(
-                            f"group-{index}")
-                        name.on("click", lambda _, g=group, o=opened: self._fold_group(g.label, not o))
-                        ui.icon("expand_more" if opened else "chevron_right")
-                        ui.label(group.label).classes("as-strong")
-                        ui.label(_plural(len(members), "case")).classes("as-muted")
-                    with td_box() as summary:
-                        summary.classes("as-group-cell").style("grid-column: span 2")
-                        for status, count in status_counts(members):
-                            ui.label(f"{count} {pill_text(status).lower()}").classes(
-                                f"as-pill as-pill-{pill_tone(status)}")
-                    if opened:
-                        for row in members:
-                            self._case_row(row, cases.get(row.name))
-
-    def _others(self, view: JobView) -> None:
-        """The cases a running job still has that the sweep no longer makes (it changed after they were submitted):
-        their status, their Slurm job and Monitor. They are the job's: they cannot be ticked or submitted here."""
-        others = view.overview.others
-        with card(flush=True) as box:
-            box.mark("run-others")
-            card_head("In the running job, not in the sweep now",
-                      f"{_plural(len(others), 'case')} submitted before the sweep changed; they run as submitted. "
-                      "Put them back in the sweep to run them again.")
-            with table("minmax(10rem, 1.4fr) repeat(3, minmax(3rem, .4fr)) minmax(8rem, 1fr) minmax(13rem, 1fr) "
-                       "80px").classes("as-table-compact"):
-                for heading in ("Case", "Mach", "α", "β", "Status", "Job", ""):
-                    th(heading)
-                for row in others:
-                    parsed = parse_case_name(row.name)
-                    td(row.name, strong=True).mark(f"other-{row.name}")
-                    for value in (parsed.mach, parsed.alpha, parsed.beta):
-                        td("" if value is None else format_value(value))
-                    with td_box():
-                        pill(row.status).mark(f"status-{row.name}")
-                    job = self.jobs_by_id.get(row.job_id)
-                    if job is not None and job.backend == "slurm":
-                        with td_box():
-                            with ui.column().classes("gap-0 min-w-0"):
-                                ui.label(row.job_id).classes("as-mono").mark(f"job-{row.name}")
-                                ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted as-small").mark(
-                                    f"slurm-{row.name}")
-                    else:
-                        td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
-                    with td_box():
-                        ui.link("Monitor", self._monitor_url(row.name)).classes("as-hint").mark(
-                            f"monitor-{row.name}")
-
-    def _case_row(self, row, case) -> None:
-        with td_box():
-            ui.checkbox(value=row.name in self.ticked,
-                        on_change=lambda e, n=row.name: self._tick(n, e.value)).props("dense").mark(
-                f"tick-{row.name}")
-        found = self._diagnosis(row)
-        with td_box():
-            with ui.column().classes("gap-0 min-w-0"):
-                ui.label(row.name).classes("as-strong")
-                if found is not None:
-                    ui.label(found.summary).classes("as-failure-reason as-truncate").mark(f"why-{row.name}")
-                self._ran_with(row)
-                self._attempts_link(row.name)
-        td(format_value(case.mach) if case else "")
-        td(format_value(case.alpha) if case else "")
-        td(format_value(case.beta) if case else "")
-        with td_box():
-            self._status(row)
-        job = self.jobs_by_id.get(row.job_id)
-        if job is not None and job.backend == "slurm":
-            with td_box() as cell:
-                cell.classes("as-slurm-cell")
-                with ui.column().classes("gap-0 min-w-0"):
-                    ui.label(row.job_id).classes("as-mono").mark(f"job-{row.name}")
-                    ui.label(case_slurm_text(job, row.name)).classes("as-mono as-muted as-small").mark(
-                        f"slurm-{row.name}")
-                self._resubmit_button(job, row.name)
-        else:
-            td(row.job_id or "—", mono=True).mark(f"job-{row.name}")
-        if row.status in ("FAILED", "BLOCKED") and row.failure_tail and row.name in self.opened:
-            self._failure(row)
-        if row.name in self.attempts_open:
-            self._attempts_list(row.name)
 
     def _diagnosis(self, row) -> Optional[Diagnosis]:
         """Why the case failed, in words (jobs/diagnose.py); None unless it failed or was blocked."""
@@ -936,18 +1202,6 @@ class RunPage:
         self.continue_choice = continue_
         self.render()
 
-    def _tick_group(self, names: list, value: Optional[bool]) -> None:
-        if value:
-            self.ticked |= set(names)
-        else:
-            self.ticked -= set(names)
-        self.continue_choice = None
-        self.render()
-
-    def _fold_group(self, label: str, opened: bool) -> None:
-        self.groups_open[label] = opened
-        self.render()
-
     def _history(self, view: JobView) -> None:
         with card("Job history", flush=True, fold="run-history"):
             if not view.overview.jobs:
@@ -968,9 +1222,13 @@ class RunPage:
                         flat_button("Log", on_click=lambda j=job.id: self.frame.log.open(j), icon="terminal").props(
                             "dense").mark(f"history-log-{job.id}")
 
-    def _select(self, view: JobView, statuses: Optional[set]) -> None:
-        rows = view.overview.rows
-        self.ticked = {r.name for r in rows} if statuses is None else {r.name for r in rows if r.status in statuses}
+    def _select(self, view: Optional[JobView], statuses: Optional[set]) -> None:
+        """Select every case (None), none (an empty set), or those with these statuses."""
+        if statuses == set():
+            self.ticked = set()
+        else:
+            rows = view.overview.rows
+            self.ticked = {r.name for r in rows} if statuses is None else {r.name for r in rows if r.status in statuses}
         self.continue_choice = None
         self.render()
 
@@ -988,8 +1246,12 @@ class RunPage:
             self.render()
 
     def _toggle(self, name: str) -> None:
-        self.opened ^= {name}
-        self.render()
+        """A status pill clicked: a single case opens its "why it failed"; a sweep's case shows its details."""
+        if layout(self.project.cases) == "single":
+            self.opened ^= {name}
+            self.render()
+        else:
+            self._focus(name)
 
     def _set_continue(self, value: bool) -> None:
         self.continue_choice = value
