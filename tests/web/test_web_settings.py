@@ -71,7 +71,7 @@ async def test_an_unreadable_file_is_reported(user: User):
     await user.should_see(marker="settings-warning")
 
 
-async def test_the_gear_opens_the_settings(user: User):
+async def test_the_settings_button_opens_the_settings(user: User):
     await user.open("/")
     user.find(marker="settings").click()
     await user.should_see(marker="settings-backend")

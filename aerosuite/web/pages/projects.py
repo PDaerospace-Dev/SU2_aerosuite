@@ -18,7 +18,7 @@ from ..ui_kit import (banner, card, card_head, field, help_tip, hint, ok_line, p
 def register() -> None:
     @ui.page("/")
     def projects_page() -> None:
-        header()
+        header("projects")
         with ui.column().classes("as-page w-full"):
             with ui.row().classes("as-crumbs w-full"):
                 ui.label("Projects").classes("as-crumb-current")

@@ -35,7 +35,7 @@ def profiles_url(profile_id: str = "") -> str:
 def register() -> None:
     @ui.page("/profiles")
     def profiles_page(id: str = "") -> None:  # noqa: A002 - the query parameter is ?id=
-        header()
+        header("profiles")
         with ui.column().classes("as-page w-full"):
             with ui.row().classes("as-crumbs w-full"):
                 ui.link("Projects", "/").classes("as-crumb-link").mark("crumb-projects")

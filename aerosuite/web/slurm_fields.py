@@ -78,7 +78,7 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
         with ui.column().classes("gap-1 w-full"):
             ui.label("Time limit").classes("as-stat-label")
             ui.label(options.time_limit or "none").classes("as-stat-value").mark(f"{mark}-time-limit")
-            hint("Set for every study on the Settings page (gear, top right); Slurm stops a case that runs "
+            hint("Set for every study on the Settings page (bottom left); Slurm stops a case that runs "
                  "longer (TIMEOUT)").mark(f"{mark}-time-note")
 
 

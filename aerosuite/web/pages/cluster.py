@@ -34,7 +34,7 @@ SORTED_COLUMNS = {"Submitted": "submitted", "Study": "study", "Case": "case", "S
 def register() -> None:
     @ui.page("/cluster")
     def cluster_page(back: str = "") -> None:
-        header()
+        header("cluster")
         with ui.column().classes("as-page w-full").mark("cluster-page"):
             with ui.row().classes("as-crumbs w-full items-center"):
                 ui.link("Projects", "/").classes("as-crumb-link").mark("crumb-projects")

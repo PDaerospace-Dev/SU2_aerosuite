@@ -40,7 +40,7 @@ PARTITION_FIELDS = [("default_ntasks", "Tasks"), ("memory_limit_mb", "Memory lim
 def register() -> None:
     @ui.page("/settings")
     def settings_page() -> None:
-        header()
+        header("settings")
         holder = ui.column().classes("as-page w-full")
         with holder:
             with ui.row().classes("as-crumbs w-full"):

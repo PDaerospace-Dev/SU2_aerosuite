@@ -20,7 +20,7 @@ def register() -> None:
                                  on_reload=lambda: views[0].show(views[0].key, {}) if views else None)
             holder = frame.content
         else:
-            header()
+            header("calculators")
             holder = ui.column().classes("as-page w-full")
             with holder:
                 with ui.row().classes("as-crumbs w-full"):

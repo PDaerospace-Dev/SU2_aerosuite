@@ -363,7 +363,7 @@ def _run_section(frame: ProjectFrame, changed: Callable[[], None]) -> None:
                 with ui.column().classes("w-full gap-2").mark("slurm-settings"):
                     slurm_fields(frame, settings, redraw, mark="setup", columns=True)
                     hint("Settings for the whole cluster (shared root, module line, SU2 folder, memory per cell, "
-                         "partitions) are on the Settings page: the gear at the top right.").mark("setup-slurm-more")
+                         "partitions) are on the Settings page, at the bottom left.").mark("setup-slurm-more")
             else:
                 _local_run_section(frame)
 

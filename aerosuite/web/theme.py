@@ -102,6 +102,13 @@ a.as-step:hover { background: #f6f8fa; }
 .as-step-current, a.as-step-current:hover { background: var(--as-accent-tint); color: var(--as-accent-text);
   font-weight: 600; }
 .as-step-later { color: #b0b7c0; cursor: default; }
+.as-steps { gap: 2px; }
+/* Settings, under the steps: at the sidebar's bottom, and at the window's while a long page scrolls */
+.as-sidebar-foot { margin-top: auto; position: sticky; bottom: 0; padding: 8px 0 0; background: #fff;
+  border-top: 1px solid var(--as-hairline); }
+.as-settings-corner { position: fixed; left: 16px; bottom: 16px; z-index: 1400; border-radius: 999px;
+  background: #fff; color: #57606a; border: 1px solid var(--as-frame); padding: 2px 14px;
+  box-shadow: 0 4px 12px rgba(31, 35, 40, .12); }
 .as-step .as-dot { position: absolute; top: 6px; left: 26px; border: 1.5px solid #fff; box-sizing: content-box; }
 .as-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
 .as-dot-todo { background: #fff; box-shadow: inset 0 0 0 1.5px #8c959f; }
@@ -500,6 +507,37 @@ a.as-step:hover { background: #f6f8fa; }
 
 .q-dialog .q-card { border-radius: 10px; box-shadow: 0 8px 24px rgba(31, 35, 40, .14); padding: 18px; gap: 12px; }
 .as-dialog-title { font-size: 14px; font-weight: 600; }
+
+/* The web UI guide: its sections on the left, one at a time on the right */
+.q-dialog .q-card.as-guide { width: 68rem; max-width: 96vw; height: 84vh; padding: 0; gap: 0; }
+.as-guide-head { padding: 12px 12px 12px 18px; gap: 10px; align-items: center; flex-wrap: nowrap;
+  border-bottom: 1px solid var(--as-hairline); }
+.as-guide-head-icon { color: var(--as-accent); }
+.as-guide-body { flex: 1; min-height: 0; flex-wrap: nowrap; gap: 0; align-items: stretch; }
+.as-guide-nav { width: 200px; flex: none; padding: 10px 8px; gap: 1px; overflow-y: auto; background: #f6f8fa;
+  border-right: 1px solid var(--as-hairline); }
+.as-guide-link { width: 100%; justify-content: flex-start; padding: 5px 10px; border-radius: 6px; color: #57606a;
+  font-size: 13px; }
+.as-guide-link.as-guide-current { background: var(--as-accent-tint); color: var(--as-accent-text); font-weight: 600; }
+.as-guide-page { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 32px 32px; gap: 6px; }
+.as-guide-title { font-size: 20px; font-weight: 600; }
+.as-guide-text { max-width: 46rem; font-size: 13.5px; line-height: 1.6; }
+.as-guide-text h4 { font-size: 14px; font-weight: 600; margin: 20px 0 4px; line-height: 1.4; }
+.as-guide-text p { margin: 0 0 10px; }
+.as-guide-text ul, .as-guide-text ol { margin: 0 0 10px; padding-left: 20px; }
+.as-guide-text li { margin: 3px 0; }
+.as-guide-text code { font-family: var(--as-mono); font-size: 12px; background: #f1f3f5; border-radius: 4px;
+  padding: 1px 5px; }
+.as-guide-text pre { background: #0f1b2d; color: #e6edf3; border-radius: 8px; padding: 12px 14px; overflow-x: auto;
+  margin: 0 0 12px; }
+.as-guide-text pre code { background: none; color: inherit; padding: 0; }
+.as-guide-text blockquote { margin: 0 0 12px; padding: 8px 14px; border-left: 3px solid var(--as-accent);
+  background: var(--as-accent-tint); border-radius: 0 6px 6px 0; }
+.as-guide-text blockquote p { margin: 0; }
+.as-guide-text table { border-collapse: collapse; margin: 0 0 12px; font-size: inherit; }
+.as-guide-text th, .as-guide-text td { border: 1px solid var(--as-hairline); padding: 5px 10px; text-align: left;
+  vertical-align: top; }
+.as-guide-text th { background: #f6f8fa; font-weight: 600; }
 .q-menu { border-radius: 8px; }
 """
 
