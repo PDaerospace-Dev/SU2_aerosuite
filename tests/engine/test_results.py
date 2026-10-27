@@ -112,6 +112,18 @@ def test_summarize_adds_an_altitude_column_for_an_altitude_sweep(tmp_path, histo
     assert df["Case"].tolist() == ["M0p8_0km_a0_b0", "M0p6_11km_a0_b0", "M0p8_11km_a0_b0"]
 
 
+def test_summarize_reads_the_altitude_of_a_case_an_earlier_generate_made(tmp_path, history_writer):
+    # One altitude generated and run at a time: cases.json holds only the last one's cases
+    runs = tmp_path / "runs"
+    for name in ("M0p3_0km_a0", "M0p3_10km_a0", "M0p3_20km_a0"):
+        history_writer(runs / name, STEADY)
+    index = {"M0p3_20km_a0": {"mach": 0.3, "alpha": 0.0, "beta": 0.0, "altitude_km": 20.0}}
+    df, _ = summarize(runs, ["CL"], case_index=index)
+    assert df["Case"].tolist() == ["M0p3_0km_a0", "M0p3_10km_a0", "M0p3_20km_a0"]
+    assert df["Altitude"].tolist() == [0.0, 10.0, 20.0]
+    assert df["Mach"].tolist() == [0.3, 0.3, 0.3]
+
+
 def test_summarize_skip_and_empty(tmp_path, history_writer):
     runs = tmp_path / "runs"
     history_writer(runs / "M0p8_a0_b0", STEADY)
