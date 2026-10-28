@@ -454,9 +454,13 @@ From the Projects page, Setup, or the project switcher: every profile, and what 
 The **Cluster** button in the top bar, when Slurm is there. Its dot is green, amber for a drained or down node, red
 when Slurm does not answer; the number next to it is your running jobs.
 
-- Every node as a compact card.
+- Every node as a compact card. Under it, each study job with cases running there, as on its Run page: a ring with
+  cases finished / in all, how long since the job started, and about how long is left (the cases still to go at the
+  job's average time per finished case; shown after its first case ends). Hover for the cases on that node; click to
+  open the study's Run page.
 - **My jobs**: your AeroSuite cases on Slurm from every study (queued, running, or ended in the last 7 days) with
-  Cancel (one case), Resubmit and Log. It folds.
+  Cancel (one case), Resubmit and Log. A case's *ASCII files* job (ParaView menu) is listed under its case, its Log
+  showing `to_ascii-<job id>.out`. It folds.
 - The Run page keeps a one-line summary. How jobs are submitted: the README's *Running on the Slurm cluster*.
 
 ### Calculators
@@ -483,7 +487,8 @@ the case folder), newest first.
   file. It uses the case's config with its own restart as the solution, writes on the node's own disk first, then
   moves the files. With Slurm it is a batch job on the study's partition, started as that partition starts SU2_CFD
   and stopped after 2 h (its output in `to_ascii-<job id>.out`); else it runs on this machine (`to_ascii.log`).
-  The mesh must still be where the config says.
+  The mesh must still be where the config says. A case still queued or running is refused: its restart file is
+  about to change.
 - `AEROSUITE_PARAVIEW` names another executable than `paraview`.
 
 ### Log
@@ -558,6 +563,14 @@ aerosuite settings                   # partitions, default tasks, memory limits,
   exists; otherwise (failed, cancelled, killed) its script sets `RESTART_SOL= NO` and it starts from scratch, as a
   local sweep does. Its `slurm-<id>.out` and the job log say so. (Jobs submitted before this used `afterok`: there a
   failed case's dependents show **Blocked**.)
+- **Resubmit** (a NODE_FAIL or OUT_OF_MEMORY case, with the cases blocked behind it) prepares the case folder again
+  as a submit does: its run so far is kept as an earlier attempt, its config is written afresh from the job's, and
+  the earlier `slurm-<id>.out` stays beside the new one. A case whose solution to restart from is gone starts from
+  scratch, and the job log says so.
+- A case run again inside the same job (Add cases) keeps only one earlier attempt with its volume files until the
+  job ends; older ones lose them at once.
+- The server watches every running AeroSuite job it finds in Slurm (the queue and the last 7 days) from its start,
+  so a job that ends while no page shows its study is still recorded, its lock released and its files tidied.
 - Studies must live under the shared root (`/data`): the other node cannot see anything else. Before submitting,
   AeroSuite estimates the memory from the mesh header (`NELEM` × 3.9 GB per million cells, configurable), warns when
   it is over the partition's limit and refuses on partitions set to block (node2).

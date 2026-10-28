@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Mapping, Optional
 
+from .ascii_export import JOB_SUFFIX
 from .jobs.diagnose import diagnose
 from .jobs.runner import CaseState, JobRecord
 from .jobs.slurm import job_name
@@ -21,15 +22,27 @@ MAX_ROWS = 500
 ACTIVE_STATES = QUEUED_STATES | RUNNING_STATES
 
 
+TASKS = {JOB_SUFFIX: "ASCII files"}  # job name suffix -> what a case's extra job does, in words
+
+
+def split_task(name: str) -> tuple[str, str]:
+    """(the job name without a task suffix, the task in words; "" for the case's run itself)."""
+    for suffix, task in TASKS.items():
+        if name.endswith(suffix):
+            return name[:-len(suffix)], task
+    return name, ""
+
+
 def aerosuite_case(workdir: str, name: str) -> Optional[tuple[Path, str, str]]:
-    """(study folder, study name, case) when a job looks like an AeroSuite case, else None."""
+    """(study folder, study name, case) when a job looks like an AeroSuite case (or another job of a case, such as
+    writing its ASCII files), else None."""
     if not workdir or not name or "/" not in name:
         return None
     folder = Path(workdir)
     if folder.parent.name != RUNS_DIR:
         return None
     study_name, _, case = name.rpartition("/")
-    if case != folder.name:
+    if case != folder.name and split_task(case)[0] != folder.name:
         return None
     return folder.parent.parent, study_name, folder.name
 
@@ -41,7 +54,7 @@ def study_of(workdir: str, name: str) -> Optional[Path]:
         return None
     study, _study_name, case = found
     project_name = _project_name(study)
-    if project_name is None or job_name(project_name, case) != name:
+    if project_name is None or job_name(project_name, case) != split_task(name)[0]:
         return None
     return study
 
@@ -112,6 +125,7 @@ class MyJob:
     resubmittable: bool
     submitted: Optional[float] = None  # when it was submitted (time.time() seconds); None when unknown
     failure: str = ""  # why it failed, in words (jobs/diagnose.py); "" unless it failed
+    task: str = ""  # another job of the case (TASKS), e.g. "ASCII files"; "" for the case's run
 
     @property
     def earlier_attempt(self) -> bool:
@@ -124,6 +138,24 @@ def _timestamp(text: str) -> Optional[float]:
         return datetime.fromisoformat(text).timestamp()
     except ValueError:
         return None
+
+
+def active_records(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], user: str,
+                   index: RecordIndex) -> set[tuple[Path, str]]:
+    """(study folder, AeroSuite job id) of every job record still active that has a case among the user's Slurm
+    jobs, queued, running or of the recent history: what a server just started must watch, whether or not a page
+    shows the study (a job that ended while it was down is brought up to date and ended)."""
+    jobs = [(job_id, row.name, row.workdir) for job_id, row in recent.items()]
+    jobs += [(job_id, row.name, row.workdir) for job_id, row in queue.items() if row.user == user]
+    found = set()
+    for job_id, name, workdir in jobs:
+        study = study_of(workdir, name)
+        if study is None or split_task(name)[1]:
+            continue
+        record = index.lookup(study, job_id)
+        if record is not None and record[0].is_active:
+            found.add((study, record[0].id))
+    return found
 
 
 def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], user: str, index: RecordIndex,
@@ -145,7 +177,8 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
             continue
         _folder, study_name, case = found
         study = study_of(workdir, name)
-        record = index.lookup(study, job_id) if study is not None else None
+        task = split_task(name)[1]
+        record = index.lookup(study, job_id) if study is not None and not task else None
         case_state = job = current = None
         resubmittable = False
         failure = ""
@@ -163,6 +196,6 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
                     failure = diagnose(job.failure_tail[case], sc.state, sc.time_limit).summary
         rows.append(MyJob(job_id, study, study_name, case, state, case_state, job.id if job else None, partition,
                           node, elapsed, exit_code, reason, state in ACTIVE_STATES, current, resubmittable,
-                          submitted, failure))
+                          submitted, failure, task))
     rows.sort(key=lambda row: (len(row.slurm_id), row.slurm_id), reverse=True)
     return rows[:limit], max(0, len(rows) - limit)

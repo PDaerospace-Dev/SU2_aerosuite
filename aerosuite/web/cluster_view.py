@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable, Mapping, NamedTuple, Optional, Sequence
+from typing import Callable, Iterable, Mapping, NamedTuple, Optional, Sequence
 
-from ..engine.jobs.runner import JobRecord
+from ..engine.jobs.runner import FINAL_CASE_STATES, JobRecord
 from ..engine.cluster import MyJob
 from ..engine.slurm import (FAILED_STATES, QUEUED_STATES, RESUBMITTABLE, RUNNING_STATES, ClusterInfo,
                              Snapshot, parse_duration)
@@ -87,6 +87,47 @@ def node_groups(cluster: Optional[ClusterInfo]) -> list[tuple[str, bool, list[No
             groups[row.partition] = (True, lines)
     ordered = sorted(groups.items(), key=lambda item: not item[1][0])  # stable: default first
     return [(name, default, lines) for name, (default, lines) in ordered]
+
+
+@dataclass(frozen=True)
+class NodeJob:
+    """A study's job with cases running on a node: how far the whole job is, as on its Run page."""
+    study: Path
+    study_name: str
+    job_id: str
+    started: datetime
+    finished: int
+    total: int
+    cases: tuple[str, ...]  # its cases running on this node
+
+    @property
+    def done(self) -> float:
+        return self.finished / self.total if self.total else 0.0
+
+    @property
+    def tip(self) -> str:
+        return f"Job {self.job_id} · running here: {', '.join(self.cases)}"
+
+
+def node_jobs(rows: Iterable[MyJob],
+              lookup: Callable[[Path, str], Optional[tuple[JobRecord, str]]]) -> dict[str, tuple[NodeJob, ...]]:
+    """Node -> the study jobs with cases running there (from My jobs' rows and the job records), by study name."""
+    found: dict[tuple[str, Path, str], tuple[JobRecord, str, list[str]]] = {}
+    for row in rows:
+        if (row.slurm_state not in RUNNING_STATES or not row.node or row.study is None or row.job_id is None
+                or row.earlier_attempt):
+            continue
+        record = lookup(row.study, row.slurm_id)
+        if record is None:
+            continue
+        for node in row.node.split(","):
+            found.setdefault((node, row.study, row.job_id), (record[0], row.study_name, []))[2].append(row.case)
+    jobs: dict[str, list[NodeJob]] = {}
+    for (node, study, job_id), (job, name, cases) in found.items():
+        finished = sum(1 for name in job.cases if job.case_status.get(name) in FINAL_CASE_STATES)
+        jobs.setdefault(node, []).append(NodeJob(study, name, job_id, job.created, finished, len(job.cases),
+                                                 tuple(sorted(cases))))
+    return {node: tuple(sorted(lines, key=lambda j: (j.study_name, j.job_id))) for node, lines in jobs.items()}
 
 
 def cluster_status(snapshot: Optional[Snapshot], cluster: Optional[ClusterInfo]) -> tuple[str, str]:

@@ -7,6 +7,7 @@ from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.jobs.store import list_jobs
 from aerosuite.engine.project import save_project
 from aerosuite.engine.settings import AppSettings, save_settings, set_value
+from aerosuite.web.layout import project_url
 from aerosuite.web.slurm_watch import WATCH
 
 A0, A2, A4 = "M0p8_a0_b0", "M0p8_a2_b0", "M0p8_a4_b0"
@@ -56,6 +57,36 @@ async def test_nodes_and_my_jobs_without_the_queue(user: User, cluster_study, ev
     await eventually(lambda: _text(user, "job-101-state") == "Running", 5)  # the page re-renders every 2 s
     assert _text(user, "job-102-state").startswith("Pending")
     await user.should_not_see(marker="job-900")  # someone else's
+
+
+async def test_a_node_card_shows_the_study_job_running_there(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1")
+    fake.update(nodes=["hpc1|node1*|alloc|192/0/0/192|125000|20000|96.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.0|none"])
+    await _open(user)
+    marker = f"node-hpc1-job-{job.id}"
+    await eventually(lambda: bool(user.find(marker=marker).elements), 5)
+    assert _text(user, f"{marker}-done") == "0 / 2"  # the whole job, as Run's job bar
+    assert _text(user, f"{marker}-time").startswith("Elapsed ")
+    assert _text(user, f"{marker}-time").endswith("time left shown after the first case")
+    assert _element(user, marker).props["href"] == project_url("run", project_dir)  # opens the study's Run page
+    await user.should_see(marker="node-hpc2-nojob")
+
+
+async def test_an_ascii_job_shows_as_its_case_with_its_own_log(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    folder = project_dir / "runs" / A0
+    folder.mkdir(parents=True)
+    (folder / "to_ascii-700.out").write_text("AeroSuite: ASCII files written\n")
+    fake.add_job("700", user=WATCH.user, name=f"{project.name}/{A0}-ascii", cwd=str(folder))
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="job-700-task").elements), 5)
+    assert _text(user, "job-700") == A0 and _text(user, "job-700-task") == "ASCII files"
+    await user.should_not_see(marker="cancel-700")  # not a case of a job record
+    user.find(marker="log-700").click()
+    await eventually(lambda: "ASCII files written" in _text(user, "log-dialog-text"), 5)
 
 
 async def test_filters(user: User, cluster_study, eventually):

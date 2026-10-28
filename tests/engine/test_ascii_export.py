@@ -9,6 +9,8 @@ from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
 from aerosuite.engine.settings import AppSettings, SlurmSettings
 
+from slurm_helpers import A0, slurm_study  # noqa: F401  (fixture)
+
 CFG = """MESH_FILENAME= /data/mesh/wing.su2
 SOLUTION_FILENAME= /data/s/runs/M0p6_0km_a5/restart_flow
 OUTPUT_FILES= PARAVIEW, SURFACE_PARAVIEW, RESTART
@@ -84,3 +86,12 @@ def test_a_case_without_a_restart_has_nothing_to_write_from(ready_project):
     (project_dir / "runs" / project.cases[0].name).mkdir(parents=True)
     with pytest.raises(JobError, match="no restart file"):
         write_ascii(project_dir, project, project.cases[0].name, AppSettings())
+
+
+def test_a_case_still_running_is_refused(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    runner.submit(project_dir, project, cases=[A0])
+    fake.run("101")
+    (project_dir / "runs" / A0 / "restart_flow.dat").write_text("solution")
+    with pytest.raises(JobError, match="pending in job .*once it has ended"):
+        write_ascii(project_dir, project, A0, AppSettings())

@@ -38,8 +38,8 @@ from .cluster import cluster_url
 from ..slurm_fields import slurm_fields
 from ..jobs import WATCHER, JobView, job_progress
 from ..layout import ProjectFrame, open_session, project_url
-from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, duration_text,
-                        earlier_groups, has_board, layout, state_sections, status_counts, tile_text, time_left)
+from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, clock_text,
+                        duration_text, earlier_groups, has_board, layout, state_sections, status_counts, tile_text)
 from ..session import parse_int
 from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, help_tip, hint, ok_line,
                       pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table, td, td_box,
@@ -894,10 +894,7 @@ class RunPage:
         if self.clock is None or label is None or label.is_deleted:
             return
         started, finished, total = self.clock
-        elapsed = max(0.0, (datetime.now() - started).total_seconds())
-        left = time_left(elapsed, finished, total)
-        label.text = f"Elapsed {duration_text(elapsed)}" + (
-            f" · about {duration_text(left)} left" if left else " · time left shown after the first case")
+        label.text = clock_text(max(0.0, (datetime.now() - started).total_seconds()), finished, total)
 
     def _buttons_state(self, view: JobView, selection: _Selection) -> None:
         if view.active is None:  # one job at a time: while one runs the panel has Cancel, no Submit

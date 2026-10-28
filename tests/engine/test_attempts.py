@@ -112,6 +112,30 @@ def test_a_slurm_rerun_keeps_the_earlier_run_with_how_it_ended(slurm_study, hist
     assert (kept.job_id, kept.status) == (first.id, "CONVERGED") and kept.history is not None
 
 
+def test_a_case_added_again_to_its_job_drops_the_volume_files_of_the_run_it_had(slurm_study, history_writer):
+    from aerosuite.engine.jobs.executors import SlurmOptions
+
+    project_dir, project, runner, fake = slurm_study
+    first = runner.submit(project_dir, project, cases=[A0])
+    history_writer(project_dir / RUNS_DIR / A0, STEADY)
+    (project_dir / RUNS_DIR / A0 / "flow.vtk").write_text("volume")
+    (project_dir / RUNS_DIR / A0 / "restart_flow.dat").write_text("solution")
+    fake.finish("101", "COMPLETED", "0:0")
+    runner.refresh(project_dir, first)
+    job = runner.submit(project_dir, project, cases=[A0, A2])  # the first run is put aside, volume and all
+    history_writer(project_dir / RUNS_DIR / A0, STEADY[:5])
+    fake.finish("102", "NODE_FAIL")
+    fake.run("103")
+    job = runner.refresh(project_dir, job)
+    job = runner.add_cases(project_dir, project, job, [A0],
+                           options=SlurmOptions(partition="node2", ntasks=48, time_limit="", exclusive=True,
+                                                account=""))
+    first_run = attempts(project_dir, A0)[0]
+    assert first_run.job_id == first.id and not (first_run.folder / "flow.vtk").exists()  # settled now
+    assert first_run.solution is not None and first_run.history is not None
+    assert job.attempts[A0] == str(attempts(project_dir, A0)[1].folder)  # the failed run, settled at the end
+
+
 def test_a_rerun_from_an_attempt_copies_its_solution_aside(ready_project):
     project_dir, project = ready_project
     generate_configs(project_dir, project)

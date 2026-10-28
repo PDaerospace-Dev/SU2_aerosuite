@@ -5,7 +5,7 @@ from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
 from aerosuite.engine.slurm import ClusterInfo, QueueRow, Snapshot, parse_sinfo_nodes
 from aerosuite.web.cluster_view import (
     can_resubmit, case_slurm_text, cluster_status, filter_jobs, job_state_text, job_studies,
-    node_groups, running_count, suggested_partition, summary_line, summary_parts,
+    node_groups, node_jobs, running_count, suggested_partition, summary_line, summary_parts,
 )
 
 NODES = ("hpc1|node1*|alloc|192/0/0/192|125000|20000|96.1|none\n"
@@ -144,3 +144,25 @@ def test_summary_parts_give_a_pill_per_partition_and_your_jobs():
     assert parts.bad and parts.message == "" and parts.mine == ""
     assert summary_parts(None, None, "me").message == "Asking Slurm…"
     assert summary_parts(_cluster(), Snapshot(error="x"), "me") == ("Slurm controller unreachable", True, (), "")
+
+
+def test_node_jobs_are_whole_study_jobs_as_on_run():
+    job = _job(a={}, b={}, c={}, d={})
+    job.case_status.update(a=CaseState.CONVERGED, b=CaseState.FAILED, c=CaseState.RUNNING, d=CaseState.RUNNING)
+    other = _job(x={})
+    records = {("/d/s", "102"): (job, "c"), ("/d/s", "103"): (job, "d"), ("/d/t", "100"): (other, "x")}
+    rows = [MyJob("103", Path("/d/s"), "s", "d", "RUNNING", "RUNNING", "j", "node1", "hpc1", "1:00", "", "", True,
+                  "103", False),
+            MyJob("102", Path("/d/s"), "s", "c", "RUNNING", "RUNNING", "j", "node1", "hpc1", "2:00", "", "", True,
+                  "102", False),
+            MyJob("100", Path("/d/t"), "t", "x", "RUNNING", "RUNNING", "k", "node2", "hpc2", "1:00", "", "", True,
+                  "100", False),
+            MyJob("104", Path("/d/s"), "s", "e", "PENDING", "PENDING", "j", "node1", "", "0:00", "", "", True,
+                  "104", False)]
+    found = node_jobs(rows, lambda study, slurm_id: records.get((str(study), slurm_id)))
+    assert set(found) == {"hpc1", "hpc2"}  # a queued case is on no node
+    (line,) = found["hpc1"]  # one line for the job, not one per case
+    assert (line.study_name, line.job_id, line.finished, line.total, line.cases) == ("s", "j", 2, 4, ("c", "d"))
+    assert line.started == job.created and line.done == 0.5
+    assert line.tip == "Job j · running here: c, d"
+    assert found["hpc2"][0].total == 1

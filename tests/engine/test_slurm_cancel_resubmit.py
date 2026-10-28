@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from aerosuite.engine.errors import JobError
@@ -81,6 +83,34 @@ def test_resubmit_out_of_memory_on_another_partition(slurm_study):
     assert "#SBATCH -p node2" in script and "#SBATCH -n 48" in script
     assert job.slurm[A0].partition == "node2" and job.slurm[A0].attempts == ["101"]
     assert job.case_status[A2] is CaseState.CANCELLED  # not blocked: no restart, so not resubmitted
+
+
+def test_a_resubmitted_case_gets_its_config_back_and_keeps_its_earlier_run(slurm_study, history_writer):
+    project_dir, project, runner, fake = slurm_study
+    job = _fail_first(slurm_study)
+    folder = project_dir / "runs" / A2
+    cfg = folder / f"{A2}.cfg"
+    assert "RESTART_SOL= YES" in cfg.read_text()
+    cfg.write_text(cfg.read_text().replace("RESTART_SOL= YES", "RESTART_SOL= NO"))  # its script started it fresh
+    (folder / "slurm-102.out").write_text("AeroSuite: M0p8_a0_b0 ended without a solution; starting from scratch\n")
+    history_writer(project_dir / "runs" / A0, STEADY[:3])  # A0's run so far
+    job = runner.resubmit(project_dir, project, job)
+    assert "RESTART_SOL= YES" in cfg.read_text()  # restarts again from A0, which runs again first
+    assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg.read_text()
+    assert (folder / "slurm-102.out").is_file()  # the earlier attempt's output stays beside the new one
+    assert not (project_dir / "runs" / A0 / "history.csv").exists()  # A0's failed run is put aside ...
+    assert A0 in job.attempts and (Path(job.attempts[A0]) / "history.csv").is_file()
+
+
+def test_a_resubmitted_case_whose_solution_is_gone_starts_from_scratch(slurm_study):
+    project_dir, project, runner, fake = slurm_study
+    job = _fail_first(slurm_study)
+    job.slurm[A2].state, job.case_status[A2] = "NODE_FAIL", CaseState.FAILED  # A2 failed too, A0 is not rerun
+    save_job(project_dir, job)
+    job = runner.resubmit(project_dir, project, job, [A2])
+    text = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
+    assert "RESTART_SOL= NO" in text  # A0 never wrote a solution: SU2 would stop at once
+    assert f"{A2} starts from scratch" in (project_dir / job.log_path).read_text()
 
 
 def test_resubmit_is_refused_for_other_states_and_while_another_job_runs(slurm_study):

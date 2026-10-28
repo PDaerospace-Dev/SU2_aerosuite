@@ -132,3 +132,14 @@ def test_each_row_knows_when_it_was_submitted(slurm_study):
     assert row.submitted == datetime(2026, 10, 20, 17, 39, 12).timestamp()  # from accounting
     unknown = {"8": _ended("8", "/gone/s/runs/c", "s/c", submit="Unknown")}
     assert my_jobs({}, unknown, ME, RecordIndex())[0][0].submitted is None
+
+
+def test_a_cases_ascii_job_is_listed_as_that_case(slurm_study):
+    project_dir = slurm_study[0]
+    folder = project_dir / "runs" / A0
+    name = f"study/{A0}-ascii"
+    assert aerosuite_case(str(folder), name) == (project_dir, "study", A0)
+    assert study_of(str(folder), name) == project_dir
+    assert aerosuite_case(str(folder), f"study/{A0}-other") is None
+    rows, _more = my_jobs({"700": _queue("700", folder, name)}, {}, ME, RecordIndex())
+    assert [(r.case, r.task, r.job_id, r.active) for r in rows] == [(A0, "ASCII files", None, True)]

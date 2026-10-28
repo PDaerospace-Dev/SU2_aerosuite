@@ -19,8 +19,9 @@ from typing import Optional
 from . import slurm as sl
 from .errors import JobError
 from .jobs.executors import backend_of, slurm_options
-from .jobs.runner import sweep_environment
+from .jobs.runner import CaseState, sweep_environment
 from .jobs.slurm import job_name, script_head
+from .jobs.store import active_lock, load_job
 from .models import Project
 from .restarts import RUNS_DIR, find_restart_file
 from .settings import AppSettings
@@ -28,6 +29,7 @@ from .settings import AppSettings
 ASCII_CFG = "to_ascii.cfg"
 ASCII_SCRIPT = "to_ascii.sh"
 ASCII_LOG = "to_ascii.log"  # this machine's run; a Slurm one writes to_ascii-<job id>.out
+JOB_SUFFIX = "-ascii"  # the Slurm job is named <study>/<case>-ascii
 TIME_LIMIT = "2:00:00"  # SU2_SOL takes minutes: a job still running after this has hung
 TIME_LIMIT_TEXT = "2 h"
 OUTPUT_FILES = "PARAVIEW_ASCII, SURFACE_PARAVIEW_ASCII"
@@ -84,7 +86,7 @@ def _body(launch: str, scratch: str) -> list[str]:
 def ascii_script(study: str, case: str, options, slurm, scratch: str) -> str:
     """The batch script: the study's partition and environment, SU2_SOL limited to TIME_LIMIT."""
     options = dataclasses.replace(options, time_limit=TIME_LIMIT)
-    lines, launch = script_head(f"{job_name(study, case)}-ascii", options, slurm,
+    lines, launch = script_head(job_name(study, case) + JOB_SUFFIX, options, slurm,
                                 f"# Written by AeroSuite: {case}'s ASCII ParaView files from its restart.",
                                 out="to_ascii-%j.out")
     return "\n".join(lines + _body(launch, scratch)) + "\n"
@@ -106,8 +108,28 @@ def _case_config(folder: Path, case: str) -> Path:
     return found[0]
 
 
+def ascii_log_name(slurm_id: str) -> str:
+    """The Slurm output of an ASCII job, in the case's folder."""
+    return f"to_ascii-{slurm_id}.out"
+
+
+def _check_not_running(project_dir: Path, case: str) -> None:
+    """A case queued or running in the project's job is about to rewrite its restart file: not now."""
+    lock = active_lock(project_dir)
+    if lock is None:
+        return
+    try:
+        job = load_job(project_dir, str(lock.get("job_id")))
+    except JobError:
+        return
+    if job.case_status.get(case) in (CaseState.PENDING, CaseState.RUNNING):
+        raise JobError(f"{case} is {job.case_status[case].value.lower()} in job {job.id}: write its ASCII files "
+                       "once it has ended")
+
+
 def write_ascii(project_dir: Path, project: Project, case: str, settings: AppSettings) -> str:
     """Start writing `case`'s ASCII files from its restart; returns what was started, for the user."""
+    _check_not_running(project_dir, case)
     folder = Path(project_dir) / RUNS_DIR / case
     restart = find_restart_file(folder)
     if restart is None:
@@ -123,7 +145,8 @@ def write_ascii(project_dir: Path, project: Project, case: str, settings: AppSet
         script = ascii_script(project.name, case, options, settings.slurm, scratch)
         (folder / ASCII_SCRIPT).write_text(script, encoding="utf-8", newline="\n")
         job_id = sl.parse_sbatch(sl.run_sync(sl.sbatch_args(ASCII_SCRIPT), cwd=str(folder), env=sweep_environment()))
-        return f"Slurm job {job_id} on {options.partition} is writing {case}'s ASCII files (to_ascii-{job_id}.out)"
+        return (f"Slurm job {job_id} on {options.partition} is writing {case}'s ASCII files "
+                f"({ascii_log_name(job_id)})")
     (folder / ASCII_SCRIPT).write_text(local_script(project.run.partitions, scratch), encoding="utf-8", newline="\n")
     try:
         with open(folder / ASCII_LOG, "wb") as log:

@@ -1,7 +1,8 @@
 """The Run page's rules without NiceGUI: layout by study size, groups, counts, durations, time left."""
 from aerosuite.engine.jobs.overview import CaseRow
 from aerosuite.engine.models import Case
-from aerosuite.web.run_view import (case_conditions, case_groups, duration_text, layout, status_counts, time_left)
+from aerosuite.web.run_view import (case_conditions, case_groups, clock_text, duration_text, layout, status_counts,
+                                    time_left)
 
 
 def _cases(machs=(1.5, 2.0), altitudes=(5.0, 10.0), alphas=range(8)):
@@ -40,6 +41,11 @@ def test_durations_and_time_left():
     assert time_left(elapsed=600, finished=2, total=5) == 900  # 5 min a case, 3 to go
     assert time_left(elapsed=30, finished=0, total=5) is None  # nothing finished: no guess
     assert time_left(elapsed=600, finished=5, total=5) == 0
+
+
+def test_the_job_clock_text():
+    assert clock_text(600, 2, 5) == "Elapsed 10 min · about 15 min left"
+    assert clock_text(30, 0, 5) == "Elapsed 30 s · time left shown after the first case"
 
 
 def test_a_single_cases_conditions_come_from_its_config():

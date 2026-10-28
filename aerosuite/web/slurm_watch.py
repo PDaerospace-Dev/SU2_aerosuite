@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from ..engine import slurm as sl
+from ..engine.cluster import RecordIndex, active_records
 from ..engine.errors import JobError
 from ..engine.jobs.executors import runner_for
 from ..engine.jobs.store import load_job
@@ -47,6 +48,7 @@ class SlurmWatch:
         self._recent_due = False
         self.recent: Optional[sl.RecentJobs] = None
         self.user = sl.current_user()
+        self.discovered = False  # the active jobs Slurm knows of have been found (once, at the server's start)
 
     # -- what to watch -------------------------------------------------------------------------------------
 
@@ -106,7 +108,27 @@ class SlurmWatch:
 
     # -- one poll ------------------------------------------------------------------------------------------
 
+    async def discover(self) -> None:
+        """Track every active AeroSuite job with a case in the queue or the recent history, so the server keeps
+        their records current from its start, before any page asks for them. Tried again each poll until squeue
+        answers; without accounting, the queue alone."""
+        if not slurm_available():
+            self.discovered = True
+            return
+        snapshot = await sl.snapshot_async([])
+        if not snapshot.ok:
+            return
+        recent = await sl.recent_async()
+        found = await asyncio.to_thread(active_records, snapshot.queue, recent.rows, self.user, RecordIndex())
+        for directory, job_id in found:
+            self.track(directory, job_id)
+        if found:
+            log.info("Watching %d running AeroSuite job(s) found in Slurm", len(found))
+        self.discovered = True
+
     async def poll_once(self) -> None:
+        if not self.discovered:
+            await self.discover()
         records = self._records()
         active = [(directory, job) for directory, job in records if job.is_active]
         runner = self._runner()

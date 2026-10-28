@@ -322,7 +322,7 @@ a.as-step:hover { background: #f6f8fa; }
 .as-dot-red { background: #cf222e; } .as-dot-grey { background: #8c959f; }
 .as-cluster-count { margin-left: 4px; color: #9fb0c8; }
 /* Cluster page (layout D): compact node cards, collapsible sections, your rows in the queue */
-.as-node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.as-node-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; }
 .as-node-card { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 10px 12px;
   gap: 6px; }
 .as-node-bad { background: #fff8f7; border-color: #f0b9b3; }
@@ -332,6 +332,12 @@ a.as-step:hover { background: #f6f8fa; }
 .as-sort-head { justify-content: flex-start; border-radius: 0; min-height: 0; font-weight: 600; }
 .as-sort-head .q-btn__content { justify-content: flex-start; }
 .as-node-card .as-mono { white-space: nowrap; }
+.as-node-job { border-top: 1px solid var(--as-hairline); padding-top: 6px; gap: 2px; color: inherit;
+  text-decoration: none; min-width: 0; }
+.as-node-job:hover .as-node-study { color: var(--as-accent); }
+.as-node-study { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.as-node-when { padding-left: 24px; }
+.as-node-none { border-top: 1px solid var(--as-hairline); padding-top: 6px; }
 .as-table-compact .as-own { background: var(--as-accent-tint); }
 .as-table-compact.as-queue .as-td { white-space: normal; }
 .as-queue-what { flex-direction: column; align-items: flex-start !important; gap: 0; }

@@ -62,6 +62,13 @@ def time_left(elapsed: float, finished: int, total: int) -> Optional[float]:
     return elapsed / finished * max(0, total - finished)
 
 
+def clock_text(elapsed: float, finished: int, total: int) -> str:
+    """A running job's time, as Run's job bar and the Cluster page's node cards show it."""
+    left = time_left(elapsed, finished, total)
+    return f"Elapsed {duration_text(elapsed)}" + (
+        f" · about {duration_text(left)} left" if left else " · time left shown after the first case")
+
+
 def _option(text: str, key: str) -> Optional[str]:
     match = re.search(rf"^\s*{key}\s*=\s*([^\s%]+)", text, re.MULTILINE)
     return match.group(1) if match else None

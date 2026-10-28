@@ -9,15 +9,17 @@ from urllib.parse import quote
 
 from nicegui import run, ui
 
+from ...engine.ascii_export import ascii_log_name
 from ...engine.cluster import MAX_ROWS, RecordIndex, my_jobs
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.store import load_job
 from ...engine.project import open_project
-from ..cluster_view import (JOB_KINDS, cluster_status, filter_jobs, job_state_text, job_studies,
-                            node_groups, sort_jobs, submitted_text)
+from ..cluster_view import (JOB_KINDS, NodeJob, cluster_status, filter_jobs, job_state_text, job_studies,
+                            node_groups, node_jobs, sort_jobs, submitted_text)
 from ..jobs import WATCHER
 from ..layout import header, project_url
 from ..resubmit_dialog import resubmit_case
+from ..run_view import clock_text
 from .. import slurm_watch
 from ..slurm_watch import WATCH
 from ..ui_kit import banner, chip_button, danger_button, flat_button, hint, pill, secondary_button, table, td, td_box, th
@@ -81,6 +83,7 @@ class ClusterPage:
         self.good = None  # the last snapshot Slurm answered: shown, greyed, while it does not
         self.good_cluster = None  # likewise the last node list
         self.nodes_note = None
+        self.clocks: list[tuple[ui.label, NodeJob]] = []  # each node card's job time, ticked in place
         WATCH.show_page()
         ui.context.client.on_delete(WATCH.hide_page)  # not on_disconnect: a brief socket drop reconnects
         self.dialog_host = ui.element("div")  # dialogs live here: render() clears only the holder
@@ -105,8 +108,9 @@ class ClusterPage:
         outage = tip if tone == "red" else None
         groups = tuple((name, default, tuple(nodes)) for name, default, nodes in node_groups(self.good_cluster))
         accounting_down = recent is not None and recent.error is not None
+        on_nodes = tuple(sorted(node_jobs(rows, INDEX.lookup).items()))
         return (outage, groups, tuple(rows), more, accounting_down, self.kind, self.study,
-                _SORT["key"], _SORT["descending"])
+                _SORT["key"], _SORT["descending"], on_nodes)
 
     def poll(self) -> None:
         if self.dialogs_open:
@@ -117,6 +121,13 @@ class ClusterPage:
             self.render(data)
         elif self.nodes_note is not None and not self.nodes_note.is_deleted:
             self.nodes_note.text = self._nodes_text(data[1], data[0] is not None)
+            self._tick()
+
+    def _tick(self) -> None:
+        now = datetime.now()
+        for label, job in self.clocks:
+            if not label.is_deleted:
+                label.text = clock_text(max(0.0, (now - job.started).total_seconds()), job.finished, job.total)
 
     def render(self, data: tuple) -> None:
         outage, groups, rows, more, accounting_down = data[:5]
@@ -126,7 +137,7 @@ class ClusterPage:
             if self.down:
                 banner("error", f"{outage}. Showing the last known state, as of {_time(WATCH.last_ok)}.").mark(
                     "cluster-outage")
-            self._nodes(groups)
+            self._nodes(groups, dict(data[9]))
             self._jobs(list(rows), more, accounting_down)
 
     def _nodes_text(self, groups: tuple, down: bool) -> str:
@@ -140,8 +151,10 @@ class ClusterPage:
 
     # -- nodes ------------------------------------------------------------------------------------------------
 
-    def _nodes(self, groups: tuple) -> None:
-        """One compact card per node, the default partition's first; a drained or down node is tinted red."""
+    def _nodes(self, groups: tuple, jobs: dict) -> None:
+        """One compact card per node, the default partition's first; a drained or down node is tinted red. Under
+        it, each study job with cases running there, as on that study's Run page."""
+        self.clocks = []
         with ui.row().classes("items-baseline w-full gap-2").mark("nodes-card"):
             ui.label("Nodes").classes("as-card-title")
             self.nodes_note = ui.label(self._nodes_text(groups, self.down)).classes("as-muted").mark("nodes-summary")
@@ -165,6 +178,29 @@ class ClusterPage:
                             ui.label(f"· load {node.load}").classes("as-muted")
                             ui.space()
                             ui.label(node.reason).classes("as-error-text").mark(f"node-{node.node}-note")
+                        self._node_jobs(node.node, jobs.get(node.node, ()))
+        self._tick()
+
+    def _node_jobs(self, node: str, jobs: tuple) -> None:
+        """A line per study job: a ring and cases finished / in all, elapsed and about how long is left. Clicking it
+        opens the study's Run page."""
+        if not jobs:
+            ui.label("No AeroSuite job here").classes("as-muted as-small as-node-none w-full").mark(
+                f"node-{node}-nojob")
+            return
+        for job in jobs:
+            with ui.link(target=project_url("run", job.study)).classes("as-node-job flex flex-col w-full").mark(
+                    f"node-{node}-job-{job.job_id}"):
+                ui.tooltip(job.tip)
+                with ui.row().classes("items-center w-full no-wrap gap-2"):
+                    ui.circular_progress(job.done, min=0, max=1, show_value=False, size="16px").props(
+                        "thickness=0.4 track-color=grey-3")
+                    ui.label(job.study_name).classes("as-node-study")
+                    ui.space()
+                    ui.label(f"{job.finished} / {job.total}").classes("as-mono as-small").mark(
+                        f"node-{node}-job-{job.job_id}-done")
+                when = ui.label("").classes("as-muted as-small as-node-when").mark(f"node-{node}-job-{job.job_id}-time")
+                self.clocks.append((when, job))
 
     @contextmanager
     def _section(self, key: str, title: str, subtitle: str, mark: str):
@@ -248,7 +284,11 @@ class ClusterPage:
                 ui.link(row.study_name, project_url("run", row.study)).mark(f"job-{row.slurm_id}-study")
             else:
                 ui.label(row.study_name).classes("as-muted")
-        td(row.case, mono=True).mark(f"job-{row.slurm_id}")
+        with td_box() as cell:
+            cell.classes("no-wrap gap-2")
+            ui.label(row.case).classes("as-mono as-muted as-truncate").mark(f"job-{row.slurm_id}")
+            if row.task:
+                pill(row.task).classes("as-pill-small").mark(f"job-{row.slurm_id}-task")
         td(row.slurm_id, mono=True)
         with td_box():
             with ui.column().classes("gap-0 min-w-0"):
@@ -323,7 +363,8 @@ class ClusterPage:
 
     def show_log(self, row) -> None:
         """The case's slurm-<id>.out, re-read every 2 s while open; Follow keeps it scrolled to the end."""
-        path = Path(row.study) / "runs" / row.case / f"slurm-{row.slurm_id}.out"
+        name = ascii_log_name(row.slurm_id) if row.task else f"slurm-{row.slurm_id}.out"
+        path = Path(row.study) / "runs" / row.case / name
         with self.dialog_host, ui.dialog() as dialog, ui.card().classes("w-[60rem] max-w-full"):
             with ui.row().classes("w-full items-center no-wrap"):
                 ui.label(f"{row.study_name} / {row.case} · {path.name}").classes("as-dialog-title grow")
