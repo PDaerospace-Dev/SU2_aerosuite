@@ -36,14 +36,14 @@ from ..rerun_dialog import ask_rerun, keep_changes, kept
 from ..resubmit_dialog import resubmit_case
 from .cluster import cluster_url
 from ..slurm_fields import slurm_fields
-from ..jobs import WATCHER, JobView, job_progress
+from ..jobs import WATCHER, JobView, job_nodes, job_progress
 from ..layout import ProjectFrame, open_session, project_url
 from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, clock_text,
                         duration_text, earlier_groups, has_board, layout, state_sections, status_counts, tile_text)
 from ..session import parse_int
-from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, help_tip, hint, ok_line,
-                      pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table, td, td_box,
-                      th, titled, warning_group)
+from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, help_tip, hint, node_pills,
+                      ok_line, pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table,
+                      td, td_box, th, titled, warning_group)
 
 MACHINE_SECONDS = 10.0  # how often the machine strip is read again
 POLL_SECONDS = 2.0
@@ -304,8 +304,11 @@ class RunPage:
                 return
             progress = job_progress(view)
             with ui.column().classes("gap-0"):
-                where = f" · Slurm {job.slurm[next(iter(job.slurm))].partition}" if job.slurm else ""
-                ui.label(f"Running · job {job.id}{where}").classes("as-muted as-small").mark("run-job")
+                where = f" · {job.slurm[next(iter(job.slurm))].partition}" if job.slurm else ""
+                with ui.row().classes("items-center gap-2 no-wrap"):
+                    ui.label(f"Running · job {job.id}{where}").classes("as-muted as-small whitespace-nowrap").mark(
+                        "run-job")
+                    node_pills(job_nodes(job), "job-node")
                 with ui.row().classes("items-baseline gap-2 no-wrap"):
                     ui.label(f"{progress.finished} of {progress.total}").classes("as-run-big").mark("run-what")
                     ui.label("cases done").classes("as-muted")

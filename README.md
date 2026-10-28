@@ -180,6 +180,10 @@ it at 127.0.0.1 while it runs; a login token is planned before AeroSuite is used
 ### Projects
 Your recent projects, *Open* (choose or paste a folder), **New project** and **Import SU2 runs**.
 
+- Each recent project shows its kind (*sweep · 40 cases*), where its latest job runs and how it is doing: a blue
+  node pill (*hpc2*) while a case runs there, *node2 · queued* while every case waits, grey once the job has ended
+  (where it ran), *this PC* for a local run.
+
 - A new project is a **General case** (one config, no sweep) or an **Aircraft study** (pick a profile such as X07;
   the sweep is on).
 - **Import SU2 runs** reads runs made outside AeroSuite: see its own section.
@@ -299,7 +303,8 @@ the server.
 
 #### The job bar
 Across the top: the running job (*6 of 20 cases done*, a progress bar, the case running now, elapsed and about how
-long is left) with **Monitor**, **Log** and **Cancel**. With none running, how the last one ended (*Done · job
+long is left) with **Monitor**, **Log** and **Cancel**. Its first line names the job and partition, with a pill per
+node its cases run on now (*node1 · queued* while they all wait). With none running, how the last one ended (*Done · job
 20261024-1151 · 40 cases · 2 converged · 38 unconverged*) with its **Log** and **Job history**.
 
 #### Board, List, Earlier and Job history

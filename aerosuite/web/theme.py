@@ -147,6 +147,11 @@ a.as-step:hover { background: #f6f8fa; }
   line-height: 18px; white-space: nowrap; text-transform: lowercase; }
 .as-pill::first-letter { text-transform: uppercase; }
 .as-pill-toggle { cursor: pointer; }
+.as-node-pill { display: inline-flex; align-items: center; gap: 5px; padding: 1px 9px; border: 1px solid #d0d7de;
+  border-radius: 999px; font: 12px/1.45 var(--as-mono); color: #57606a; background: #fff; flex: none; }
+.as-node-pill-dot { width: 7px; height: 7px; border-radius: 50%; background: #8c959f; flex: none; }
+.as-node-pill-live { border-color: #9cc7f5; color: #0550ae; background: #f2f8ff; }
+.as-node-pill-live .as-node-pill-dot { background: var(--as-accent); box-shadow: 0 0 0 3px rgba(47, 111, 228, .18); }
 .as-pill-toggle:hover { filter: brightness(.95); text-decoration: underline; }
 .as-pill-chevron { cursor: pointer; color: var(--as-muted); font-size: 18px; margin-left: -4px; }
 .as-tag { display: inline-block; padding: 1px 8px; border-radius: 6px; background: var(--as-hairline);

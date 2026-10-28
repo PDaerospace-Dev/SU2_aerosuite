@@ -51,6 +51,18 @@ def set_pill(label: ui.label, status: Any) -> None:
     label.classes(replace=f"as-pill as-pill-{pill_tone(status)}")
 
 
+def node_pills(nodes, mark: str) -> None:
+    """A pill per node a job runs on (JobNodes): blue with a live dot while a case runs there, else grey."""
+    if nodes is None:
+        return
+    for name in nodes.names:
+        with ui.row().classes("as-node-pill no-wrap" + (" as-node-pill-live" if nodes.live else "")).mark(
+                f"{mark}-{name.split(' ')[0]}") as box:
+            ui.element("span").classes("as-node-pill-dot")
+            ui.label(name)
+        box.tooltip(nodes.tip)
+
+
 def status_dot(state: str) -> ui.element:
     """A small round dot: a sidebar step badge (done, attention, todo, running, plain, later)."""
     return ui.element("span").classes(f"as-dot as-dot-{state}")

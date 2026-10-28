@@ -167,3 +167,29 @@ def test_job_progress_counts_finished_cases_and_names_the_running_one():
 def test_no_active_job_no_progress():
     assert job_progress(JobView(None, None, CaseOverview([], [], []))) is None
     assert JobProgress(0, 3, None).text == "0 / 3"
+
+
+def test_job_nodes_where_a_job_runs_waits_or_ran():
+    from aerosuite.engine.jobs.runner import CaseState, SlurmCase
+    from aerosuite.web.jobs import THIS_PC, job_nodes
+
+    job = JobRecord(id="j", backend="slurm", cases=["a", "b", "c"], log_path="jobs/j.log", state=JobState.RUNNING,
+                    case_status={"a": CaseState.CONVERGED, "b": CaseState.PENDING, "c": CaseState.PENDING})
+    job.slurm = {"a": SlurmCase(job_id="1", partition="node1", ntasks=96, node="hpc1", started=True),
+                 "b": SlurmCase(job_id="2", partition="node1", ntasks=96),
+                 "c": SlurmCase(job_id="3", partition="node2", ntasks=48)}
+    waiting = job_nodes(job)
+    assert waiting.names == ("node1 · queued", "node2 · queued") and not waiting.live
+    assert waiting.tip == "Every case is waiting in the Slurm queue"
+    job.case_status.update(b=CaseState.RUNNING, c=CaseState.RUNNING)
+    job.slurm["b"].node, job.slurm["c"].node = "hpc1", "hpc2"
+    running = job_nodes(job)
+    assert running.names == ("hpc1", "hpc2") and running.live and running.tip == "Running on hpc1, hpc2"
+    job.state = JobState.DONE
+    job.case_status.update(b=CaseState.CONVERGED, c=CaseState.CONVERGED)
+    job.slurm["b"].started = job.slurm["c"].started = True
+    ended = job_nodes(job)
+    assert ended.names == ("hpc1", "hpc2") and not ended.live and ended.tip == "The last job ran on hpc1, hpc2"
+    local = JobRecord(id="k", backend="local", cases=["a"], log_path="jobs/k.log", state=JobState.DONE)
+    assert job_nodes(local).names == (THIS_PC,) and not job_nodes(local).live
+    assert job_nodes(None) is None

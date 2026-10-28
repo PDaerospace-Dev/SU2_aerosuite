@@ -63,6 +63,42 @@ def job_progress(view: JobView) -> Optional[JobProgress]:
     return JobProgress(finished, len(job.cases), current)
 
 
+THIS_PC = "this PC"
+
+
+@dataclass(frozen=True)
+class JobNodes:
+    """Where a job runs, for a pill: the nodes its running cases are on (live), the partitions while every case
+    waits in the queue, or where it ran once it has ended; a local job runs on this PC."""
+    names: tuple[str, ...]
+    live: bool  # a case runs there now
+
+    @property
+    def tip(self) -> str:
+        where = ", ".join(self.names)
+        if self.live:
+            return f"Running on {where}"
+        if all(name.endswith(" · queued") for name in self.names):
+            return "Every case is waiting in the Slurm queue"
+        return f"The last job ran on {where}"
+
+
+def job_nodes(job: Optional[JobRecord]) -> Optional[JobNodes]:
+    """The nodes of `job` (see JobNodes); None without a job, or when none of its cases ever ran."""
+    if job is None:
+        return None
+    if job.backend != "slurm":
+        return JobNodes((THIS_PC,), job.is_active)
+    running = {sc.node for name, sc in job.slurm.items() if job.case_status.get(name) is CaseState.RUNNING and sc.node}
+    if running:
+        return JobNodes(tuple(sorted(running)), True)
+    if job.is_active:
+        queued = {sc.partition for name, sc in job.slurm.items() if job.case_status.get(name) is CaseState.PENDING}
+        return JobNodes(tuple(f"{name} · queued" for name in sorted(queued)), False) if queued else None
+    ran = {sc.node for sc in job.slurm.values() if sc.started and sc.node}
+    return JobNodes(tuple(sorted(ran)), False) if ran else None
+
+
 class JobWatcher:
     def __init__(self, runner: Optional[LocalRunner] = None,
                  clock: Callable[[], float] = time.monotonic, slurm_runner=None,
