@@ -618,7 +618,10 @@ Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator setting
 Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
 
 ## Future Plans
--   
+See [docs/ROADMAP.md](docs/ROADMAP.md).
+
+- **One case on several nodes:** run a case across 2 or 4 identical nodes over InfiniBand, with a scaling test
+  that measures how much faster it gets.
 
 ## Contributors
 Thanks to the following contributors for their work on this project:
