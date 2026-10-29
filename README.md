@@ -1,37 +1,9 @@
 # AeroSuite V4
 
-AeroSuite Pro is a desktop and web application for preparing, running, and reviewing SU2 CFD studies. 
+AeroSuite is a desktop and web application for preparing, running, and reviewing SU2 CFD studies. 
 From mesh loading through config (CFG) generation, parametric sweeps, execution, convergence monitoring, and results analysis.
 
-## Layout
-
-```
-+--------------------------------------------------------------------+
-| Menu   Toolbar                                      Project Name   |
-+---------------+----------------------------------------------------+
-| Workflow Tree |                                                    |
-|               |                                                    |
-| Calculators   |                Content Pane                        |
-|  ISA Calc     |         (the page for whatever's selected          |
-|  y+ Calc      |          in the tree on the left)                  |
-| Project       |                                                    |
-|  Directory    |                                                    |
-|  Mesh         |                                                    |
-|  CFG          |                                                    |
-|   Aircraft    |                                                    |
-|   General     |                                                    |
-|  Sweep        |                                                    |
-|  Control File |                                                    |
-|  Run          |                                                    |
-|  Monitor      |                                                    |
-|  Results      |                                                    |
-+---------------+----------------------------------------------------+
-| Console / Log                                                      |
-+--------------------------------------------------------------------+
-```
 ## Workflow
-The tree runs top to bottom in execution order:
-
 1. **Calculators**
    - **ISA Calculator** — Standard atmosphere properties at any altitude up to 100 km.
    - **y+ Calculator** — First-cell height for a target y+, feeding into mesh sizing.
