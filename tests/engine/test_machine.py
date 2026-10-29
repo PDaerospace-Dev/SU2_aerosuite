@@ -42,3 +42,19 @@ def test_usage_of_this_machine_is_read():
     from aerosuite.engine.machine import usage
 
     assert isinstance(usage(), list)
+
+
+def test_readings_are_shared_for_a_few_seconds(monkeypatch):
+    """A reading walks every process: tabs and timers asking at about the same time get the same one."""
+    from aerosuite.engine import machine as module
+
+    reads = []
+    here = Machine(cores=8, physical_cores=4, load=1.0, memory_total_gb=16, memory_free_gb=8, su2_processes=0)
+    monkeypatch.setattr(module, "_read_machine", lambda: reads.append(1) or here)
+    monkeypatch.setattr(module, "_readings", {})
+    assert module.machine() is here and module.machine() is here
+    assert len(reads) == 1
+    for key, (_when, value) in list(module._readings.items()):
+        module._readings[key] = (module.time.monotonic() - module.CACHE_SECONDS - 1, value)
+    module.machine()
+    assert len(reads) == 2

@@ -138,6 +138,7 @@ async def test_my_jobs_show_when_cases_started_and_ended_and_group_by_job(user: 
     key = f"{project.name}-{job.id}"
     await eventually(lambda: bool(user.find(marker=f"group-{key}").elements), 5)
     assert _text(user, f"group-{key}-done") == "2 / 2"
+    await user.should_not_see(marker=f"group-{key}-bar")  # an ended job has its count, no bar
     assert _text(user, f"group-{key}-started") == "28 Oct 22:00" and _text(user, f"group-{key}-ended") == "28 Oct 23:00"
     await eventually(lambda: _text(user, f"group-{key}-took") == "took 1 h", 5)
     await user.should_not_see(marker="job-101-study")  # the group's line names the study
@@ -151,6 +152,18 @@ async def test_my_jobs_show_when_cases_started_and_ended_and_group_by_job(user: 
     await user.should_not_see(marker="job-101")
     user.find(marker="jobs-group").click()
     await user.should_see(marker="job-101-study")
+
+
+async def test_a_job_with_cases_in_the_cluster_has_a_bar_on_its_line(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1", time="0:30")
+    WATCH.track(project_dir, job.id)
+    await _open(user)
+    await eventually(lambda: _text(user, "job-101-state") == "Running", 5)
+    user.find(marker="jobs-group").click()
+    key = f"{project.name}-{job.id}"
+    await eventually(lambda: bool(user.find(marker=f"group-{key}-bar").elements), 5)
 
 
 async def test_an_ascii_job_shows_as_its_case_with_its_own_log(user: User, cluster_study, eventually):
@@ -322,6 +335,35 @@ async def test_the_page_is_not_redrawn_when_nothing_visible_changed(user: User, 
     for _ in range(2):  # new polls, same cluster
         await WATCH.poll_once()
         await asyncio.sleep(2.2)
+    assert len(renders) == count
+
+
+async def test_numbers_that_move_are_written_into_the_page_not_drawn_again(user: User, cluster_study, monkeypatch,
+                                                                           eventually):
+    import asyncio
+
+    from aerosuite.web.pages import cluster as cluster_page
+
+    project_dir, project, fake = cluster_study
+    runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1", time="0:30")
+    nodes = "hpc1|node1*|mix|96/96/0/192|125000|{free}|{load}|none"
+    fake.update(nodes=[nodes.format(free=20000, load=96.0)])
+    renders = []
+    real = cluster_page.ClusterPage.render
+    monkeypatch.setattr(cluster_page.ClusterPage, "render", lambda self, *a: renders.append(1) or real(self, *a))
+    await _open(user)
+    await eventually(lambda: _text(user, "job-101-state") == "Running", 5)  # settled: the job's record is current
+    count = len(renders)
+    card, load, elapsed = (_element(user, m) for m in ("node-card-hpc1", "node-hpc1-load-value", "job-101-elapsed"))
+    assert (load.text, elapsed.text) == ("96", "0:30")
+    fake.update(nodes=[nodes.format(free=60000, load=48.0)])
+    fake.run("101", node="hpc1", time="0:45")
+    await WATCH.poll_once()
+    await asyncio.sleep(2.2)
+    assert (load.text, elapsed.text) == ("48", "0:45")  # the same elements, with the new numbers
+    assert _text(user, "node-hpc1-memory-value") == "52%"
+    assert _element(user, "node-card-hpc1") is card
     assert len(renders) == count
 
 

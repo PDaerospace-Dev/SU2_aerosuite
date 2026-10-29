@@ -173,7 +173,7 @@ class RunPage:
         self.holder = ui.column().classes("as-content w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
-        ui.timer(MACHINE_SECONDS, self._machine_values)
+        ui.timer(MACHINE_SECONDS, self._machine_values)  # not in this tick: a reading walks every process
 
     @property
     def directory(self):
@@ -924,7 +924,7 @@ class RunPage:
     def _set_partitions(self, text: str) -> Optional[str]:
         message = self.frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Cores per case")))
         if message is None:
-            self._machine_values()
+            ui.timer(0, self._machine_values, once=True)  # the note on cores asked for
         return message
 
     def _monitor_url(self, case: Optional[str] = None) -> str:
@@ -975,7 +975,7 @@ class RunPage:
 
     def _machine(self) -> None:
         """This machine now: cores (free), memory, SU2 solvers running, who uses the cores; kept current by a
-        timer."""
+        timer. Read in a worker thread (a reading walks every process on the machine), so the page is up first."""
         with ui.row().classes("as-machine w-full").mark("run-machine"):
             self.machine_labels = {key: stat(label, "") for key, label in (
                 ("cores", "Cores"), ("free", "Free now"), ("memory", "Memory free"), ("su2", "SU2 solvers"))}
@@ -985,16 +985,19 @@ class RunPage:
         with ui.column().classes("as-machine-usage w-full gap-0"):
             ui.label("Using the cores").classes("as-stat-label")
             self.machine_usage = ui.label("").classes("as-mono as-usage").mark("machine-usage")
-        self._machine_values()
+        ui.timer(0, self._machine_values, once=True)
 
-    def _machine_values(self) -> None:
+    async def _machine_values(self) -> None:
         if getattr(self, "backend", "local") == "slurm":
             self._summary_values()
             return
         labels = getattr(self, "machine_labels", None)
         if not labels or labels["cores"].is_deleted:
             return
-        here = machine()
+        reading = await run.io_bound(lambda: (machine(), usage()))
+        if reading is None or labels["cores"].is_deleted:  # the server is stopping, or the page was drawn again
+            return
+        here, items = reading
         labels["cores"].text = (f"{here.cores}" if here.physical_cores == here.cores
                                 else f"{here.cores} ({here.physical_cores} physical)")
         labels["free"].text = f"about {here.free_cores}"
@@ -1003,7 +1006,7 @@ class RunPage:
         note = partitions_note(self.project.run.partitions, here) or ""
         self.machine_note.text = note
         self.machine_note.set_visibility(bool(note))
-        self.machine_usage.text = "\n".join(usage_text(item) for item in usage()) or "nothing much"
+        self.machine_usage.text = "\n".join(usage_text(item) for item in items) or "nothing much"
 
     def _cluster_summary(self) -> None:
         """One pill per partition (free, share busy, or bad), your jobs under them and a link to the Cluster page;

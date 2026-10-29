@@ -2,7 +2,11 @@
 
 Pages never style widgets themselves: aerosuite.web.ui_kit puts these `as-*` classes on them.
 """
-from nicegui import ui
+import hashlib
+from typing import Optional
+
+from nicegui import app, ui
+from starlette.responses import Response
 
 PAGE_BG = "#e6e9ee"  # a shade darker than the cards, so each card sits on the page
 CARD_BORDER = "#e3e5e8"
@@ -646,9 +650,30 @@ def component_css() -> str:
     return _variables() + BASE_CSS + pills + dots + banners
 
 
+_THEME_URL: Optional[str] = None  # where the component CSS is served from, once serve_theme() has run
+
+
+def serve_theme() -> str:
+    """Serve the component CSS as a file of its own, named by its content and cached for good: 40 KB that every page
+    would otherwise carry inline, and the browser parse again, on each load. Call once, before the server starts."""
+    global _THEME_URL
+    css = component_css()
+    url = f"/aerosuite-theme-{hashlib.sha256(css.encode()).hexdigest()[:12]}.css"
+    if _THEME_URL != url:
+        @app.get(url, include_in_schema=False)
+        def theme_css() -> Response:
+            return Response(css, media_type="text/css", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+
+        _THEME_URL = url
+    return url
+
+
 def apply_theme() -> None:
     """Colours, fonts and component CSS for the current page; call once per page before building it."""
     ui.colors(primary=ACCENT, secondary="#57606a", accent=ACCENT, positive="#1a7f37", negative="#a40e26",
               warning="#bf8700", info="#0550ae")
     ui.add_head_html(RESTORE_SIDEBAR)
-    ui.add_css(component_css())
+    if _THEME_URL is None:  # no server routes (a bare test page): the CSS goes inline
+        ui.add_css(component_css())
+    else:
+        ui.add_head_html(f'<link rel="stylesheet" href="{_THEME_URL}">')

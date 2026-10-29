@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 from typing import Callable, Iterator, Optional, Sequence
 
-from nicegui import ui
+from nicegui import run as background, ui
 
 from ...engine import project as engine_project
 from ...engine.errors import ProjectError
@@ -414,8 +414,14 @@ def _local_run_section(frame: ProjectFrame) -> None:
                     lambda text: frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Partitions"))),
                     mark="partitions",
                 )
-                here = machine()
-                hint(f"This machine: {here.cores} cores, about {here.free_cores} free now").mark("partitions-machine")
+                machine_hint = hint("This machine: …").mark("partitions-machine")
+
+                async def show_machine() -> None:
+                    here = await background.io_bound(machine)  # a reading walks every process: not on the page's build
+                    if here is not None and not machine_hint.is_deleted:  # None: the server is stopping
+                        machine_hint.text = f"This machine: {here.cores} cores, about {here.free_cores} free now"
+
+                ui.timer(0, show_machine, once=True)
         # Rarely changed, so folded away -- unless the sweep's Python cannot import SU2.
         with ui.expansion("Advanced · sweep Python and script", value=bool(_sweep_import_error(frame))).classes(
                 "as-expansion w-full").mark("run-advanced"):

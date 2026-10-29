@@ -2,6 +2,7 @@
 study — queued, running, or ended in the last 7 days — with Cancel (one case), Resubmit and Log. Everything comes
 from the server's Slurm poller and the job records; the page never runs a Slurm command itself."""
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -85,7 +86,10 @@ class ClusterPage:
         self.kind = "all"
         self.study: Optional[str] = None
         self.dialogs_open = 0
-        self.shown: Optional[tuple] = None
+        self.shown: Optional[tuple] = None  # what is drawn, as _shape() sees it: built again only when it changes
+        self.data: Optional[tuple] = None  # the latest _data(): the numbers the drawn page shows are read from it
+        self.texts: list[tuple] = []  # (element, read): `read()` is the text the element shows now (None: leave it)
+        self.values: list[tuple] = []  # (element, read): likewise for a ring's or a bar's value
         self.good = None  # the last snapshot Slurm answered: shown, greyed, while it does not
         self.good_cluster = None  # likewise the last node list
         self.nodes_note = None
@@ -127,16 +131,84 @@ class ClusterPage:
                 _SORT["key"], _SORT["descending"], tuple(sorted(on_nodes.items())), tiles,
                 tuple(sorted(ends.items())), groups)
 
+    @staticmethod
+    def _shape(data: tuple) -> tuple:
+        """What decides how the page is built: the data without the numbers that only move (a node's load, how far a
+        job is, a case's run time). A change in these is written into the labels and rings drawn (_refresh); a
+        change in the rest builds the page again."""
+        (outage, nodes, rows, more, accounting_down, kind, study, sort_key, descending, on_nodes, tiles, ends,
+         groups) = data
+        return (
+            outage,
+            tuple((partition, default, node.node, node.state, node.total, node.memory_gb, node.reason, node.words,
+                   node.bad) for partition, default, node in nodes),
+            tuple(row if not row.active or sort_key == "elapsed" else replace(row, elapsed="")
+                  for row in rows),
+            more, accounting_down, kind, study, sort_key, descending,
+            tuple((node, tuple((job.study, job.job_id, job.waiting, job.cases, bool(job.elsewhere)) for job in jobs))
+                  for node, jobs in on_nodes),
+            tuple((tile.key, tile.label, tile.alert) for tile in tiles),
+            tuple(key for key, _when in ends),
+            tuple((g.key, g.study, g.study_name, g.job_id, g.state, bool(g.total), g.started is not None,
+                   g.ended is None, g.active, tuple(row.slurm_id for row in g.rows)) for g in groups),
+        )
+
     def poll(self) -> None:
         if self.dialogs_open or self.dragging is not None:
             return
-        data = self._data()
-        if data != self.shown:
-            self.shown = data
+        data = self.data = self._data()
+        shape = self._shape(data)
+        if shape != self.shown:
+            self.shown = shape
             self.render(data)
         elif self.nodes_note is not None and not self.nodes_note.is_deleted:
-            self.nodes_note.text = self._nodes_text(data[1], data[0] is not None)
-            self._tick()
+            self._refresh()
+
+    def _refresh(self) -> None:
+        """Write the numbers that moved into the page as it is drawn: no element is made or removed."""
+        data = self.data
+        self.nodes_note.text = self._nodes_text(data[1], data[0] is not None)
+        for element, read in self.texts:
+            if not element.is_deleted:
+                text = read()
+                if text is not None:
+                    element.text = text
+        for element, read in self.values:
+            if not element.is_deleted:
+                value = read()
+                if value is not None:
+                    element.value = value
+        self._tick()
+
+    # What the drawn page looks up in the latest data, by name.
+
+    def _node(self, name: str):
+        return next((node for _p, _d, node in self.data[1] if node.node == name), None)
+
+    def _node_job(self, node: str, study, job_id: str) -> Optional[NodeJob]:
+        found = next((jobs for name, jobs in self.data[9] if name == node), ())
+        return next((job for job in found if job.job_id == job_id and job.study == study), None)
+
+    def _node_jobs_at(self, node: str) -> tuple:
+        return next((jobs for name, jobs in self.data[9] if name == node), ())
+
+    def _job(self, slurm_id: str):
+        return next((row for row in self.data[2] if row.slurm_id == slurm_id), None)
+
+    def _group(self, key: str) -> Optional[JobGroup]:
+        return next((group for group in self.data[12] if group.key == key), None)
+
+    def _tile(self, key: str):
+        return next((tile for tile in self.data[10] if tile.key == key), None)
+
+    def _text(self, element, read: Callable[[], Optional[str]]):
+        """Keep `element`'s text what `read()` says as the data moves."""
+        self.texts.append((element, read))
+        return element
+
+    def _value(self, element, read: Callable[[], Optional[float]]):
+        self.values.append((element, read))
+        return element
 
     def _tick(self) -> None:
         now = datetime.now()
@@ -147,6 +219,7 @@ class ClusterPage:
     def render(self, data: tuple) -> None:
         outage, groups, rows, more, accounting_down = data[:5]
         self.down = outage is not None
+        self.texts, self.values = [], []
         self.holder.clear()
         with self.holder:
             if self.down:
@@ -177,8 +250,10 @@ class ClusterPage:
                 with ui.column().classes("as-glance-tile" + (" as-glance-alert" if tile.alert else "")).mark(
                         f"tile-{tile.key}"):
                     ui.label(tile.label).classes("as-glance-label")
-                    ui.label(tile.value).classes("as-glance-value").mark(f"tile-{tile.key}-value")
-                    ui.label(tile.sub).classes("as-glance-sub").mark(f"tile-{tile.key}-sub")
+                    self._text(ui.label(tile.value).classes("as-glance-value").mark(f"tile-{tile.key}-value"),
+                               lambda k=tile.key: getattr(self._tile(k), "value", None))
+                    self._text(ui.label(tile.sub).classes("as-glance-sub").mark(f"tile-{tile.key}-sub"),
+                               lambda k=tile.key: getattr(self._tile(k), "sub", None))
 
     def _nodes(self, nodes: tuple, jobs: dict) -> None:
         """A card per node, in the order the user dragged them to (else the default partition's first): CPU,
@@ -216,18 +291,58 @@ class ClusterPage:
                 ui.label(node.words).classes(f"as-node-state as-node-state-{_state_tone(node)}").tooltip(
                     f"Slurm: {node.state}").mark(f"node-{name}-state")
             with ui.row().classes("as-node-dials w-full no-wrap"):
-                _dial(node.busy_percent / 100, f"{node.busy_percent}%", f"CPU · {node.cpus}", f"node-{name}-cpus")
-                memory = node.memory_used
-                _dial(memory or 0, "—" if memory is None else f"{round(100 * memory)}%",
-                      f"Memory · {node.memory_gb} GB" if node.memory_gb else "Memory", f"node-{name}-memory").tooltip(
-                    f"{node.memory} (Linux keeps its file cache out of free memory)")
-                _dial(node.load_share, node.load if node.load == "—" else f"{float(node.load):.0f}", "Load",
-                      f"node-{name}-load").tooltip(f"Load {node.load} on {node.total} CPUs")
+                self._dials(node)
             if node.reason:
                 with ui.row().classes("as-node-why w-full no-wrap items-center gap-2"):
                     ui.icon("warning_amber").classes("as-node-why-icon")
                     ui.label(node.reason).mark(f"node-{name}-note")
             self._node_jobs(name, jobs, node.bad)
+
+    def _dials(self, node) -> None:
+        """The CPU, memory and load rings of a node's card; their numbers follow the data (see _refresh)."""
+        name = node.node
+
+        def memory_ring() -> Optional[float]:
+            found = self._node(name)
+            return None if found is None else (found.memory_used or 0)
+
+        def memory_text() -> Optional[str]:
+            found = self._node(name)
+            if found is None:
+                return None
+            return "—" if found.memory_used is None else f"{round(100 * found.memory_used)}%"
+
+        def load_text() -> Optional[str]:
+            found = self._node(name)
+            if found is None:
+                return None
+            return found.load if found.load == "—" else f"{float(found.load):.0f}"
+
+        def read(function: Callable, default=None):
+            def value():
+                found = self._node(name)
+                return default if found is None else function(found)
+            return value
+
+        ring, label, caption, _tip = _dial(node.busy_percent / 100, f"{node.busy_percent}%", f"CPU · {node.cpus}",
+                                           f"node-{name}-cpus")
+        self._value(ring, read(lambda n: n.busy_percent / 100))
+        self._text(label, read(lambda n: f"{n.busy_percent}%"))
+        self._text(caption, read(lambda n: f"CPU · {n.cpus}"))
+        memory = node.memory_used
+        ring, label, _caption, tip = _dial(
+            memory or 0, "—" if memory is None else f"{round(100 * memory)}%",
+            f"Memory · {node.memory_gb} GB" if node.memory_gb else "Memory", f"node-{name}-memory",
+            f"{node.memory} (Linux keeps its file cache out of free memory)")
+        self._value(ring, memory_ring)
+        self._text(label, memory_text)
+        self._text(tip, read(lambda n: f"{n.memory} (Linux keeps its file cache out of free memory)"))
+        ring, label, _caption, tip = _dial(
+            node.load_share, node.load if node.load == "—" else f"{float(node.load):.0f}", "Load",
+            f"node-{name}-load", f"Load {node.load} on {node.total} CPUs")
+        self._value(ring, read(lambda n: n.load_share))
+        self._text(label, load_text)
+        self._text(tip, read(lambda n: f"Load {n.load} on {n.total} CPUs"))
 
     def _node_jobs(self, node: str, jobs: tuple, bad: bool) -> None:
         """Running: a line per study job with cases running here (cases finished / in all and a bar, as on its Run
@@ -249,10 +364,20 @@ class ClusterPage:
             with ui.column().classes("as-node-section w-full gap-1"):
                 ui.label("Next").classes("as-node-section-title")
                 for index, job in enumerate(waiting):
-                    self._job_line(node, job, lambda now, i=index: queue_text(*queue_starts(jobs, now)[i]))
+                    self._job_line(node, job, lambda now, i=index: self._queue_text(node, i, now))
 
     def _job_line(self, node: str, job: NodeJob, when: Optional[Callable[[datetime], str]] = None) -> None:
         mark = f"node-{node}-job-{job.job_id}"
+
+        def now_job() -> Optional[NodeJob]:  # this line's job in the latest data
+            return self._node_job(node, job.study, job.job_id)
+
+        def read(function: Callable, default=None):
+            def value():
+                found = now_job()
+                return default if found is None else function(found)
+            return value
+
         with ui.link(target=project_url("run", job.study)).classes("as-node-job flex flex-col w-full").props(
                 'draggable="false"').mark(mark):
             ui.tooltip(job.tip)
@@ -260,20 +385,32 @@ class ClusterPage:
                 if job.waiting:
                     ui.element("span").classes("as-node-queued-ring")
                 else:
-                    ui.circular_progress(job.done, min=0, max=1, show_value=False, size="16px").props(
-                        "thickness=0.4 track-color=grey-3")
+                    self._value(ui.circular_progress(job.done, min=0, max=1, show_value=False, size="16px").props(
+                        "thickness=0.4 track-color=grey-3"), read(lambda j: j.done))
                 ui.label(job.study_name).classes("as-node-study")
                 if job.waiting:
                     ui.label("Queued").classes("as-node-queued-pill")
                 ui.space()
                 count = f"{len(job.cases)} cases" if job.waiting else f"{job.finished} / {job.total}"
-                ui.label(count).classes("as-mono as-small").mark(f"{mark}-done")
+                counted = ui.label(count).classes("as-mono as-small").mark(f"{mark}-done")
+                if not job.waiting:
+                    self._text(counted, read(lambda j: f"{j.finished} / {j.total}"))
             if not job.waiting:
-                ui.linear_progress(job.done, show_value=False).props("rounded size=5px").classes("as-node-job-bar")
+                self._value(ui.linear_progress(job.done, show_value=False).props("rounded size=5px").classes(
+                    "as-node-job-bar"), read(lambda j: j.done))
             label = ui.label("").classes("as-muted as-small as-node-when").mark(f"{mark}-time")
-            self.clocks.append((label, when or (lambda now, j=job: _running_text(j, now))))
+            if when is not None:  # a queued line: about when it starts, among the others waiting here
+                self.clocks.append((label, when))
+            else:
+                self.clocks.append((label, lambda now: _running_text(now_job() or job, now)))
             if job.elsewhere:
-                ui.label(f"↳ {job.elsewhere}").classes("as-node-elsewhere").mark(f"{mark}-elsewhere")
+                self._text(ui.label(f"↳ {job.elsewhere}").classes("as-node-elsewhere").mark(f"{mark}-elsewhere"),
+                           read(lambda j: f"↳ {j.elsewhere}" if j.elsewhere else None))
+
+    def _queue_text(self, node: str, index: int, now: datetime) -> str:
+        """About when the `index`th job waiting on `node` starts, from the jobs there now."""
+        starts = queue_starts(self._node_jobs_at(node), now)
+        return queue_text(*starts[index]) if index < len(starts) else ""
 
     def _drag(self, node: Optional[str]) -> None:
         self.dragging = node
@@ -284,7 +421,7 @@ class ClusterPage:
         node, self.dragging = self.dragging, None
         if node is None or node == target or self.shown is None:
             return
-        order = moved([n.node for _p, _d, n in self.shown[1]], node, target)
+        order = moved([n.node for _p, _d, n in self.data[1]], node, target)
         self.order = order
         try:
             settings = load_settings()[0]
@@ -393,22 +530,36 @@ class ClusterPage:
                 ui.label(group.state).classes(f"as-job-group-state as-job-group-{group.state.lower()}")
             if group.job_id:
                 ui.label(f"job {group.job_id}").classes("as-mono as-muted")
+            key = group.key
+
+            def read(function: Callable):
+                def value():
+                    found = self._group(key)
+                    return None if found is None else function(found)
+                return value
+
             if group.total:
-                ui.linear_progress(group.finished / group.total, show_value=False).props("rounded size=5px").classes(
-                    "as-job-group-bar")
-                ui.label(f"{group.finished} / {group.total}").classes("as-mono").mark(f"group-{group.key}-done")
+                if group.active:  # the bar is for a job with cases in the cluster; an ended one keeps its count
+                    self._value(ui.linear_progress(group.finished / group.total, show_value=False).props(
+                        "rounded size=5px").classes("as-job-group-bar").mark(f"group-{key}-bar"),
+                                read(lambda g: g.finished / g.total))
+                self._text(ui.label(f"{group.finished} / {group.total}").classes("as-mono").mark(
+                    f"group-{key}-done"), read(lambda g: f"{g.finished} / {g.total}"))
             if group.started is not None:
                 with ui.row().classes("gap-1 items-baseline"):
                     ui.label("Started").classes("as-muted")
-                    ui.label(when_text(group.started)).classes("as-strong").mark(f"group-{group.key}-started")
+                    self._text(ui.label(when_text(group.started)).classes("as-strong").mark(f"group-{key}-started"),
+                               read(lambda g: when_text(g.started)))
             if group.ended is not None or group.active:
                 with ui.row().classes("gap-1 items-baseline"):
                     ui.label("Ends" if group.active else "Ended").classes("as-muted")
                     text = "—" if group.ended is None else (("≈ " if group.active else "") + when_text(group.ended))
-                    ui.label(text).classes("as-strong" + (" as-expected" if group.active else "")).mark(
-                        f"group-{group.key}-ended")
-            span_label = ui.label("").classes("as-muted").mark(f"group-{group.key}-took")
-            self.clocks.append((span_label, lambda now, g=group: _group_span(g, now)))
+                    self._text(ui.label(text).classes("as-strong" + (" as-expected" if group.active else "")).mark(
+                        f"group-{key}-ended"),
+                               read(lambda g: "—" if g.ended is None else (("≈ " if g.active else "")
+                                                                            + when_text(g.ended))))
+            span_label = ui.label("").classes("as-muted").mark(f"group-{key}-took")
+            self.clocks.append((span_label, lambda now, k=key, g=group: _group_span(self._group(k) or g, now)))
             if not opened:
                 ui.label(f"{len(group.rows)} case{'' if len(group.rows) == 1 else 's'} folded").classes(
                     "as-muted as-small").mark(f"group-{group.key}-folded")
@@ -458,15 +609,19 @@ class ClusterPage:
                 if row.failure:
                     ui.label(row.failure).classes("as-failure-reason").mark(f"job-{row.slurm_id}-why")
         td(" · ".join(part for part in (row.partition, row.node) if part) or "—")
-        td(when_text(started_at(row, taken)), mono=True).mark(f"job-{row.slurm_id}-started")
+        started = td(when_text(started_at(row, taken)), mono=True).mark(f"job-{row.slurm_id}-started")
         if row.ended is not None:
             td(when_text(row.ended), mono=True).mark(f"job-{row.slurm_id}-ended")
         elif row.slurm_id in ends:
-            td(f"≈ {when_text(ends[row.slurm_id])}", mono=True).classes("as-expected").tooltip(
+            expected = td(f"≈ {when_text(ends[row.slurm_id])}", mono=True).classes("as-expected").tooltip(
                 "About when it ends, at its job's average case run time").mark(f"job-{row.slurm_id}-ended")
+            self._text(expected, lambda i=row.slurm_id: self._expected(i))
         else:
             td("—", mono=True).mark(f"job-{row.slurm_id}-ended")
-        td(row.elapsed or "—", mono=True)
+        elapsed = td(row.elapsed or "—", mono=True).mark(f"job-{row.slurm_id}-elapsed")
+        if row.active:  # these move with every poll
+            self._text(started, lambda i=row.slurm_id: self._started(i))
+            self._text(elapsed, lambda i=row.slurm_id: getattr(self._job(i), "elapsed", None) or "—")
         td(row.exit_code or "—", mono=True)
         with td_box() as cell:
             cell.classes("gap-1 no-wrap")
@@ -480,6 +635,14 @@ class ClusterPage:
             if row.study is not None:
                 flat_button("Log", on_click=lambda r=row: self.show_log(r), icon="terminal").props("dense").mark(
                     f"log-{row.slurm_id}")
+
+    def _started(self, slurm_id: str) -> Optional[str]:
+        row = self._job(slurm_id)
+        return None if row is None else when_text(started_at(row, self.taken))
+
+    def _expected(self, slurm_id: str) -> Optional[str]:
+        when = dict(self.data[11]).get(slurm_id)
+        return None if when is None else f"≈ {when_text(when)}"
 
     def _toggle_group(self) -> None:
         _GROUP["on"] = not _GROUP["on"]
@@ -568,14 +731,16 @@ def _state_tone(node) -> str:
     return {"Full": "full", "Partly used": "part", "Free": "free"}.get(node.words, "other")
 
 
-def _dial(value: float, text: str, caption: str, mark: str) -> ui.column:
-    """A ring with `text` in it and `caption` under it."""
-    with ui.column().classes("as-node-dial items-center gap-0") as box:
+def _dial(value: float, text: str, caption: str, mark: str, tip: Optional[str] = None) -> tuple:
+    """A ring with `text` in it and `caption` under it, and a hover text when `tip` is given; returns the ring, its
+    text, the caption and the hover text, for the page to keep them current."""
+    with ui.column().classes("as-node-dial items-center gap-0"):
         with ui.circular_progress(value, min=0, max=1, show_value=False, size="58px").props(
-                "thickness=0.22 track-color=grey-3 color=primary"):
-            ui.label(text).classes("as-node-dial-value")
-        ui.label(caption).classes("as-node-dial-caption").mark(mark)
-    return box
+                "thickness=0.22 track-color=grey-3 color=primary") as ring:
+            label = ui.label(text).classes("as-node-dial-value").mark(f"{mark}-value")
+        caption_label = ui.label(caption).classes("as-node-dial-caption").mark(mark)
+        hover = ui.tooltip(tip) if tip is not None else None
+    return ring, label, caption_label, hover
 
 
 def _group_span(group: JobGroup, now: datetime) -> str:

@@ -14,6 +14,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -119,6 +121,33 @@ def where(template: str, project: Project, case: Case, message: str) -> str:
     return f" ({key})"
 
 
+_RENDERED: "OrderedDict[tuple, dict[str, str]]" = OrderedDict()  # (template, project, cases) -> {case: config text}
+_RENDERED_KEPT = 4
+_rendered_lock = threading.Lock()  # the pages ask from the server's loop and from worker threads
+
+
+def _rendered(template: str, project: Project, chosen: Sequence[Case]) -> dict[str, str]:
+    """Each chosen case's config as it will run. The Run and Sweep pages ask on every drawing, and rendering a
+    sweep's configs takes 3 ms apiece (0.15 s for 49 cases), so they are kept until the template or project changes."""
+    key = (hashlib.sha256(template.encode()).hexdigest(), project.model_dump_json(), tuple(c.name for c in chosen))
+    with _rendered_lock:
+        found = _RENDERED.get(key)
+        if found is not None:
+            _RENDERED.move_to_end(key)
+            return found
+    texts = {}
+    for case in chosen:
+        try:
+            texts[case.name] = render_case(template, project, case)
+        except AeroSuiteError:
+            continue  # e.g. an altitude out of range: preflight reports it
+    with _rendered_lock:
+        _RENDERED[key] = texts
+        while len(_RENDERED) > _RENDERED_KEPT:
+            _RENDERED.popitem(last=False)
+    return texts
+
+
 def check_cases(project_dir: Path, project: Project, cases: Optional[Sequence[str]],
                 settings: "AppSettings", run: bool) -> list["Problem"]:
     """SU2's verdict on each chosen case's config: errors (cases with the same message together). With `run`
@@ -136,12 +165,7 @@ def check_cases(project_dir: Path, project: Project, cases: Optional[Sequence[st
     except AeroSuiteError:
         return []  # preflight reports the template
     chosen = [case for case in project.cases if cases is None or case.name in set(cases)]
-    texts = {}
-    for case in chosen:
-        try:
-            texts[case.name] = render_case(template, project, case)
-        except AeroSuiteError:
-            continue  # e.g. an altitude out of range: preflight reports it
+    texts = _rendered(template, project, chosen)
     if run:
         with ThreadPoolExecutor(max_workers=PARALLEL) as pool:
             results = dict(zip(texts, pool.map(lambda text: dry_run(text, su2), texts.values())))
@@ -169,3 +193,4 @@ def check_cases(project_dir: Path, project: Project, cases: Optional[Sequence[st
 
 def clear_cache() -> None:
     _CACHE.clear()
+    _RENDERED.clear()

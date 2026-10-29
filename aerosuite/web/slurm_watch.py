@@ -132,10 +132,10 @@ class SlurmWatch:
         records = self._records()
         active = [(directory, job) for directory, job in records if job.is_active]
         runner = self._runner()
+        snapshot = cluster = recent = None
         if active or self._viewers or self._pages:
             watched = [slurm_id for _directory, job in active for slurm_id in runner.watched_ids(job)]
             snapshot = await sl.snapshot_async(watched)
-            self.snapshot = snapshot
             self.polls += 1
             if snapshot.ok:
                 self.last_ok = snapshot.taken
@@ -144,11 +144,19 @@ class SlurmWatch:
             for directory, job in active:
                 await asyncio.to_thread(runner.apply_snapshot, directory, job, snapshot)
         if self._viewers or self._pages:
-            self.cluster = await sl.nodes_async()
+            cluster = await sl.nodes_async()
         if self._pages and (self._recent_due or self.recent is None
                             or time.time() - self.recent.taken >= RECENT_SECONDS):
-            self.recent = await sl.recent_async()
+            recent = await sl.recent_async()
             self._recent_due = False
+        # Published together, after the job records took the snapshot: a page that looks every 2 s sees one new state
+        # per poll (not the queue, then the nodes a moment later) and draws it once.
+        if snapshot is not None:
+            self.snapshot = snapshot
+        if cluster is not None:
+            self.cluster = cluster
+        if recent is not None:
+            self.recent = recent
         await self._fetch_seff(runner)
 
     async def _fetch_seff(self, runner) -> None:

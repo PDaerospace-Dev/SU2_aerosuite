@@ -1,7 +1,8 @@
 """Shared building blocks for every page (NiceGUI only): cards, pills, banners, tiles, tables, fields
 and buttons. Pages use these instead of styling widgets themselves; the look lives in theme.py."""
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator, Literal, Optional, Sequence
+from html import escape
+from typing import Any, Callable, Iterable, Iterator, Literal, Optional, Sequence
 
 from nicegui import ui
 
@@ -222,6 +223,29 @@ def th(text: str = "") -> ui.label:
 
 def td(text: str = "", *, mono: bool = False, strong: bool = False) -> ui.label:
     return ui.label(text).classes("as-td" + (" as-mono as-muted" if mono else "") + (" as-strong" if strong else ""))
+
+
+def html_th(text: str, *, classes: str = "", title: str = "") -> str:
+    """A column title for html_table."""
+    return _html_cell("as-th", classes, escape(text), "", title)
+
+
+def html_td(text: str = "", *, classes: str = "", marker: str = "", title: str = "", inner: str = "") -> str:
+    """A cell for html_table: `text` (escaped), or `inner`, which is HTML the caller made (and escaped); `marker`
+    names it for tests, `title` is its hover text."""
+    return _html_cell("as-td", classes, inner or escape(text), marker, title)
+
+
+def _html_cell(base: str, classes: str, inner: str, marker: str, title: str) -> str:
+    attributes = f' data-marker="{escape(marker)}"' if marker else ""
+    attributes += f' title="{escape(title)}"' if title else ""
+    return f'<div class="{base}{" " + classes if classes else ""}"{attributes}>{inner}</div>'
+
+
+def html_table(columns: str, cells: Iterable[str]) -> ui.html:
+    """table() drawn as one element instead of one per cell, for a table of hundreds of cells that only shows (a
+    NiceGUI element costs 0.3 ms to make and a few hundred bytes to send). `cells` come from html_th/html_td."""
+    return ui.html("".join(cells), sanitize=False).classes("as-table").style(f"grid-template-columns: {columns}")
 
 
 @contextmanager

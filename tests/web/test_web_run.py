@@ -234,7 +234,8 @@ async def test_warnings_are_folded_and_errors_stay_in_view(user: User, ready_pro
     await user.should_see("is not an option or a comment")
 
 
-async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User, ready_project, monkeypatch):
+async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User, ready_project, monkeypatch,
+                                                                     eventually):
     import aerosuite.web.pages.run as page
     from aerosuite.engine.machine import Machine
 
@@ -247,6 +248,7 @@ async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User,
     monkeypatch.setattr(page, "usage", lambda: [Usage("daniel", "SU2_CFD", 47.6, 48), Usage("pdas", "paraview", 1.0, 1)])
     await _open(user, project_dir)
     await user.should_see(marker="run-machine")
+    await eventually(lambda: _text(user, "machine-usage") != "")  # read in a worker thread, just after the page
     assert _text(user, "machine-usage") == "daniel · SU2_CFD × 48 · 47.6 cores\npdas · paraview · 1 core"
     assert _text(user, "machine-cores") == "64 (32 physical)"
     assert _text(user, "machine-free") == "about 4"

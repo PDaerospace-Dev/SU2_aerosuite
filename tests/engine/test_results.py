@@ -47,6 +47,22 @@ def test_history_reader_restarts_when_file_is_rewritten(tmp_path):
     assert reader.read_new()["CL"].tolist() == [0.9]
 
 
+@pytest.mark.parametrize("body, expected", [
+    ("0, 0.1\n1, 0.2\n", [0.1, 0.2]),
+    ("0, 0.1\n\n1, 0.2\n", [0.1, 0.2]),  # a blank line
+    ("0, 0.1\n1\n2, 0.3\n", [0.1, 0.3]),  # a short row is dropped
+    ("0, 0.1\n1, 0.2, 9\n2, 0.3\n", [0.1, 0.3]),  # a long one too
+    ("0, 0.1\n1, 0.2,\n2, 0.3\n", [0.1, 0.3]),  # and one with a trailing comma
+    ("0, 0.1\n1, oops\n2, 0.3\n", [0.1, 0.3]),  # and one that is not a number
+    ('0, 0.1\n"1", "0.2"\n2, 0.3\n', [0.1, 0.2, 0.3]),  # quoted fields still read
+    ("# note\n0, 0.1\n", [0.1]),
+])
+def test_history_rows_that_are_not_plain_numbers_are_dealt_with_row_by_row(tmp_path, body, expected):
+    path = tmp_path / "history.csv"
+    path.write_text('"Inner_Iter", "CL"\n' + body)
+    assert read_history(path)["CL"].tolist() == expected
+
+
 def test_read_history_legacy_tecplot_format(tmp_path):
     path = tmp_path / "history.dat"
     path.write_text('TITLE = "SU2"\nVARIABLES = "Iteration","CL"\nZONE T= "x"\n0, 0.1\n1, 0.2\n')

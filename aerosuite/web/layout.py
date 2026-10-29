@@ -97,14 +97,19 @@ def _cluster_button() -> None:
     watch.show_cluster()
     ui.context.client.on_delete(watch.hide_cluster)  # not on_disconnect: a brief socket drop reconnects
 
+    shown: list = [None]
+
     def update() -> None:
         if dot.is_deleted:
             return
         tone, tip = cluster_status(watch.snapshot, watch.cluster)
+        running = running_count(watch.snapshot, watch.user)
+        if (tone, tip, running) == shown[0]:
+            return  # nothing to say: the timer fires every 2 s, in every tab, and each update is a message
+        shown[0] = (tone, tip, running)
         dot.classes(replace=f"as-cluster-dot as-dot-{tone}")
         dot.props["title"] = tip
         dot.update()
-        running = running_count(watch.snapshot, watch.user)
         count.text = f"· {running}" if running else ""
 
     update()

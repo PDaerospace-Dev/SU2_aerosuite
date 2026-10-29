@@ -1,6 +1,7 @@
 """SU2 results: history files, convergence and batch summaries."""
 from __future__ import annotations
 
+import io
 import json
 import re
 from pathlib import Path
@@ -68,6 +69,10 @@ class HistoryReader:
             return pd.DataFrame(columns=self.columns)
         complete = chunk[: end + 1]
         self._offset += len(complete)
+        if not self.columns:
+            frame = self._parse_whole(complete)
+            if frame is not None:
+                return frame
         rows = []
         for raw in complete.decode("utf-8", errors="replace").splitlines():
             line = raw.strip()
@@ -79,12 +84,34 @@ class HistoryReader:
                 self.columns = _fields(line)
                 continue
             try:
-                values = [float(field) for field in _fields(line)]
+                values = [float(field) for field in line.split(",")]  # SU2's rows are plain numbers
             except ValueError:
-                continue
+                try:
+                    values = [float(field) for field in _fields(line)]  # quoted or spaced out: the slow way
+                except ValueError:
+                    continue
             if len(values) == len(self.columns):
                 rows.append(values)
         return pd.DataFrame(rows, columns=self.columns)
+
+
+    def _parse_whole(self, complete: bytes) -> Optional[pd.DataFrame]:
+        """A whole plain history (a header, then rows of numbers) in one go with pandas' C parser, or None when
+        anything is out of the ordinary (a comment, a quoted or short or long row, a gap): the line-by-line way
+        below then decides, row by row."""
+        head, _, body = complete.partition(b"\n")
+        first = head.decode("utf-8", errors="replace").strip()
+        if not first or first.startswith(("TITLE", "ZONE", "#", "VARIABLES")) or b'"' in body:
+            return None
+        columns = _fields(first)
+        try:
+            frame = pd.read_csv(io.BytesIO(body), header=None, names=columns, dtype=float)
+        except (ValueError, pd.errors.ParserError):
+            return None
+        if frame.isna().any().any() or not isinstance(frame.index, pd.RangeIndex):
+            return None
+        self.columns = columns
+        return frame
 
 
 def read_history(path: Path) -> pd.DataFrame:

@@ -44,6 +44,23 @@ def test_an_unchanged_config_is_not_checked_again(ready_project, fake_su2):
     assert fake_su2() == 3  # cached
 
 
+def test_the_configs_are_rendered_once_until_something_changes(ready_project, fake_su2, monkeypatch):
+    from aerosuite.engine import su2_check
+
+    project_dir, project = ready_project
+    rendered = []
+    real = su2_check.render_case
+    monkeypatch.setattr(su2_check, "render_case", lambda *args: rendered.append(1) or real(*args))
+    for _ in range(3):  # the Run and Sweep pages ask on every drawing
+        check_cases(project_dir, project, None, AppSettings(), run=False)
+    assert len(rendered) == 3
+    template = project_dir / "template.cfg"
+    template.write_text(template.read_text() + "% changed\n")  # the template changed: rendered again
+    for _ in range(2):
+        check_cases(project_dir, project, None, AppSettings(), run=False)
+    assert len(rendered) == 6
+
+
 def test_without_running_only_known_verdicts_are_reported(ready_project, fake_su2):
     project_dir, project = ready_project
     _bad_template(project_dir)

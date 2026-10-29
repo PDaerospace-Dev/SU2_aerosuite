@@ -2,14 +2,31 @@
 programs (whose) are using the cores."""
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional, TypeVar
 
 import psutil
 
 SU2_PROCESS = "SU2_CFD"
 _GB = 1024 ** 3
+CACHE_SECONDS = 4.0  # both readings walk every process on the machine (0.25-0.6 s with a few thousand): share them
+
+_T = TypeVar("_T")
+_lock = threading.Lock()
+_readings: dict[str, tuple[float, object]] = {}
+
+
+def _cached(key: str, read: Callable[[], _T]) -> _T:
+    """`read()`, or its result of the last CACHE_SECONDS; callers at the same moment share one reading."""
+    with _lock:
+        found = _readings.get(key)
+        if found is not None and time.monotonic() - found[0] < CACHE_SECONDS:
+            return found[1]  # type: ignore[return-value]
+        value = read()
+        _readings[key] = (time.monotonic(), value)
+        return value
 
 
 @dataclass(frozen=True)
@@ -31,6 +48,10 @@ class Machine:
 
 
 def machine() -> Machine:
+    return _cached("machine", _read_machine)
+
+
+def _read_machine() -> Machine:
     cores = psutil.cpu_count() or 1
     memory = psutil.virtual_memory()
     try:
@@ -91,8 +112,18 @@ _primed = False
 
 
 def usage(top: int = 5) -> list[Usage]:
-    """Who is using the cores now. psutil measures each process since the last call, so the first call waits a
-    moment to have something to measure; later calls (the Run page asks every few seconds) do not."""
+    """Who is using the cores now (read at most every CACHE_SECONDS). psutil measures each process since the last
+    call, so the first reading waits a moment to have something to measure; later ones (the Run page asks every few
+    seconds) do not. `prime()` does that wait early."""
+    return _cached(f"usage-{top}", lambda: _read_usage(top))
+
+
+def prime() -> None:
+    """Take usage()'s first reading now (in a worker thread at the server's start), so no page waits for it."""
+    usage()
+
+
+def _read_usage(top: int) -> list[Usage]:
     global _primed
     processes = list(psutil.process_iter(["name", "username"]))
     if not _primed:
