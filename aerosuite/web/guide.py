@@ -1,11 +1,10 @@
-"""The help menu's content: AeroSuite's version and the README's web UI section (read from disk, so it
+"""The help menu's content: AeroSuite's version and the web UI guide, docs/WEB_UI.md (read from disk, so it
 works offline), cut into its "###" sections for the guide's table of contents. NiceGUI-free."""
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-README = Path(__file__).resolve().parents[2] / "README.md"
-SECTION = "## Web UI"
-MISSING = "The web UI guide is in README.md, which is not installed with this copy of AeroSuite."
+GUIDE = Path(__file__).resolve().parents[2] / "docs" / "WEB_UI.md"
+MISSING = "The web UI guide is in docs/WEB_UI.md, which is not installed with this copy of AeroSuite."
 # The guide section each page opens on (the start of its "###" title); other pages open on the first.
 SECTION_OF_PAGE = {"projects": "Projects", "setup": "Setup", "config": "CFG setup", "aircraft": "Aircraft",
                    "sweep": "Sweep", "run": "Run", "monitor": "Monitor", "results": "Results",
@@ -20,24 +19,21 @@ def app_version() -> str:
         return "dev"
 
 
-def web_ui_guide(readme: Path = README) -> str:
-    """The README's "## Web UI" section without its heading, or MISSING when it cannot be read."""
+def web_ui_guide(guide: Path = GUIDE) -> str:
+    """The guide file without its "# " title line, or MISSING when it cannot be read."""
     try:
-        lines = Path(readme).read_text(encoding="utf-8").splitlines()
+        lines = Path(guide).read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError):
         return MISSING
-    try:
-        start = lines.index(SECTION) + 1
-    except ValueError:
-        return MISSING
-    end = next((i for i in range(start, len(lines)) if lines[i].startswith("## ")), len(lines))
-    return "\n".join(lines[start:end]).strip() or MISSING
+    if lines and lines[0].startswith("# "):
+        lines = lines[1:]
+    return "\n".join(lines).strip() or MISSING
 
 
-def guide_sections(readme: Path = README) -> list[tuple[str, str]]:
+def guide_sections(guide: Path = GUIDE) -> list[tuple[str, str]]:
     """The guide as (title, markdown) per "###" section; text before the first one leads the first.
-    Without "###" headings (or without the README) it is one section, "Web UI guide"."""
-    text = web_ui_guide(readme)
+    Without "###" headings (or without the file) it is one section, "Web UI guide"."""
+    text = web_ui_guide(guide)
     sections: list[tuple[str, list[str]]] = []
     lead: list[str] = []
     fence = False

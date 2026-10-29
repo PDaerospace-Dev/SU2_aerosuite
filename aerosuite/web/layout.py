@@ -137,7 +137,7 @@ def _settings_corner() -> None:
 
 
 def _help_button(page: str = "") -> None:
-    """A help icon with the version and "Web UI guide": the README's web UI section in a dialog, its
+    """A help icon with the version and "Web UI guide": docs/WEB_UI.md in a dialog, its
     sections listed on the left, opened on this page's section."""
     # Built outside the menu: a dialog created inside a menu item would be unmounted as the menu closes.
     with ui.dialog() as dialog, ui.card().classes("as-guide"):

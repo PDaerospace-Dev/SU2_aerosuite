@@ -1,24 +1,23 @@
-from aerosuite.web.guide import (MISSING, README, SECTION_OF_PAGE, app_version, guide_sections, section_for,
+from aerosuite.web.guide import (GUIDE, MISSING, SECTION_OF_PAGE, app_version, guide_sections, section_for,
                                  web_ui_guide)
 
 
-def test_the_guide_is_the_readmes_web_ui_section(tmp_path):
-    readme = tmp_path / "README.md"
-    readme.write_text("# Title\n## Web UI\nStart it.\n### Sub\nMore.\n## Command line\nNot this.\n",
-                      encoding="utf-8")
-    assert web_ui_guide(readme) == "Start it.\n### Sub\nMore."
+def test_the_guide_is_the_file_without_its_title(tmp_path):
+    guide = tmp_path / "WEB_UI.md"
+    guide.write_text("# Title\nStart it.\n### Sub\nMore.\n", encoding="utf-8")
+    assert web_ui_guide(guide) == "Start it.\n### Sub\nMore."
 
 
-def test_a_missing_readme_or_section_says_so(tmp_path):
+def test_a_missing_or_empty_guide_says_so(tmp_path):
     assert web_ui_guide(tmp_path / "nope.md") == MISSING
-    other = tmp_path / "README.md"
-    other.write_text("# Title\n## Other\n", encoding="utf-8")
-    assert web_ui_guide(other) == MISSING
+    empty = tmp_path / "WEB_UI.md"
+    empty.write_text("# Title\n", encoding="utf-8")
+    assert web_ui_guide(empty) == MISSING
 
 
 def test_the_guide_is_cut_into_its_sections(tmp_path):
-    readme = tmp_path / "README.md"
-    readme.write_text("## Web UI\nLead.\n### One\nFirst.\n```\n### not a heading\n```\n### Two\nSecond.\n",
+    readme = tmp_path / "WEB_UI.md"
+    readme.write_text("Lead.\n### One\nFirst.\n```\n### not a heading\n```\n### Two\nSecond.\n",
                       encoding="utf-8")
     assert guide_sections(readme) == [("One", "Lead.\nFirst.\n```\n### not a heading\n```"), ("Two", "Second.")]
 
@@ -34,8 +33,8 @@ def test_a_page_opens_the_guide_on_its_section():
     assert section_for("nowhere", titles) == 0
 
 
-def test_the_repository_readme_has_a_section_for_every_page():
-    titles = [title for title, _ in guide_sections(README)]
+def test_the_repository_guide_has_a_section_for_every_page():
+    titles = [title for title, _ in guide_sections(GUIDE)]
     assert titles[0] == "Getting started"
     for page, wanted in SECTION_OF_PAGE.items():
         assert titles[section_for(page, titles)].startswith(wanted), page
