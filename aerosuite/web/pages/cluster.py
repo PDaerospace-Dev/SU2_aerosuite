@@ -539,8 +539,10 @@ class ClusterPage:
                 return value
 
             if group.total:
-                self._value(ui.linear_progress(group.finished / group.total, show_value=False).props(
-                    "rounded size=5px").classes("as-job-group-bar"), read(lambda g: g.finished / g.total))
+                if group.active:  # the bar is for a job with cases in the cluster; an ended one keeps its count
+                    self._value(ui.linear_progress(group.finished / group.total, show_value=False).props(
+                        "rounded size=5px").classes("as-job-group-bar").mark(f"group-{key}-bar"),
+                                read(lambda g: g.finished / g.total))
                 self._text(ui.label(f"{group.finished} / {group.total}").classes("as-mono").mark(
                     f"group-{key}-done"), read(lambda g: f"{g.finished} / {g.total}"))
             if group.started is not None:

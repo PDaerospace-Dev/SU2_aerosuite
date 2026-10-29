@@ -138,6 +138,7 @@ async def test_my_jobs_show_when_cases_started_and_ended_and_group_by_job(user: 
     key = f"{project.name}-{job.id}"
     await eventually(lambda: bool(user.find(marker=f"group-{key}").elements), 5)
     assert _text(user, f"group-{key}-done") == "2 / 2"
+    await user.should_not_see(marker=f"group-{key}-bar")  # an ended job has its count, no bar
     assert _text(user, f"group-{key}-started") == "28 Oct 22:00" and _text(user, f"group-{key}-ended") == "28 Oct 23:00"
     await eventually(lambda: _text(user, f"group-{key}-took") == "took 1 h", 5)
     await user.should_not_see(marker="job-101-study")  # the group's line names the study
@@ -151,6 +152,18 @@ async def test_my_jobs_show_when_cases_started_and_ended_and_group_by_job(user: 
     await user.should_not_see(marker="job-101")
     user.find(marker="jobs-group").click()
     await user.should_see(marker="job-101-study")
+
+
+async def test_a_job_with_cases_in_the_cluster_has_a_bar_on_its_line(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1", time="0:30")
+    WATCH.track(project_dir, job.id)
+    await _open(user)
+    await eventually(lambda: _text(user, "job-101-state") == "Running", 5)
+    user.find(marker="jobs-group").click()
+    key = f"{project.name}-{job.id}"
+    await eventually(lambda: bool(user.find(marker=f"group-{key}-bar").elements), 5)
 
 
 async def test_an_ascii_job_shows_as_its_case_with_its_own_log(user: User, cluster_study, eventually):
