@@ -10,6 +10,7 @@ from typing import Optional
 from ..engine.errors import AeroSuiteError
 from ..engine.jobs.store import scan_jobs
 from ..engine.project import PROJECT_FILE, open_project
+from .jobs import JobNodes, job_nodes
 from .status import project_kind
 
 MAX_RECENT = 15
@@ -49,6 +50,7 @@ class RecentProject:
     name: str
     kind: str  # "sweep · 3 cases" / "single case"; "" when project.json cannot be read
     latest: Optional[str]  # the newest job's state, None without jobs or when unreadable
+    nodes: Optional[JobNodes] = None  # where the newest job runs, or ran
 
 
 def recent_projects() -> list[RecentProject]:
@@ -65,5 +67,5 @@ def recent_projects() -> list[RecentProject]:
         except (AeroSuiteError, OSError):
             jobs = []
         items.append(RecentProject(directory, project.name, project_kind(project),
-                                   jobs[0].state.value if jobs else None))
+                                   jobs[0].state.value if jobs else None, job_nodes(jobs[0] if jobs else None)))
     return items

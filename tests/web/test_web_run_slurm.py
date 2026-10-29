@@ -101,6 +101,21 @@ async def test_submit_then_follow_the_poller(user: User, slurm_project, eventual
     assert _text(user, f"slurm-{A2}") == "Slurm 102 · PENDING (Resources)"
 
 
+async def test_the_job_bar_shows_the_node_the_job_runs_on(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, open_project(project_dir), cases=[A0, A2])
+    WATCH.track(project_dir, job.id)
+    await _open(user, project_dir)
+    await eventually(lambda: bool(user.find(marker="job-node-node1").elements), 5)
+    await user.should_see("node1 · 2 queued")  # every case waits
+    assert "as-node-pill-queued" in _element(user, "job-node-node1").classes
+    fake.run("101", node="hpc1")
+    await WATCH.poll_once()
+    await eventually(lambda: bool(user.find(marker="job-node-hpc1").elements), 5)
+    assert "as-node-pill-live" in _element(user, "job-node-hpc1").classes
+    await user.should_not_see(marker="job-node-node1")
+
+
 async def test_cancel_a_slurm_job(user: User, slurm_project, eventually):
     project_dir, project, fake = slurm_project
     runner_for("slurm").submit(project_dir, project)

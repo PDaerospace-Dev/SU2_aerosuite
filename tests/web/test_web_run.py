@@ -186,7 +186,8 @@ async def test_counts_pills_and_the_failure_box(user: User, ready_project, su2_e
     project_dir, project = ready_project
     _run_to_end(project_dir, project, **{A2: "fail"})
     await _open(user, project_dir)
-    assert (_text(user, "count-converged"), _text(user, "count-failed")) == ("2 converged", "1 failed")
+    assert (_text(user, "count-converged"), _text(user, "count-failed")) == ("2", "1")  # numbers in the bar
+    assert _element(user, "count-failed").props["title"] == "1 failed"  # its words on hover
     await user.should_not_see(marker="count-running")
     assert _element(user, "select-failed").text == "Failed 1" and _element(user, "select-all").text == "All 3"
     assert "as-pill-failed" in _element(user, f"status-{A2}").classes
@@ -331,6 +332,22 @@ async def test_a_grid_of_cases_is_a_board(user: User, ready_project, su2_env):
     await user.should_see(marker="list-not-run")
 
 
+async def test_a_sweep_at_one_mach_is_a_board_with_altitude_rows(user: User, ready_project, su2_env):
+    project_dir, project = ready_project
+    from aerosuite.engine.models import Case
+
+    project.cases = [Case(name=f"M2p0_{h:g}km_a{a:g}", mach=2.0, alpha=a, beta=0.0, altitude_km=h)
+                     for h in (25.0, 35.0) for a in (0.0, 15.0)]
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    assert _element(user, "run-tabs").value == "board"
+    await user.should_see(marker="board-M2|0")
+    assert _text(user, "board-all-M2|0") == "km \\ α" and _text(user, "board-row-M2|0-35") == "35 km"
+    assert _text(user, "run-what") == "4"
+    user.find(marker="board-row-M2|0-35").click()  # a row: that altitude's cases
+    assert _text(user, "run-what") == "2"
+
+
 async def test_the_list_groups_cases_by_state(user: User, ready_project, su2_env):
     project_dir, project = ready_project
     _run_to_end(project_dir, project, **{A2: "fail", A4: "diverge"})
@@ -345,3 +362,27 @@ async def test_the_list_groups_cases_by_state(user: User, ready_project, su2_env
     user.find(marker="list-attention").click()  # folds
     await user.should_not_see(marker=f"tick-{A2}")
     assert "Failed" in _text(user, "last-job") and "1 converged" in _text(user, "last-job")
+
+
+async def test_an_altitude_head_names_only_its_failed_cases(user: User, ready_project):
+    from datetime import datetime
+
+    from aerosuite.engine.jobs.runner import CaseState, JobRecord
+    from aerosuite.engine.jobs.store import save_job
+
+    project_dir, project = ready_project
+    update_sweep(project, mach=[0.6, 0.8])  # a grid: two Machs by three αs
+    save_project(project_dir, project)
+    names = [case.name for case in project.cases]
+    statuses = {names[0]: CaseState.FAILED, names[1]: CaseState.CONVERGED, names[2]: CaseState.UNCONVERGED}
+    save_job(project_dir, JobRecord(id="j1", backend="local", cases=names[:3], log_path="jobs/j1.log",
+                                    created=datetime(2026, 10, 27, 9, 0), state=JobState.DONE, case_status=statuses))
+    await _open(user, project_dir)
+    await user.should_see("1 failed", marker="board-failed-|0")
+    head = _element(user, "board-head-|0")
+    pills = [child.text for child in head.default_slot.children if "as-pill" in child.classes]
+    assert pills == ["1 failed"]  # the other counts are in the bar only
+    assert _text(user, "count-converged") == "1"
+    user.find(marker="run-density-compact").click()
+    await user.should_see(marker="run-density-compact")
+    assert "as-icon-toggle-on" in _element(user, "run-density-compact").classes

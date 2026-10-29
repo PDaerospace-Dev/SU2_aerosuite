@@ -218,3 +218,22 @@ async def test_new_and_import_fields_describe_themselves_on_hover(user: User):
     await user.should_see(marker="import-scan")
     for marker, key in (("import-source", "runs"), ("import-parent", "import-parent"), ("import-name", "import-name")):
         assert tip(marker) == [HELP[key]], marker
+
+
+async def test_a_recent_project_shows_where_its_job_runs(user: User, ready_project, tmp_path, fake_slurm):
+    from aerosuite.engine.cfg import generate_configs
+    from aerosuite.engine.jobs.executors import runner_for
+    from aerosuite.engine.settings import AppSettings, save_settings, set_value
+    from aerosuite.web.recent import add_recent
+
+    project_dir, project = ready_project
+    save_settings(set_value(set_value(AppSettings(), "slurm.shared_root", str(tmp_path)), "backend", "slurm"))
+    generate_configs(project_dir, project)
+    job = runner_for("slurm").submit(project_dir, project, cases=[project.cases[0].name])
+    fake_slurm.run("101", node="hpc2")
+    runner_for("slurm").refresh(project_dir, job)
+    add_recent(project_dir)
+    await user.open("/")
+    await user.should_see(marker=f"recent-{project_dir.name}-node-hpc2")
+    pill = next(iter(user.find(marker=f"recent-{project_dir.name}-node-hpc2").elements))
+    assert "as-node-pill-live" in pill.classes

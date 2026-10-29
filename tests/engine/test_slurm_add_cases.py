@@ -67,7 +67,9 @@ def test_an_added_case_waits_for_the_running_case_it_restarts_from(slurm_study):
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
     assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg
     assert "RESTART_SOL= YES" in cfg
-    assert f"[ ! -f {project_dir / 'runs' / A0 / 'restart_flow'} ]" in (project_dir / "runs" / A2 / "su2_job.sh").read_text()
+    solution = project_dir / "runs" / A0 / "restart_flow"
+    assert f"[ -f {solution} ] || [ -f {solution}.dat ] || [ -f {solution}.csv ]" in (
+        project_dir / "runs" / A2 / "su2_job.sh").read_text()
     fake.finish("101", "FAILED", "1:0")
     fake.run("102")
     job = runner.refresh(project_dir, job)

@@ -7,6 +7,7 @@ from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.jobs.store import list_jobs
 from aerosuite.engine.project import save_project
 from aerosuite.engine.settings import AppSettings, save_settings, set_value
+from aerosuite.web.layout import project_url
 from aerosuite.web.slurm_watch import WATCH
 
 A0, A2, A4 = "M0p8_a0_b0", "M0p8_a2_b0", "M0p8_a4_b0"
@@ -18,6 +19,13 @@ def _element(user, marker):
 
 def _text(user, marker):
     return _element(user, marker).text
+
+
+def _card_order(user):
+    """The node cards from first to last."""
+    grid = _element(user, "node-card-hpc1").parent_slot.parent
+    return [next(m for m in card._markers if m.startswith("node-card-")).removeprefix("node-card-")
+            for card in grid.default_slot.children]
 
 
 @pytest.fixture
@@ -50,12 +58,113 @@ async def test_nodes_and_my_jobs_without_the_queue(user: User, cluster_study, ev
     await _open(user)
     assert WATCH.pages == 1
     await eventually(lambda: _text(user, "node-hpc2-note") == "bad DIMM", 5)
-    assert _text(user, "node-hpc1-cpus") == "192 / 192" and _text(user, "node-hpc1-memory") == "20 of 122 GB free"
+    assert _text(user, "node-hpc1-cpus") == "CPU · 192 / 192" and _text(user, "node-hpc1-memory") == "Memory · 122 GB"
+    assert _text(user, "node-hpc1-state") == "Full" and _text(user, "node-hpc2-state") == "Drained"
     assert "as-node-bad" in _element(user, "node-card-hpc2").classes
+    assert _text(user, "tile-nodes-value") == "1 of 2 up" and _text(user, "tile-nodes-sub") == "hpc2 drained"
+    assert _text(user, "tile-cpus-value") == "192 / 384"
     await user.should_not_see(marker="queue-card")  # everyone's queue is not shown
     await eventually(lambda: _text(user, "job-101-state") == "Running", 5)  # the page re-renders every 2 s
     assert _text(user, "job-102-state").startswith("Pending")
     await user.should_not_see(marker="job-900")  # someone else's
+
+
+async def test_a_node_card_shows_the_study_job_running_there(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1")
+    fake.update(nodes=["hpc1|node1*|alloc|192/0/0/192|125000|20000|96.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.0|none"])
+    await _open(user)
+    marker = f"node-hpc1-job-{job.id}"
+    await eventually(lambda: bool(user.find(marker=marker).elements), 5)
+    assert _text(user, f"{marker}-done") == "0 / 2"  # the whole job, as Run's job bar
+    assert _text(user, f"{marker}-time") == f"Now {A0} · time left shown after the first case"
+    assert _element(user, marker).props["href"] == project_url("run", project_dir)  # opens the study's Run page
+    await user.should_see(marker="node-hpc2-nojob")
+    assert _text(user, "tile-running-value") == "1 study" and _text(user, "tile-running-sub") == "on hpc1"
+    assert _text(user, "tile-left-value") == "2"
+
+
+async def test_a_node_card_shows_a_study_job_queued_for_it(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])  # node1: hpc1, every case waits
+    fake.update(nodes=["hpc1|node1*|alloc|192/0/0/192|125000|20000|96.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.0|none"])
+    await _open(user)
+    marker = f"node-hpc1-job-{job.id}"
+    await eventually(lambda: bool(user.find(marker=marker).elements), 5)
+    assert _text(user, f"{marker}-done") == "2 cases"
+    assert _text(user, f"{marker}-time") == "Waiting in the Slurm queue"  # nothing of the user's runs there
+    assert _text(user, "tile-queued-value") == "1 study" and _text(user, "tile-running-value") == "None"
+    await user.should_see(marker="node-hpc2-nojob")
+
+
+async def test_dragging_a_node_card_moves_it_and_keeps_the_order(user: User, cluster_study, eventually):
+    from aerosuite.engine.settings import load_settings
+
+    fake = cluster_study[2]
+    fake.update(nodes=["hpc1|node1*|idle|0/192/0/192|125000|20000|0.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.0|none",
+                       "hpc0|node0|idle|0/64/0/64|229000|209000|0.0|none"])
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="node-card-hpc0").elements), 5)
+
+    assert _card_order(user) == ["hpc1", "hpc2", "hpc0"]  # the default partition's first
+    user.find(marker="node-card-hpc0").trigger("dragstart")
+    user.find(marker="node-card-hpc1").trigger("drop")
+    await eventually(lambda: _card_order(user) == ["hpc0", "hpc1", "hpc2"], 5)
+    assert load_settings()[0].slurm.node_order == ["hpc0", "hpc1", "hpc2"]  # kept for the next visit
+    user.find(marker="node-card-hpc0").trigger("dragstart")
+    user.find(marker="node-card-hpc2").trigger("drop")  # moving down: after the card it is dropped on
+    await eventually(lambda: _card_order(user) == ["hpc1", "hpc2", "hpc0"], 5)
+
+
+async def test_my_jobs_show_when_cases_started_and_ended_and_group_by_job(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.finish("101", elapsed="00:30:00")
+    fake.set_job("101", start="2026-10-28T22:00:00", end="2026-10-28T22:30:00")
+    fake.finish("102", elapsed="00:30:00")
+    fake.set_job("102", start="2026-10-28T22:30:00", end="2026-10-28T23:00:00")
+    WATCH.track(project_dir, job.id)
+    from aerosuite.web.pages import cluster as cluster_page
+
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="job-102-ended").elements), 5)
+    assert _text(user, "job-101-started") == "28 Oct 22:00" and _text(user, "job-101-ended") == "28 Oct 22:30"
+    user.find(marker="jobs-group").click()
+    assert cluster_page._GROUP["on"] == cluster_page.GROUPED_AT_FIRST  # a fresh server groups them
+    key = f"{project.name}-{job.id}"
+    await eventually(lambda: bool(user.find(marker=f"group-{key}").elements), 5)
+    assert _text(user, f"group-{key}-done") == "2 / 2"
+    assert _text(user, f"group-{key}-started") == "28 Oct 22:00" and _text(user, f"group-{key}-ended") == "28 Oct 23:00"
+    await eventually(lambda: _text(user, f"group-{key}-took") == "took 1 h", 5)
+    await user.should_not_see(marker="job-101-study")  # the group's line names the study
+    assert _text(user, f"group-{key}-folded") == "2 cases folded"  # an ended job starts folded
+    await user.should_not_see(marker="job-101")
+    user.find(marker=f"group-{key}").click()
+    await user.should_see(marker="job-101")
+    assert _text(user, "job-101-ended") == "28 Oct 22:30"
+    await user.should_not_see(marker=f"group-{key}-folded")
+    user.find(marker=f"group-{key}").click()  # and shut again
+    await user.should_not_see(marker="job-101")
+    user.find(marker="jobs-group").click()
+    await user.should_see(marker="job-101-study")
+
+
+async def test_an_ascii_job_shows_as_its_case_with_its_own_log(user: User, cluster_study, eventually):
+    project_dir, project, fake = cluster_study
+    folder = project_dir / "runs" / A0
+    folder.mkdir(parents=True)
+    (folder / "to_ascii-700.out").write_text("AeroSuite: ASCII files written\n")
+    fake.add_job("700", user=WATCH.user, name=f"{project.name}/{A0}-ascii", cwd=str(folder))
+    await _open(user)
+    await eventually(lambda: bool(user.find(marker="job-700-task").elements), 5)
+    assert _text(user, "job-700") == A0 and _text(user, "job-700-task") == "ASCII files"
+    await user.should_not_see(marker="cancel-700")  # not a case of a job record
+    user.find(marker="log-700").click()
+    await eventually(lambda: "ASCII files written" in _text(user, "log-dialog-text"), 5)
 
 
 async def test_filters(user: User, cluster_study, eventually):

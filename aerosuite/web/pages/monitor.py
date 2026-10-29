@@ -16,6 +16,7 @@ from ..jobs import WATCHER, JobView
 from ..layout import ProjectFrame, open_session
 from ..monitor_params import ParametersTab, param_state, thinned_indices
 from ..picker import pick_path
+from ..run_view import earlier_groups
 from ..theme import HAIRLINE, SERIES_COLORS
 from ..ui_kit import card, card_head, field, pill, secondary_button, set_pill
 
@@ -119,7 +120,9 @@ def line_options(x: list, df, columns: list, normalize: bool = False, colors: Op
     return {
         "animation": False,
         "tooltip": {"trigger": "axis"},
-        "legend": {"data": list(columns), "orient": "vertical", "right": 10, "top": "middle"},
+        # the legend in a column of its own on the right, clear of the lines (it scrolls when long)
+        "legend": {"data": list(columns), "type": "scroll", "orient": "vertical", "right": 8, "top": "middle"},
+        "grid": {"left": 64, "right": 140, "top": 40, "bottom": 56},
         # onZero False keeps the axis line at the bottom of the grid instead of at y = 0, where
         # ECharts puts a value axis by default (residuals are negative, so that's mid-chart).
         "xAxis": {"type": "value", "name": "Iteration", "nameLocation": "middle", "nameGap": 30,
@@ -156,7 +159,7 @@ def default_case(view: JobView, names: list, started: Callable[[JobRecord], Sequ
 
 def data_job(view: JobView, case: str, started: Callable[[JobRecord], Sequence[str]]) -> Optional[JobRecord]:
     """The newest job in which `case` actually started (by log banner, via `started`), if any."""
-    row = next((row for row in view.overview.all_rows if row.name == case), None)
+    row = next((row for row in view.overview.known_rows if row.name == case), None)
     if row is None or row.status == NOT_RUN:
         return None
     for job in view.overview.jobs:  # newest first
@@ -222,7 +225,8 @@ class MonitorPage:
         with ui.element("div").classes("as-monitor"):
             with ui.column().classes("as-monitor-left gap-4 w-full"):
                 with card():
-                    self.select = field(ui.select([], label="Case", on_change=lambda e: self._choose_case(e.value)))
+                    self.select = field(ui.select([], label="Case", with_input=True,
+                                                  on_change=lambda e: self._choose_case(e.value)))
                     self.select.classes("w-full").mark("monitor-case")
                     secondary_button("Open file…", on_click=self._open_file).classes("w-full").mark("monitor-open-file")
                     with ui.row().classes("items-center gap-2"):
@@ -271,7 +275,7 @@ class MonitorPage:
         self.params.set_active(parameters)
 
     def _row(self, view: JobView):
-        return next((row for row in view.overview.all_rows if row.name == self.case), None)
+        return next((row for row in view.overview.known_rows if row.name == self.case), None)
 
     def _running(self, view: JobView) -> bool:
         row = self._row(view)
@@ -315,11 +319,14 @@ class MonitorPage:
                 return
         names = [case.name for case in self.frame.session.project.cases]
         names += [row.name for row in view.overview.others]  # still in a running job, no longer in the sweep
+        earlier = [row.name for group in earlier_groups(view.overview.earlier) for row in group.rows]
         if self.mode == "case":
-            if self.case not in names:
+            if self.case not in names + earlier:
                 self.case = default_case(view, names, self._started)
             self.was_running = self._running(view)
-        self.select.set_options(names, value=self.case if self.mode == "case" else None)
+        options = {name: name for name in names} | {name: f"{name} · earlier sweep" for name in earlier}
+        names += earlier
+        self.select.set_options(options, value=self.case if self.mode == "case" else None)
         self.select.set_visibility(bool(names))
         if self.mode == "case" and not names:
             self._show_message("No cases yet: set up the sweep first.", "as-muted")
@@ -360,6 +367,8 @@ class MonitorPage:
             text = f"{row.status} in job {status_job.id} · showing job {source.id}"
         else:
             text = f"{self.case} · job {status_job.id}" if status_job is not None else ""
+        if any(row.name == self.case for row in view.overview.earlier):
+            text += " · earlier sweep"
         marks: tuple = ()
         earlier = [a for a in attempts(self.directory, self.case) if a.history is not None]
         if earlier and self.with_attempts:

@@ -26,7 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
-from ..cfg import RUN_CONTROL_FILE, apply_parameters
+from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE, apply_parameters
 from ..errors import JobError
 from ..models import Project
 from ..restarts import DEFAULT_RESTART_NAME, RUNS_DIR
@@ -34,10 +34,10 @@ from ..results import HISTORY_FILE, check_convergence, read_history
 from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
 from .executors import SlurmOptions, slurm_options
-from ..attempts import archive_before_rerun, settle_attempts
+from ..attempts import archive_before_rerun, keep_aside, settle_attempts
 from .diagnose import diagnose
 from .rerun import describe
-from .plan import _referenced_case, drop_kept, prepare_job, prune_restarts
+from .plan import _batches, _referenced_case, drop_kept, prepare_job, prune_restarts
 from .runner import (FINAL_CASE_STATES, CaseState, JobRecord, JobState, SlurmCase, new_job_id, sweep_environment,
                      unfinished)
 from .store import JOBS_DIR, active_lock, clear_lock, load_job, save_job, write_lock
@@ -69,16 +69,14 @@ def job_name(study: str, case: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.+-]", "_", study) + "/" + re.sub(r"[^A-Za-z0-9_.+-]", "_", case)
 
 
-def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slurm: SlurmSettings, job_id: str,
-               after: Optional[str] = None, note: str = "",
-               restart_from: Optional[tuple[str, str, str]] = None) -> str:
-    """The batch script of one case (see the spec's §4.2); `after` = the Slurm job id it waits for, and
-    `restart_from` = (that case, its folder, the solution file): without both its 0 exit and the file, this case
-    starts from scratch."""
+def script_head(name: str, options: SlurmOptions, slurm: SlurmSettings, comment: str, out: str = "slurm-%j.out",
+                after: Optional[str] = None) -> tuple[list[str], str]:
+    """A batch script's start: the #SBATCH lines, `comment`, the environment (the partition's own, else the
+    Slurm-wide one) and `cd "$SLURM_SUBMIT_DIR"`; and the launch command that starts SU2_CFD there."""
     part = slurm.partition(options.partition)
     own = part if part is not None and part.launch_command else None  # a partition with its own launch command
     lines = ["#!/bin/bash" if own is not None and not own.login_shell else "#!/bin/bash -l",
-             f"#SBATCH -J {job_name(study, case)}",
+             f"#SBATCH -J {name}",
              f"#SBATCH -p {_safe('Partition', options.partition)}",
              "#SBATCH -N 1",
              f"#SBATCH -n {int(options.ntasks)}"]
@@ -88,10 +86,9 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
         lines.append(f"#SBATCH -A {_safe('Account', options.account)}")
     if options.time_limit:
         lines.append(f"#SBATCH -t {_safe('Time limit', options.time_limit)}")
-    lines.append("#SBATCH -o slurm-%j.out")
+    lines.append(f"#SBATCH -o {out}")
     if after:
         lines += [f"#SBATCH --dependency=afterany:{_safe('Job id', after)}", "#SBATCH --kill-on-invalid-dep=yes"]
-    comment = f"# Written by AeroSuite for job {job_id}, case {case}" + (f" ({note})" if note else "") + "."
     module_line, launch = (own.module_line, own.launch_command) if own is not None else (slurm.module_line,
                                                                                       slurm.srun_command)
     for value in (module_line, launch, slurm.su2_bin, comment):
@@ -110,13 +107,26 @@ def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slur
         lines.append(module_line)
         lines += [f"export {name}={shlex.quote(value)}" for name, value in env_pairs(slurm.job_env)]
         lines.append(f"export PATH={shlex.quote(slurm.su2_bin)}:\"$PATH\"")
-    lines += ['cd "$SLURM_SUBMIT_DIR"',
-              f"rm -f {EXIT_FILE}",
+    lines.append('cd "$SLURM_SUBMIT_DIR"')
+    return lines, launch
+
+
+def job_script(study: str, case: str, cfg_name: str, options: SlurmOptions, slurm: SlurmSettings, job_id: str,
+               after: Optional[str] = None, note: str = "",
+               restart_from: Optional[tuple[str, str, str]] = None) -> str:
+    """The batch script of one case (see the spec's §4.2); `after` = the Slurm job id it waits for, and
+    `restart_from` = (that case, its folder, the solution file): without both its 0 exit and the file, this case
+    starts from scratch."""
+    comment = f"# Written by AeroSuite for job {job_id}, case {case}" + (f" ({note})" if note else "") + "."
+    lines, launch = script_head(job_name(study, case), options, slurm, comment, after=after)
+    lines += [f"rm -f {EXIT_FILE}",
               'echo "AeroSuite: Slurm job $SLURM_JOB_ID on $(hostname), $SLURM_NTASKS ranks, start $(date -Is)"']
     if restart_from is not None:
         source, folder, solution = restart_from
         exit_file = shlex.quote(str(Path(folder) / EXIT_FILE))
-        lines += [f'if [ "$(cat {exit_file} 2>/dev/null)" != 0 ] || [ ! -f {shlex.quote(solution)} ]; then',
+        # The solution as SU2 wrote it: the name as given, or with the .dat or .csv SU2 adds (find_restart_file's rule)
+        found = " || ".join(f"[ -f {shlex.quote(solution + suffix)} ]" for suffix in ("", ".dat", ".csv"))
+        lines += [f'if [ "$(cat {exit_file} 2>/dev/null)" != 0 ] || ! {{ {found}; }}; then',
                   f'  echo {shlex.quote(f"AeroSuite: {source} ended without a solution; starting from scratch")}',
                   "  sed -i -E 's/^RESTART_SOL[[:space:]]*=.*/RESTART_SOL= NO/' " + shlex.quote(cfg_name),
                   "fi"]
@@ -282,14 +292,19 @@ class SlurmRunner:
         return job
 
     def _prepare_case(self, project_dir: Path, configs: Path, name: str, solution: Optional[str],
-                      restart: bool = False) -> None:
+                      restart: bool = False, keep_logs: bool = False) -> None:
         """Empty runs/<case>/ and write the job's config into it (SOLUTION_FILENAME when it restarts; `restart` also
-        sets RESTART_SOL= YES, for a case that waits for one still running)."""
+        sets RESTART_SOL= YES, for a case that waits for one still running). `keep_logs` keeps the Slurm output of
+        its earlier attempts in this job (a resubmit)."""
         folder = project_dir / RUNS_DIR / name
         try:
-            if folder.exists():
+            if folder.exists() and keep_logs:
+                for path in folder.iterdir():
+                    if not (path.name.startswith("slurm-") and path.suffix == ".out"):
+                        shutil.rmtree(path) if path.is_dir() else path.unlink()
+            elif folder.exists():
                 shutil.rmtree(folder)
-            folder.mkdir(parents=True)
+            folder.mkdir(parents=True, exist_ok=True)
             text = (configs / f"{name}.cfg").read_text(encoding="utf-8")
             if solution is not None:
                 text = apply_parameters(text, {"SOLUTION_FILENAME": solution, **({"RESTART_SOL": "YES"} if restart
@@ -330,6 +345,30 @@ class SlurmRunner:
                   + (f", after {after} ({depends_on})" if after else ""))
         save_job(project_dir, job)
 
+    def _prepare_again(self, project_dir: Path, job: JobRecord, name: str, waits: bool) -> None:
+        """A resubmitted case's folder as at its submit: its run so far put aside, the config of the batch that last
+        submitted it written afresh (an earlier attempt's script may have switched it to start from scratch).
+        `waits`: it waits for a case resubmitted with it, whose solution the script checks; else a solution that is
+        not there any more makes it start from scratch now."""
+        job_dir = project_dir / JOBS_DIR / job.id
+        configs = next((batch / CONFIGS_DIR for batch in reversed(_batches(job_dir))
+                        if (batch / CONFIGS_DIR / f"{name}.cfg").is_file()), None)
+        if configs is None:  # a job from before its configs were kept: its folder runs as it is
+            return
+        folder = project_dir / RUNS_DIR / name
+        own = _SOLUTION_RE.search(_read(folder / f"{name}.cfg"))
+        restart = job.slurm[name].depends_on is not None
+        keep_aside(project_dir, job.attempts, [name])
+        self._prepare_case(project_dir, configs, name, own.group(1) if own else None, restart=restart,
+                           keep_logs=True)
+        cfg = folder / f"{name}.cfg"
+        text = _read(cfg)
+        if not waits and own and re.search(r"^\s*RESTART_SOL\s*=\s*YES", text, re.MULTILINE | re.IGNORECASE):
+            solution = own.group(1)
+            if not any(Path(solution + suffix).is_file() for suffix in ("", ".dat", ".csv")):
+                cfg.write_text(apply_parameters(text, {"RESTART_SOL": "NO"}), encoding="utf-8", newline="\n")
+                self._log(project_dir, job, f"{name} starts from scratch: its solution {solution} is not there")
+
     # -- adding cases to a running job ------------------------------------------------------------------------
 
     def busy_cases(self, job: JobRecord) -> set[str]:
@@ -364,7 +403,7 @@ class SlurmRunner:
             number += 1
         configs = prepare_job(project_dir, project, f"{job.id}/add-{number}", wanted, continue_cases, changes,
                               starts)
-        job.attempts.update(archive_before_rerun(project_dir, wanted))  # each is emptied below, as at a submit
+        keep_aside(project_dir, job.attempts, wanted)  # each is emptied below, as at a submit
         for name in wanted:  # this attempt's changes replace an earlier attempt's
             job.changes.pop(name, None)
             if (changes or {}).get(name):
@@ -830,6 +869,7 @@ class SlurmRunner:
             depends_on = old.depends_on if old.depends_on in chosen else None
             job.case_status[name] = CaseState.PENDING
             try:
+                self._prepare_again(project_dir, job, name, waits=depends_on is not None)
                 self._sbatch(project_dir, project, job, name, options, settings.slurm, depends_on,
                              note=f"resubmit of {old.job_id}", attempts=[*old.attempts, old.job_id])
             except JobError as exc:

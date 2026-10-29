@@ -180,6 +180,10 @@ it at 127.0.0.1 while it runs; a login token is planned before AeroSuite is used
 ### Projects
 Your recent projects, *Open* (choose or paste a folder), **New project** and **Import SU2 runs**.
 
+- Each recent project shows its kind (*sweep · 40 cases*), where its latest job runs and how it is doing: a blue
+  node pill (*hpc2*) while a case runs there, a dashed one (*node2 · 20 queued*) where its cases wait, grey once the
+  job has ended (where it ran), *this PC* for a local run.
+
 - A new project is a **General case** (one config, no sweep) or an **Aircraft study** (pick a profile such as X07;
   the sweep is on).
 - **Import SU2 runs** reads runs made outside AeroSuite: see its own section.
@@ -299,19 +303,32 @@ the server.
 
 #### The job bar
 Across the top: the running job (*6 of 20 cases done*, a progress bar, the case running now, elapsed and about how
-long is left) with **Monitor**, **Log** and **Cancel**. With none running, how the last one ended (*Done · job
+long is left: on Slurm, the cases still to run at the job's average case run time, as many at a time as run now, so
+time spent waiting in the queue does not count; shown once a case has run to the end) with **Monitor**, **Log** and
+**Cancel**. Its first line names the job and partition, with a pill per node its cases run on now and a dashed one
+where its other cases wait in the queue (*hpc1 · 6 queued*, e.g. cases added for another node). With none running, how the last one ended (*Done · job
 20261024-1151 · 40 cases · 2 converged · 38 unconverged*) with its **Log** and **Job history**.
 
-#### Board, List and Job history
-The cases are in three tabs (`?tab=board|list|history` in the address opens one, `&case=<name>` a case's details).
+#### Board, List, Earlier and Job history
+The cases are in tabs (`?tab=board|list|earlier|history` in the address opens one, `&case=<name>` a case's details).
 
-- **Board** (when the cases make a grid): a grid per altitude (and per β when β is swept), Mach down and α across,
-  one coloured tile per case: running, queued (with its place, *#3*), converged (*✓ 812 it*), unconverged
-  (*1500 it*), failed (*! failed*, red border) or not run. *Large* / *Compact* sizes the tiles (compact from 40
-  cases). An altitude folds to one line with its counts, and opens by itself while something runs, waits or failed
-  there.
+- Above the cases, one bar shows every status at a glance: each part is coloured as its tiles and holds its count
+  (*3 · 2 · 29 · 6*; hover a part for its words, the ⓘ for the order). On the Board, the two icons next to it size
+  the tiles, large or compact (compact from 40 cases).
+- **Board** (when the cases make a grid): a grid per altitude (and per β when β is swept), Mach down and α across;
+  a sweep at one Mach over several altitudes is one grid (*M 2*), altitude down and α across. One coloured tile per
+  case: running, queued (with its place, *#3*), converged (*✓ 812 it*), unconverged
+  (*1500 it*), failed (*! failed*, red border) or not run. An altitude's head names only its failed cases
+  (*0 km · 20 cases · 2 failed*). It folds to that one line, and opens by itself while something runs, waits or
+  failed there.
 - **List**: the cases by state: *Running now*, *Queued* (with the next one), *Needs a look* (failed first, then
   unconverged and cancelled), *Not run yet* and *Done*, each with *Select all*; a long Queued or Done folds.
+- **Earlier** (earlier sweeps, when there are any): the cases a finished job ran that the sweep no longer makes, e.g. 0 km
+  and 10 km after the altitudes became 20 km, while their run folders are there. Their runs, histories and results
+  are kept (Results and Monitor show them), but they are not part of the next run. One folded line per altitude
+  gives its cases, their outcomes and the jobs; open it for its grid, and click a case for it in Monitor.
+  **Add to sweep** (an altitude sweep) puts that altitude back in the sweep: its cases, named as before, are the
+  sweep's again with their outcomes, ready to generate and continue.
 - **Job history**: every job, each with a *Log* button for its log.
 - Cases a running job still has that the sweep no longer makes (it changed after they were submitted) are on the
   board and in the list too, marked as the job's; they cannot be selected.
@@ -370,8 +387,8 @@ With a Slurm job running, the rerun is added to it.
 ### Monitor
 Residuals and coefficients against iteration, live while a case runs.
 
-- Pick a case, or **Open file…** any history file. Tick columns on or off, **Normalize**, and **Stop** / **Start**
-  live updating.
+- Pick a case (type to search; an earlier sweep's cases are listed after the sweep's, marked *earlier sweep*), or
+  **Open file…** any history file. Tick columns on or off, **Normalize**, and **Stop** / **Start** live updating.
 - **Parameters** tab: plots of any columns of the history file. *Add plot* lists every column (grouped, with a
   search box); the columns ticked together share one plot, and each plot has its own value axis.
 - Zoom a plot with the mouse wheel, drag to move, or use the bar under it. The zoom is kept while new iterations
@@ -445,9 +462,28 @@ From the Projects page, Setup, or the project switcher: every profile, and what 
 The **Cluster** button in the top bar, when Slurm is there. Its dot is green, amber for a drained or down node, red
 when Slurm does not answer; the number next to it is your running jobs.
 
-- Every node as a compact card.
+- Tiles at the top: the studies running and on which nodes, the studies queued, the cases still to go in your active
+  jobs, CPUs in use and how many nodes are up (red while one is drained or down).
+- A card per node: CPU, memory and load dials and its state in words (*Full*, *Partly used*, *Free*, *Drained*;
+  hover for Slurm's own). Memory counts Linux's file cache as used, so a busy node looks nearly full. A drained or
+  down node shows why.
+  - **Running**: each study job with cases running there, as on its Run page: cases finished / in all, the case
+    now and about how long is left (as on Run's job bar: from the job's average case run time).
+  - **Next**: each study job queued for the node with none of its cases running there, in the order it was
+    submitted, and about when it starts: when the job ahead of it is expected to end, plus the cases of each queued
+    job before it at that job's average case run time. A guess: Slurm decides the order, and jobs without a time
+    limit give it no start time of its own.
+  - A job on two nodes shows on both, linked (*6 more queued on hpc1*, *running on hpc2 · 5 / 20*). Click a line
+    to open the study's Run page.
+  - Drag a card to move it; the order is kept (`slurm.node_order` in the settings).
 - **My jobs**: your AeroSuite cases on Slurm from every study (queued, running, or ended in the last 7 days) with
-  Cancel (one case), Resubmit and Log. It folds.
+  Cancel (one case), Resubmit and Log. Each case's *Started* and *Ended* times come from Slurm accounting (*09:41*
+  today, *28 Oct 22:27* before); a running or queued case shows about when it ends in grey (*≈ 14:03*): its job's
+  average case run time, the queued ones in the order Slurm got them, one after another as many at a time as the
+  job runs now, after the jobs queued before them there. **Group** (on at first) puts the cases under a line per
+  study job: its state, cases finished / in all, when it started, when it ended (or about when it ends) and how long
+  it took (or about how long is left); click a line to fold its cases (an ended job's start folded). A case's *ASCII
+  files* job (ParaView menu) is listed under its case, its Log showing `to_ascii-<job id>.out`. It folds.
 - The Run page keeps a one-line summary. How jobs are submitted: the README's *Running on the Slurm cluster*.
 
 ### Calculators
@@ -468,6 +504,14 @@ the case folder), newest first.
 - A case opens its surface and volume files in ParaView on the workstation's screen; *All cases* opens every case's
   surface files in one session.
 - From a browser on another PC, a case copies its folder path instead.
+- **Write ASCII from restart…**: pick a case with a restart file, and SU2_SOL rebuilds its `flow.vtk` and
+  `surface_flow.vtk` (ParaView ASCII) from it, into the case folder. Handy when the sweep writes binary `.vtu`
+  (`OUTPUT_FILES= PARAVIEW, SURFACE_PARAVIEW, RESTART`, several times smaller and quicker to write) or no volume
+  file. It uses the case's config with its own restart as the solution, writes on the node's own disk first, then
+  moves the files. With Slurm it is a batch job on the study's partition, started as that partition starts SU2_CFD
+  and stopped after 2 h (its output in `to_ascii-<job id>.out`); else it runs on this machine (`to_ascii.log`).
+  The mesh must still be where the config says. A case still queued or running is refused: its restart file is
+  about to change.
 - `AEROSUITE_PARAVIEW` names another executable than `paraview`.
 
 ### Log
@@ -478,16 +522,22 @@ output as it runs, along the bottom of the page.
 - Jobs are named by date and minute (`20260928-1358`, then `-2` for a second job in the same minute).
 
 ### Settings
-At the bottom left of every page. Server-wide settings, saved for every study; the same as `aerosuite settings`.
+At the bottom left of every page: the server-wide settings, saved for every study (the same as
+`aerosuite settings`). Four tabs; `/settings?tab=partitions&partition=node0` opens one, on that partition. Hover a
+field's ⓘ for what it does.
 
-- **Execution**: where jobs run by default (this machine with mpirun, or Slurm; each study can choose on its Run
-  page), and *Check each case's config with SU2* (see *Checks before a run*).
-- **Slurm**: the default partition, one job per node (`--exclusive`), the shared root, module line, SU2 bin folder,
-  launch command, job environment, account, default time limit, memory per million cells and the poll interval.
-- **Partitions**: each partition's limits, including the memory an `--exclusive` job may use before Slurm kills it,
-  and whether to block a submit over it.
-- **Job script per partition**: a partition with its own launch command (e.g. `mpirun` on the workstation) gets
-  only its own environment.
+- **General**: where jobs run by default (this machine with mpirun, or Slurm; each study can choose on its Run page),
+  and *Check each case's config with SU2* (see *Checks before a run*).
+- **Slurm**: *Submitting* (the default partition, the shared root, one job per node with `--exclusive`, account and
+  default time limit), the *Job script* for partitions without their own (module line, SU2 bin folder, launch
+  command, job environment), and *Estimates and polling* (memory per million cells, the poll interval).
+- **Partitions**: one card per partition, with its tasks, memory limit, warn-above and whether it blocks or warns
+  over memory, and *own script* when it has its own job script. Click a card for all its settings under the cards:
+  name, tasks per case, memory limit (what an `--exclusive` job may use before Slurm kills it), warn above, over the
+  memory limit (*Warn* or *Block*), *Make default* and *Remove* (not the default partition), its launch command and
+  *Exclusive* (Slurm-wide, one job per node, or share the node). Give a partition a launch command of its own (e.g.
+  `mpirun` on the workstation) and its own job script's fields appear: PATH, Unset, module line, job environment
+  and login shell; only those are used for it. *Add partition* is above the cards.
 - **Open from your PC**: the SSH address of this machine, the launchers and the tunnel command (see *Getting
   started*).
 
@@ -536,12 +586,21 @@ aerosuite settings                   # partitions, default tasks, memory limits,
   exists; otherwise (failed, cancelled, killed) its script sets `RESTART_SOL= NO` and it starts from scratch, as a
   local sweep does. Its `slurm-<id>.out` and the job log say so. (Jobs submitted before this used `afterok`: there a
   failed case's dependents show **Blocked**.)
+- **Resubmit** (a NODE_FAIL or OUT_OF_MEMORY case, with the cases blocked behind it) prepares the case folder again
+  as a submit does: its run so far is kept as an earlier attempt, its config is written afresh from the job's, and
+  the earlier `slurm-<id>.out` stays beside the new one. A case whose solution to restart from is gone starts from
+  scratch, and the job log says so.
+- A case run again inside the same job (Add cases) keeps only one earlier attempt with its volume files until the
+  job ends; older ones lose them at once.
+- The server watches every running AeroSuite job it finds in Slurm (the queue and the last 7 days) from its start,
+  so a job that ends while no page shows its study is still recorded, its lock released and its files tidied.
 - Studies must live under the shared root (`/data`): the other node cannot see anything else. Before submitting,
   AeroSuite estimates the memory from the mesh header (`NELEM` × 3.9 GB per million cells, configurable), warns when
   it is over the partition's limit and refuses on partitions set to block (node2).
 - The **Cluster** page (top bar; its dot is green, amber for a drained or down node, red when Slurm does not answer)
-  shows every node as a compact card, then your AeroSuite cases on Slurm from every study — queued, running or ended in
-  the last 7 days — with Cancel (one case), Resubmit and Log; the list folds. The Run page keeps
+  shows tiles at a glance and a card per node (what runs there and what is queued for it), then your AeroSuite cases
+  on Slurm from every study — queued, running or ended in the last 7 days, with when each started and ended — with
+  Cancel (one case), Resubmit and Log; the list folds. The Run page keeps
   a one-line summary. The Results page adds a **Cost** group per case (elapsed, s/iter, peak memory and CPU use from
   `sacct`/`seff`) and the study's node-hours.
 - **node0 (hpc0, the Ubuntu workstation)** is a partition like the others, but its job script does not use
@@ -549,7 +608,7 @@ aerosuite settings                   # partitions, default tasks, memory limits,
   "$SLURM_NTASKS" SU2_CFD <case>.cfg` under plain `#!/bin/bash`, with `PATH=/usr/local/bin:/usr/bin:/bin` and
   `LD_LIBRARY_PATH` unset, no `--exclusive`, and never `--export=NONE` (uid 1000 is `pdas` there and `pdas-hpc1` on
   the nodes). The launch command, module line, PATH, unset variables and job environment are per-partition settings
-  (Settings → *Job script per partition*, or `aerosuite settings set slurm.partitions.node0.launch_command ...`); a
+  (Settings → *Partitions* → node0, or `aerosuite settings set slurm.partitions.node0.launch_command ...`); a
   partition whose launch command is empty keeps the Slurm-wide ones. Its reference script is
   `/data/software/templates/su2_job_ws.sh`.
 - The local backend (`mpirun` through the sweep script) is unchanged and stays the default.
@@ -578,7 +637,10 @@ Use **Profiles → Save SU2 Profile** (Ctrl+S) to save all SU2 Generator setting
 Use **Profiles → Load SU2 Profile** (Ctrl+O) to restore them.
 
 ## Future Plans
--   
+See [docs/ROADMAP.md](docs/ROADMAP.md).
+
+- **One case on several nodes:** run a case across 2 or 4 identical nodes over InfiniBand, with a scaling test
+  that measures how much faster it gets.
 
 ## Contributors
 Thanks to the following contributors for their work on this project:

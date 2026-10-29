@@ -1,7 +1,9 @@
 """Run: a job bar across the top (the running job, or the last one), the cases on the left as a Board (a grid per
 altitude: Mach down, α across, one tile per case) or a List by state (running, queued, needs a look, not run, done),
 and a panel on the right that stays in view: a case's details when one is clicked, then what will run and Submit (or,
-while a Slurm job runs, adding cases to it), checks, the machine or the cluster. A single case is a card."""
+while a Slurm job runs, adding cases to it), checks, the machine or the cluster. A single case is a card. The cases
+earlier sweeps ran (kept, not in the next run) have a tab of their own, Earlier sweeps."""
+import time
 from datetime import datetime
 from typing import NamedTuple, Optional
 from urllib.parse import quote
@@ -9,6 +11,8 @@ from urllib.parse import quote
 from nicegui import background_tasks, run, ui
 
 from ...engine.cfg import generate_configs, read_template, render_case
+from ...engine.editing import update_sweep
+from ...engine.freestream import sweeps_altitude
 from ...engine.attempts import attempts, make_current
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
@@ -27,20 +31,21 @@ from ...engine.results import HISTORY_FILE, history_columns
 from ...engine.settings import AppSettings, load_settings
 from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
-from ..cluster_view import can_resubmit, case_slurm_text, summary_parts
+from ..cluster_view import can_resubmit, case_slurm_text, node_groups, partition_nodes, summary_parts
 from ..fields import text_field
 from ..rerun_dialog import ask_rerun, keep_changes, kept
 from ..resubmit_dialog import resubmit_case
 from .cluster import cluster_url
 from ..slurm_fields import slurm_fields
-from ..jobs import WATCHER, JobView, job_progress
+from ..jobs import WATCHER, JobView, job_nodes, job_progress
 from ..layout import ProjectFrame, open_session, project_url
-from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, duration_text,
-                        has_board, layout, state_sections, status_counts, tile_text, time_left)
+from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, clock_text,
+                        duration_text, earlier_groups, has_board, job_left, layout, state_sections, status_counts,
+                        tile_text)
 from ..session import parse_int
-from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, hint, ok_line,
-                      pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table, td, td_box,
-                      th, titled, warning_group)
+from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, help_tip, hint, node_pills,
+                      ok_line, pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table,
+                      td, td_box, th, titled, warning_group)
 
 MACHINE_SECONDS = 10.0  # how often the machine strip is read again
 POLL_SECONDS = 2.0
@@ -57,14 +62,14 @@ KEY_VALUES = 6  # a single case's card shows this many of the Results page's cho
 def register() -> None:
     @ui.page("/run")
     def run_page(project: str = "", tab: str = "", case: str = "") -> None:
-        """`tab`: board, list or history; `case`: the case whose details open."""
+        """`tab`: board, list, earlier or history; `case`: the case whose details open."""
         session = open_session(project)
         if session is None:
             return
         pages: list = []
         frame = ProjectFrame(session, "run", on_reload=lambda: pages[0].render() if pages else None)
         with frame.content:
-            pages.append(RunPage(frame, tab=tab if tab in ("board", "list", "history") else None,
+            pages.append(RunPage(frame, tab=tab if tab in ("board", "list", "earlier", "history") else None,
                                  focus=case or None))
 
 
@@ -148,7 +153,7 @@ class RunPage:
         self.continue_choice: Optional[bool] = None  # None: the default for the selected cases
         self.continue_cases: list[str] = []
         self.opened: set[str] = set()  # failed cases whose "why it failed" box is open
-        self.tab: Optional[str] = tab  # "board", "list" or "history"; chosen at the first draw, kept across redraws
+        self.tab: Optional[str] = tab  # "board", "list", "earlier" or "history"; chosen at the first draw, then kept
         self.compact: Optional[bool] = None  # small tiles; None: by the number of cases
         self.sections_open: dict[str, bool] = {}  # board and list sections the user opened or closed
         self.focus: Optional[str] = focus  # the case whose details the panel shows
@@ -222,6 +227,8 @@ class RunPage:
         if self.ticked is None:
             self.ticked = self._default_ticked(view)
         self.ticked &= names  # the cases may have been rebuilt
+        if self.tab == "earlier" and not view.overview.earlier:
+            self.tab = None
         if self.tab is None:
             self.tab = "board" if has_board(self._shown_cases(view)) else "list"
         if self.focus is not None and self.focus not in {row.name for row in view.overview.all_rows}:
@@ -246,6 +253,8 @@ class RunPage:
                         self._views(view)
                         if self.tab == "history":
                             self._history(view)
+                        elif self.tab == "earlier":
+                            self._earlier(view)
                         else:
                             self._status_bar(view)
                             if self.tab == "board":
@@ -297,8 +306,12 @@ class RunPage:
                 return
             progress = job_progress(view)
             with ui.column().classes("gap-0"):
-                where = f" · Slurm {job.slurm[next(iter(job.slurm))].partition}" if job.slurm else ""
-                ui.label(f"Running · job {job.id}{where}").classes("as-muted as-small").mark("run-job")
+                where = f" · {job.slurm[next(iter(job.slurm))].partition}" if job.slurm else ""
+                with ui.row().classes("items-center gap-2 no-wrap"):
+                    ui.label(f"Running · job {job.id}{where}").classes("as-muted as-small whitespace-nowrap").mark(
+                        "run-job")
+                    node_pills(job_nodes(job, partition_nodes(node_groups(WATCHER.slurm_watch.cluster))),
+                               "job-node")
                 with ui.row().classes("items-baseline gap-2 no-wrap"):
                     ui.label(f"{progress.finished} of {progress.total}").classes("as-run-big").mark("run-what")
                     ui.label("cases done").classes("as-muted")
@@ -311,7 +324,8 @@ class RunPage:
                         ui.label("Now").classes("as-muted")
                         ui.label(progress.current).classes("as-mono as-strong as-truncate").mark("run-current")
                         ui.label("·").classes("as-muted")
-                    self.clock = (job.created, progress.finished, progress.total)
+                    left = job_left(job, max(0.0, (datetime.now() - job.created).total_seconds()))
+                    self.clock = (job.created, None if left is None else time.time() + left)
                     self.clock_label = ui.label("").classes("as-muted as-truncate").mark("run-elapsed")
                     self._tick_clock()
             secondary_button("Monitor", icon="show_chart",
@@ -332,9 +346,14 @@ class RunPage:
                 if has_board(self._shown_cases(view)):
                     ui.tab("board", "Board", icon="grid_view").mark("run-tab-board")
                 ui.tab("list", "List", icon="view_list").mark("run-tab-list run-tab-cases")
+                if view.overview.earlier:
+                    titled(ui.tab("earlier", f"Earlier ({len(view.overview.earlier)})", icon="inventory_2").mark(
+                        "run-tab-earlier"), "Earlier sweeps: cases kept, not in the next run")
                 ui.tab("history", f"Job history ({len(view.overview.jobs)})", icon="history").mark("run-tab-history")
             ui.space()
-            if self.tab != "history" and rows:
+            if self.tab not in ("board", "list") or not rows:
+                return
+            with ui.row().classes("items-center gap-2 no-wrap"):  # the chips wrap as one group, under the tabs
                 ui.label("Select").classes("as-label")
                 for label, statuses in SELECTORS:
                     count = len(rows) if statuses is None else sum(1 for row in rows.values() if row.status in statuses)
@@ -352,18 +371,29 @@ class RunPage:
         self.render()
 
     def _status_bar(self, view: JobView) -> None:
-        """Every case's status at a glance: one bar, one count per status."""
+        """Every case's status at a glance, in one row: a bar with each status's count written in its part (coloured as
+        the tiles, its words on hover), an (i) with the order and how to select, and on the board the tile size."""
         counts = status_counts(view.overview.rows)
         if not counts:
             return
-        with ui.row().classes("items-center w-full no-wrap gap-3").mark("run-status-bar"):
+        with ui.row().classes("items-center w-full no-wrap gap-2").mark("run-status-bar"):
             with ui.row().classes("as-status-bar grow no-wrap"):
                 for status, count in counts:
-                    ui.element("span").classes(f"as-status-seg as-seg-{pill_tone(status)}").style(f"flex: {count}")
-            with ui.row().classes("items-center gap-1 no-wrap"):
-                for status, count in counts:
-                    ui.label(f"{count} {pill_text(status).lower()}").classes(
-                        f"as-pill as-pill-{pill_tone(status)}").mark(f"count-{status.lower()}")
+                    segment = ui.label(str(count)).classes(f"as-status-seg as-seg-{pill_tone(status)}").style(
+                        f"flex: {count}").mark(f"count-{status.lower()}")
+                    titled(segment, f"{count} {pill_text(status).lower()}")
+            order = ", ".join(pill_text(status).lower() for status, _ in counts)
+            help_tip(ui.icon("info_outline", size="18px").classes("as-help-icon").mark("run-status-help"),
+                     f"Left to right: {order}. Click a case for its details; Ctrl+click it, or a row or column name, "
+                     "to select.")
+            if self.tab == "board":
+                compact = self._compact()
+                with ui.row().classes("as-icon-toggle no-wrap").mark("run-density"):
+                    for value, icon, tip in ((False, "grid_view", "Large tiles"), (True, "apps", "Compact tiles")):
+                        button = ui.button(icon=icon, color=None, on_click=lambda v=value: self._set_compact(v)).props(
+                            "flat dense").classes("as-icon-toggle-on" if compact == value else "").mark(
+                            f"run-density-{'compact' if value else 'large'}")
+                        titled(button, tip)
 
     # -- the panel on the right ------------------------------------------------
 
@@ -399,17 +429,6 @@ class RunPage:
         others = {row.name for row in view.overview.others}
         sections = board_sections(self._shown_cases(view))
         compact = self._compact()
-        with ui.row().classes("as-legend w-full items-center"):
-            for status in ("RUNNING", "PENDING", "CONVERGED", "UNCONVERGED", "FAILED", NOT_RUN):
-                with ui.row().classes("items-center gap-1 no-wrap"):
-                    ui.element("span").classes(f"as-tile-swatch as-tile-{_tone(status)}")
-                    ui.label(TILE_WORDS[status].lower())
-            ui.label("Click a case for its details; Ctrl+click, or a row or column name, to select").classes(
-                "as-muted")
-            ui.space()
-            ui.toggle({False: "Large", True: "Compact"}, value=compact,
-                      on_change=lambda e: self._set_compact(e.value)).props(
-                "dense no-caps unelevated toggle-color=primary").classes("as-toggle").mark("run-density")
         for index, section in enumerate(sections):
             members = [rows[name] for name in section.cells.values() if name in rows]
             key = f"board:{section.key}"
@@ -423,15 +442,16 @@ class RunPage:
                     if members and all(row.name in others for row in members):
                         ui.label("in the running job, not in the sweep now").classes("as-muted as-small").mark(
                             f"board-others-{section.key}")
-                    ui.space()
-                    for status, count in status_counts(members):
-                        ui.label(f"{count} {pill_text(status).lower()}").classes(f"as-pill as-pill-{pill_tone(status)}")
+                    for status, count in status_counts(members):  # the rest is in the bar above and on the tiles
+                        if status in ("FAILED", "BLOCKED"):
+                            ui.label(f"{count} {pill_text(status).lower()}").classes(
+                                f"as-pill as-pill-{pill_tone(status)}").mark(f"board-{status.lower()}-{section.key}")
                 head.on("click", lambda _, k=key, o=opened: self._fold(k, not o))
                 if not opened:
                     continue
                 with ui.element("div").classes("as-board" + (" as-board-compact" if compact else "")).style(
                         f"grid-template-columns: 64px repeat({len(section.alphas)}, minmax(0, 1fr))"):
-                    corner = ui.label("Mach \\ α").classes("as-board-col as-board-corner").mark(
+                    corner = ui.label(section.corner).classes("as-board-col as-board-corner").mark(
                         f"board-all-{section.key}")
                     corner.on("click", lambda _, n=list(section.cells.values()): self._toggle_names(n))
                     for alpha in section.alphas:
@@ -439,13 +459,13 @@ class RunPage:
                         col = ui.label(f"α {format_value(alpha)}°").classes("as-board-col").mark(
                             f"board-col-{section.key}-{format_value(alpha)}")
                         col.on("click", lambda _, n=names: self._toggle_names(n))
-                    for mach in section.machs:
-                        names = [name for (m, a), name in section.cells.items() if m == mach]
-                        head_cell = ui.label(f"M {format_value(mach)}").classes("as-board-row").mark(
-                            f"board-row-{section.key}-{format_value(mach)}")
+                    for value in section.rows:
+                        names = [name for (r, a), name in section.cells.items() if r == value]
+                        head_cell = ui.label(section.row_text(value)).classes("as-board-row").mark(
+                            f"board-row-{section.key}-{format_value(value)}")
                         head_cell.on("click", lambda _, n=names: self._toggle_names(n))
                         for alpha in section.alphas:
-                            name = section.cells.get((mach, alpha))
+                            name = section.cells.get((value, alpha))
                             if name is None or name not in rows:
                                 ui.element("div")
                                 continue
@@ -489,6 +509,89 @@ class RunPage:
 
     def _fold(self, key: str, opened: bool) -> None:
         self.sections_open[key] = opened
+        self.render()
+
+    # -- earlier sweeps ----------------------------------------------------------------------------------------
+
+    def _earlier(self, view: JobView) -> None:
+        """The cases earlier sweeps ran, kept but not in the next run: one folded line per altitude (its cases, their
+        outcomes, the jobs), its grid when opened, a click on a case opening it in Monitor; Add to sweep puts the
+        altitude back in the sweep, which makes its cases (same names) the sweep's again."""
+        rows = view.overview.earlier
+        hint(f"{_plural(len(rows), 'case')} from earlier sweeps: their runs, histories and results are kept. They are "
+             "not part of the next run; click one for it in Monitor.").mark("earlier-note")
+        can_add = sweeps_altitude(self.project)
+        for group in earlier_groups(rows):
+            key = f"earlier:{group.key}"
+            opened = self.sections_open.get(key, False)
+            jobs = list(dict.fromkeys(row.job_id for row in group.rows))
+            counts = " · ".join(f"{count} {pill_text(status).lower()}" for status, count in status_counts(group.rows))
+            with ui.column().classes("as-card as-earlier w-full gap-2").mark(f"earlier-{group.key}"):
+                with ui.row().classes("items-center w-full gap-2 no-wrap"):
+                    with ui.row().classes("items-center grow min-w-0 gap-2 no-wrap as-earlier-head").mark(
+                            f"earlier-head-{group.key}") as head:
+                        ui.icon("expand_more" if opened else "chevron_right").classes("as-muted")
+                        ui.label(group.label).classes("as-strong")
+                        ui.label(f"{_plural(len(group.rows), 'case')} · {counts} · "
+                                 f"job{'s' if len(jobs) > 1 else ''} {', '.join(jobs)}").classes("as-muted as-truncate")
+                    head.on("click", lambda _, k=key, o=opened: self._fold(k, not o))
+                    if can_add and group.altitude is not None:
+                        secondary_button("Add to sweep", icon="add",
+                                         on_click=lambda a=group.altitude: self._add_altitude(a)).mark(
+                            f"earlier-add-{group.key}")
+                if opened:
+                    self._earlier_cases(group)
+
+    def _earlier_cases(self, group) -> None:
+        """An opened earlier altitude: a grid per β (Mach down, α across), then any case its name places on none."""
+        compact = self._compact()
+        by_name = {row.name: row for row in group.rows}
+        sections = board_sections(group.cases)
+        for section in sections:
+            if len(sections) > 1:
+                ui.label(section.label).classes("as-muted")
+            with ui.element("div").classes("as-board" + (" as-board-compact" if compact else "")).style(
+                    f"grid-template-columns: 64px repeat({len(section.alphas)}, minmax(0, 1fr))"):
+                ui.label(section.corner).classes("as-board-col as-board-corner")
+                for alpha in section.alphas:
+                    ui.label(f"α {format_value(alpha)}°").classes("as-board-col")
+                for value in section.rows:
+                    ui.label(section.row_text(value)).classes("as-board-row")
+                    for alpha in section.alphas:
+                        name = section.cells.get((value, alpha))
+                        if name is None:
+                            ui.element("div")
+                        else:
+                            self._earlier_tile(by_name[name], compact)
+        drawn = {case.name for case in group.cases}
+        for row in group.rows:
+            if row.name not in drawn:
+                with ui.row().classes("items-center gap-2 w-full no-wrap").mark(f"earlier-row-{row.name}"):
+                    ui.label(row.name).classes("as-mono")
+                    pill(row.status)
+                    ui.space()
+                    flat_button("Monitor", icon="show_chart",
+                                on_click=lambda n=row.name: ui.navigate.to(self._monitor_url(n)))
+
+    def _earlier_tile(self, row, compact: bool) -> None:
+        iterations = (_iterations(self.directory / RUNS_DIR / row.name / HISTORY_FILE)
+                      if row.status in ("CONVERGED", "UNCONVERGED", "CANCELLED") else None)
+        with ui.column().classes(f"as-tile as-tile-{_tone(row.status)} gap-0").mark(f"tile-{row.name}") as tile:
+            if not compact:
+                ui.label(TILE_WORDS.get(row.status, row.status)).classes("as-tile-word")
+            ui.label(tile_text(row.status, iterations)).classes("as-tile-text")
+        titled(tile, f"{row.name} · {TILE_WORDS.get(row.status, row.status)} · job {row.job_id} · click for Monitor")
+        tile.on("click", lambda _, n=row.name: ui.navigate.to(self._monitor_url(n)))
+
+    def _add_altitude(self, altitude: float) -> None:
+        message = self.frame.save(lambda p: update_sweep(
+            p, altitudes_km=sorted({*p.sweep.altitudes_km, altitude})))
+        if message is not None:
+            ui.notify(message, type="negative")
+            return
+        ui.notify(f"{format_value(altitude)} km is in the sweep again: generate its configs, then run its cases",
+                  type="positive")
+        self.tab = None  # back to the board, where its cases now are
         self.render()
 
     # -- the list by state -------------------------------------------------------------------------------------
@@ -662,8 +765,8 @@ class RunPage:
             ui.label("Run").classes("as-run-head")
             ui.space()
             ui.toggle({"local": "This machine", "slurm": "Slurm"}, value=self.backend,
-                      on_change=lambda e: self._set_backend(e.value)).props("dense no-caps unelevated").mark(
-                "run-backend")
+                      on_change=lambda e: self._set_backend(e.value)).props(
+                "dense no-caps unelevated toggle-color=primary").classes("as-toggle").mark("run-backend")
         if single:
             ui.label(self.project.cases[0].name).classes("as-run-big as-mono").mark("run-what")
         else:
@@ -797,11 +900,9 @@ class RunPage:
         label = getattr(self, "clock_label", None)
         if self.clock is None or label is None or label.is_deleted:
             return
-        started, finished, total = self.clock
-        elapsed = max(0.0, (datetime.now() - started).total_seconds())
-        left = time_left(elapsed, finished, total)
-        label.text = f"Elapsed {duration_text(elapsed)}" + (
-            f" · about {duration_text(left)} left" if left else " · time left shown after the first case")
+        started, ends = self.clock
+        label.text = clock_text(max(0.0, (datetime.now() - started).total_seconds()),
+                                None if ends is None else max(0.0, ends - time.time()))
 
     def _buttons_state(self, view: JobView, selection: _Selection) -> None:
         if view.active is None:  # one job at a time: while one runs the panel has Cancel, no Submit

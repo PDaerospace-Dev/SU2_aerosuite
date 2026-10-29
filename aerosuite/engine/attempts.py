@@ -181,6 +181,17 @@ def archive_before_rerun(project_dir: Path, cases: list[str]) -> dict[str, str]:
     return kept
 
 
+def keep_aside(project_dir: Path, kept: dict[str, str], cases: list[str]) -> None:
+    """Add `cases`' current runs to `kept` (a job's {case: attempt folder}) as a case runs again in the same job.
+    An attempt it already put aside for a case is settled now, its volume files dropped, as the job will not
+    see it again."""
+    for case, folder in archive_before_rerun(project_dir, cases).items():
+        earlier = kept.get(case)
+        if earlier is not None and earlier != folder and Path(earlier).is_dir():
+            _drop_volume(Path(earlier))
+        kept[case] = folder
+
+
 def settle_attempts(project_dir: Path, archived: dict[str, str], started: set[str]) -> None:
     """When a job ends: drop the volume files of the runs it put aside, and put back the run of each case that never
     started in it (cancelled or failed before it), so that case's current run is the one it had."""

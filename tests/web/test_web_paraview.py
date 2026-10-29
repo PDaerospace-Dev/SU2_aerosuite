@@ -108,3 +108,28 @@ async def test_from_another_pc_a_case_copies_its_path_instead(user: User, ready_
 async def test_the_projects_page_has_no_paraview_button(user: User):
     await user.open("/")
     await user.should_not_see(marker="paraview")
+
+
+async def test_ascii_files_are_written_from_a_cases_restart(user: User, ready_project, opened, monkeypatch):
+    project_dir, _ = ready_project
+    started = []
+    monkeypatch.setattr(paraview_menu, "write_ascii",
+                        lambda directory, project, case, settings: started.append(case) or f"Writing {case}")
+    _flow(project_dir, A2, files=("restart_flow.dat",))  # binary output: a restart, no .vtk
+    await user.open(project_url("run", project_dir))
+    _element(user, "paraview-menu").open()
+    user.find(marker="paraview-ascii").click()
+    await user.should_see(marker="ascii-where")
+    assert _element(user, "ascii-case").value == A2  # the only case with a restart
+    assert "this machine" in _element(user, "ascii-where").text
+    user.find(marker="ascii-write").click()
+    await user.should_see(f"Writing {A2}")
+    assert started == [A2]
+
+
+async def test_without_a_restart_there_is_nothing_to_write(user: User, ready_project, opened):
+    project_dir, _ = ready_project
+    await user.open(project_url("run", project_dir))
+    _element(user, "paraview-menu").open()
+    user.find(marker="paraview-ascii").click()
+    await user.should_see("No case has a restart file yet")

@@ -357,8 +357,8 @@ def _run_section(frame: ProjectFrame, changed: Callable[[], None]) -> None:
             with ui.row().classes("items-center gap-3"):
                 ui.label("Run jobs on").classes("as-label")
                 ui.toggle({"local": "This machine (mpirun)", "slurm": "Slurm"}, value=backend,
-                          on_change=lambda e: set_backend(e.value)).props("dense no-caps unelevated").mark(
-                    "setup-backend")
+                          on_change=lambda e: set_backend(e.value)).props(
+                    "dense no-caps unelevated toggle-color=primary").classes("as-toggle").mark("setup-backend")
             if backend == "slurm":
                 with ui.column().classes("w-full gap-2").mark("slurm-settings"):
                     slurm_fields(frame, settings, redraw, mark="setup", columns=True)

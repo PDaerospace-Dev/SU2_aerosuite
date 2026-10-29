@@ -21,10 +21,23 @@ def fresh_slurm_watch():
     WATCH._viewers = 0
     WATCH._pages = 0
     WATCH.snapshot = WATCH.cluster = WATCH.recent = WATCH.last_ok = None
+    WATCH.discovered = True  # never look for jobs in this machine's real Slurm
     yield
     WATCH._tracked.clear()
     WATCH._viewers = 0
     WATCH._pages = 0
+
+
+@pytest.fixture(autouse=True)
+def flat_my_jobs():
+    """My jobs as a plain list (each test of grouping switches Group on), study jobs unfolded as at first."""
+    from aerosuite.web.pages import cluster
+
+    cluster._GROUP["on"] = False
+    cluster._GROUP_OPEN.clear()
+    yield
+    cluster._GROUP["on"] = cluster.GROUPED_AT_FIRST
+    cluster._GROUP_OPEN.clear()
 
 
 @pytest.fixture

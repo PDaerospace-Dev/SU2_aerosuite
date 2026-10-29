@@ -26,7 +26,35 @@ def two_studies(ready_project, tmp_path, fake_slurm):
     settings = set_value(AppSettings(), "slurm.shared_root", str(tmp_path))
     runner = SlurmRunner(settings_loader=lambda: settings)
     watch = SlurmWatch(runner_provider=lambda: runner, settings_loader=lambda: settings)
+    watch.discovered = True  # the tests below track jobs themselves
     return [(project_dir, project), (other, open_project(other))], runner, watch, fake_slurm
+
+
+async def test_a_server_just_started_watches_the_running_jobs_it_finds_in_slurm(two_studies):
+    studies, runner, watch, fake = two_studies
+    jobs = [runner.submit(directory, project, cases=[A0, A2]) for directory, project in studies]
+    fake.run("101")
+    fake.finish("103", "FAILED", "1:0")  # the second study's job ended while the server was down
+    fake.finish("104", "CANCELLED")
+    watch.discovered = False
+    await watch.poll_once()
+    assert watch.discovered
+    assert watch._tracked[studies[0][0].resolve()] == {jobs[0].id}
+    assert load_job(studies[0][0], jobs[0].id).case_status[A0] is CaseState.RUNNING  # brought up to date at once
+    ended = load_job(studies[1][0], jobs[1].id)  # found in the recent history, and ended
+    assert not ended.is_active and ended.case_status[A0] is CaseState.FAILED
+    assert not (studies[1][0] / ".lock").exists()
+
+
+async def test_without_an_answer_from_slurm_it_looks_again_next_poll(two_studies):
+    _studies, _runner, watch, fake = two_studies
+    fake.update(controller_down=True)
+    watch.discovered = False
+    await watch.poll_once()
+    assert not watch.discovered
+    fake.update(controller_down=False)
+    await watch.poll_once()
+    assert watch.discovered
 
 
 async def test_idle_without_jobs_or_viewers(two_studies):

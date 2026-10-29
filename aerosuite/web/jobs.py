@@ -22,6 +22,7 @@ from ..engine.jobs.overview import CaseOverview, case_overview
 from ..engine.jobs.runner import FINAL_CASE_STATES, CaseState, JobRecord
 from ..engine.models import Project
 from ..engine.results import HISTORY_FILE, HistoryBuffer
+from .cluster_view import where_text
 from .slurm_watch import WATCH, SlurmWatch
 
 REFRESH_SECONDS = 2.0
@@ -61,6 +62,47 @@ def job_progress(view: JobView) -> Optional[JobProgress]:
     finished = sum(1 for name in job.cases if job.case_status.get(name) in FINAL_CASE_STATES)
     current = next((name for name in job.cases if job.case_status.get(name) is CaseState.RUNNING), None)
     return JobProgress(finished, len(job.cases), current)
+
+
+THIS_PC = "this PC"
+
+
+@dataclass(frozen=True)
+class JobNodes:
+    """Where a job runs, for pills: the nodes its running cases are on (live), or where it ran once it has ended; a
+    local job runs on this PC. `queued` is where its other cases wait in the Slurm queue ("hpc1 · 6 queued")."""
+    names: tuple[str, ...]
+    live: bool  # a case runs there now
+    queued: tuple[str, ...] = ()
+
+    @property
+    def tip(self) -> str:
+        where = ", ".join(self.names)
+        return f"Running on {where}" if self.live else f"The last job ran on {where}"
+
+
+def job_nodes(job: Optional[JobRecord], nodes: Optional[Mapping[str, Sequence[str]]] = None) -> Optional[JobNodes]:
+    """The nodes of `job` (see JobNodes), given each partition's nodes when known; None without a job, or when none
+    of its cases ever ran or waits."""
+    if job is None:
+        return None
+    if job.backend != "slurm":
+        return JobNodes((THIS_PC,), job.is_active)
+    running = {sc.node for name, sc in job.slurm.items() if job.case_status.get(name) is CaseState.RUNNING and sc.node}
+    waiting: dict[str, int] = {}
+    if job.is_active:
+        for name, sc in job.slurm.items():
+            if job.case_status.get(name) is CaseState.PENDING and sc.partition:
+                waiting[sc.partition] = waiting.get(sc.partition, 0) + 1
+    members = nodes or {}
+    queued = tuple(f"{where_text(partition, members)} · {count} queued" for partition, count in sorted(waiting.items())
+                   if not set(members.get(partition, ())) & running)  # behind its own cases there: not a place apart
+    if running:
+        return JobNodes(tuple(sorted(running)), True, queued)
+    if queued:
+        return JobNodes((), False, queued)
+    ran = {sc.node for sc in job.slurm.values() if sc.started and sc.node}
+    return JobNodes(tuple(sorted(ran)), False) if ran else None
 
 
 class JobWatcher:
