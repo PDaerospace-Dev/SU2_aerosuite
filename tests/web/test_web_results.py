@@ -1,4 +1,6 @@
 """The Results page: parameters and the picker, tiles, the table, folding, overlays (spec 2026-09-29-results)."""
+import html
+import re
 import shutil
 
 import pytest
@@ -44,7 +46,27 @@ def _element(user, marker):
     return next(iter(user.find(marker=marker).elements))
 
 
+def _table(user) -> str:
+    """The results table: one HTML element, its cells named by data-marker."""
+    return _element(user, "results-table").content
+
+
+def _cell(user, marker):
+    """(text, hover text) of a results table cell, or None when it is not there."""
+    found = re.search(rf'data-marker="{re.escape(html.escape(marker))}"(?: title="([^"]*)")?>(.*?)</div>', _table(user),
+                      re.S)
+    if found is None:
+        return None
+    return html.unescape(re.sub(r"<[^>]+>", "", found.group(2))), html.unescape(found.group(1) or "")
+
+
+def _shown(user, marker) -> bool:
+    return _cell(user, marker) is not None
+
+
 def _text(user, marker):
+    if marker.startswith(("cell-", "status-", "cost-")):
+        return _cell(user, marker)[0]
     return _element(user, marker).text
 
 
@@ -153,6 +175,7 @@ async def test_another_design_is_drawn_with_this_studys_definitions(user: User, 
     await user.should_see(marker="design-1")
     assert _text(user, "cell-1-M0p8_a2_b0-CL") == "0.44"
     assert _text(user, "cell-1-M0p8_a2_b0-CL(Wing)") == "—"
+    assert "CL(Wing)" in _cell(user, "cell-1-M0p8_a2_b0-CL(Wing)")[1]  # why it is missing, on hover
     await user.should_see("wing-v2 has no CL(Wing)")
     user.find(marker="design-remove-1").click()
     assert open_project(results_project).results.compare == []
@@ -377,12 +400,12 @@ async def test_an_imported_study_shows_its_cases_with_config_and_temperature(use
     await _panel(user, "filters")
     await user.should_see(marker="filter-Config-vt")
     assert _text(user, "cell-0-M1p2_10km_vt_a0_b4-CL") == "0"
-    header = [label.text for label in user.find(marker="results-table").elements.pop().default_slot.children
-              if getattr(label, "text", None) in ("Config", "β (deg)")]
+    header = [html.unescape(text) for text in re.findall(r'class="as-th[^"]*"[^>]*>(.*?)</div>', _table(user))
+              if text in ("Config", "β (deg)")]
     assert header == ["Config", "β (deg)"]
     user.find(marker="filter-Config-vt").click()  # all shown: the click picks vt alone
     assert open_project(imported_study).results.filters == {"Config": ["vt"]}
-    await user.should_not_see(marker="row-0-M1p2_10km_ht_a0_b0")
+    assert not _shown(user, "row-0-M1p2_10km_ht_a0_b0")
 
 
 async def test_rescan_picks_up_new_case_folders(user: User, imported_study, tmp_path):
@@ -391,7 +414,7 @@ async def test_rescan_picks_up_new_case_folders(user: User, imported_study, tmp_
     user.find(marker="results-rescan").click()
     await user.should_see("2 cases added")
     assert len(open_project(imported_study).cases) == 8
-    await user.should_see(marker="row-0-M1p2_10km_vt_a0_b6")
+    assert _shown(user, "row-0-M1p2_10km_vt_a0_b6")
 
 
 async def test_own_studies_have_no_rescan(user: User, results_project):
@@ -450,14 +473,14 @@ async def test_filters_pick_values_and_show_all_again(user: User, imported_study
     await _panel(user, "filters")
     user.find(marker="filter-Beta-2").click()  # all shown: only β 2
     assert open_project(imported_study).results.filters == {"Beta": [2.0]}
-    await user.should_not_see(marker="row-0-M1p2_10km_vt_a0_b0")
+    assert not _shown(user, "row-0-M1p2_10km_vt_a0_b0")
     user.find(marker="filter-Config-ht").click()
     assert open_project(imported_study).results.filters == {"Beta": [2.0], "Config": ["ht"]}
     user.find(marker="filter-all-Beta").click()
     assert open_project(imported_study).results.filters == {"Config": ["ht"]}
     user.find(marker="filters-clear").click()
     assert open_project(imported_study).results.filters == {}
-    await user.should_see(marker="row-0-M1p2_10km_vt_a0_b0")
+    assert _shown(user, "row-0-M1p2_10km_vt_a0_b0")
 
 
 async def test_filters_that_match_no_case_say_so(user: User, tmp_path):
@@ -475,7 +498,7 @@ async def test_filters_that_match_no_case_say_so(user: User, tmp_path):
     await user.should_not_see(marker="results-empty")
     user.find(marker="filters-clear-empty").click()
     assert open_project(tmp_path / "study").results.filters == {}
-    await user.should_see(marker="row-0-M0p3_10km_a0")
+    assert _shown(user, "row-0-M0p3_10km_a0")
 
 
 async def test_removing_a_parameter_takes_it_off_the_plots(user: User, results_project):
@@ -521,7 +544,7 @@ async def test_cost_columns_only_for_slurm_runs(user: User, results_project):
 
     await _open(user, results_project)
     await user.should_see(marker="results-table")
-    await user.should_not_see(marker="cost-0-M0p8_a0_b0-Elapsed")
+    assert not _shown(user, "cost-0-M0p8_a0_b0-Elapsed")
     stats = {"job_id": "101", "node": "hpc1", "ntasks": 96, "elapsed_s": 5400.0, "s_per_iter": 2.26,
              "peak_memory_gb": 57.9, "cpu_use_per_rank": 0.97}
     (results_project / "runs" / "M0p8_a0_b0" / "slurm_stats.json").write_text(json.dumps(stats))

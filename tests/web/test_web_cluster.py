@@ -325,6 +325,35 @@ async def test_the_page_is_not_redrawn_when_nothing_visible_changed(user: User, 
     assert len(renders) == count
 
 
+async def test_numbers_that_move_are_written_into_the_page_not_drawn_again(user: User, cluster_study, monkeypatch,
+                                                                           eventually):
+    import asyncio
+
+    from aerosuite.web.pages import cluster as cluster_page
+
+    project_dir, project, fake = cluster_study
+    runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1", time="0:30")
+    nodes = "hpc1|node1*|mix|96/96/0/192|125000|{free}|{load}|none"
+    fake.update(nodes=[nodes.format(free=20000, load=96.0)])
+    renders = []
+    real = cluster_page.ClusterPage.render
+    monkeypatch.setattr(cluster_page.ClusterPage, "render", lambda self, *a: renders.append(1) or real(self, *a))
+    await _open(user)
+    await eventually(lambda: _text(user, "job-101-state") == "Running", 5)  # settled: the job's record is current
+    count = len(renders)
+    card, load, elapsed = (_element(user, m) for m in ("node-card-hpc1", "node-hpc1-load-value", "job-101-elapsed"))
+    assert (load.text, elapsed.text) == ("96", "0:30")
+    fake.update(nodes=[nodes.format(free=60000, load=48.0)])
+    fake.run("101", node="hpc1", time="0:45")
+    await WATCH.poll_once()
+    await asyncio.sleep(2.2)
+    assert (load.text, elapsed.text) == ("48", "0:45")  # the same elements, with the new numbers
+    assert _text(user, "node-hpc1-memory-value") == "52%"
+    assert _element(user, "node-card-hpc1") is card
+    assert len(renders) == count
+
+
 async def test_an_outage_keeps_the_last_known_nodes(user: User, cluster_study, eventually):
     project_dir, project, fake = cluster_study
     await _open(user)

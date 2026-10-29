@@ -52,3 +52,19 @@ def test_the_job_indicator_text_has_a_width_cap():
     css = theme.component_css()
     rule = css[css.index(".as-job-text {"):]
     assert "max-width: 14rem" in rule[:rule.index("}")]
+
+
+def test_the_component_css_is_one_cached_file(monkeypatch):
+    from nicegui import app
+
+    from aerosuite.web import theme
+
+    monkeypatch.setattr(theme, "_THEME_URL", None)
+    url = theme.serve_theme()
+    routes = [route for route in app.routes if getattr(route, "path", None) == url]
+    assert len(routes) == 1
+    response = routes[0].endpoint()
+    assert response.body.decode() == theme.component_css()
+    assert "immutable" in response.headers["cache-control"]
+    assert theme.serve_theme() == url  # asked again: the same file, no second route
+    assert len([route for route in app.routes if getattr(route, "path", None) == url]) == 1

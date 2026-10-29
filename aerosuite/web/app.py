@@ -8,6 +8,10 @@ def register_pages(root: Path) -> None:
     config.set_root(root)
     from nicegui import app
 
+    from .theme import serve_theme
+
+    serve_theme()
+
     from .slurm_watch import WATCH
 
     app.on_startup(WATCH.start)  # the Slurm poller: idle until a Slurm job or the cluster panel needs it

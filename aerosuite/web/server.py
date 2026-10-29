@@ -1,4 +1,6 @@
 """Start the NiceGUI server for `aerosuite serve`."""
+import asyncio
+import gc
 from pathlib import Path
 
 from nicegui import app, ui
@@ -6,6 +8,7 @@ from starlette.datastructures import Headers
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.types import Receive, Scope, Send
 
+from ..engine.machine import prime
 from . import serving
 from .app import register_pages
 
@@ -44,8 +47,25 @@ class LocalHostMiddleware(TrustedHostMiddleware):
         await super().__call__(scope, receive, send)
 
 
+def freeze_gc() -> None:
+    """Take everything loaded so far (NiceGUI, pandas, the pages' code) out of the garbage collector's sight.
+
+    The collector walks every tracked object on each full pass; the imports alone are over 100,000. A page that is
+    rebuilt makes cyclic garbage, so full passes are frequent, and each froze the whole server for 200-450 ms.
+    """
+    gc.collect()
+    gc.freeze()
+
+
+async def prime_machine() -> None:
+    """The Run page's first look at who uses the cores waits a moment; take it before anyone asks."""
+    await asyncio.to_thread(prime)
+
+
 def run_server(root: Path, host: str, port: int) -> None:
     serving.PORT["value"] = port
     register_pages(root)
+    app.on_startup(prime_machine)
+    app.on_startup(freeze_gc)  # last: after everything the other hooks loaded
     app.add_middleware(LocalHostMiddleware, allowed_hosts=allowed_hosts(host))
     ui.run(host=host, port=port, reload=False, show=False, title="AeroSuite")

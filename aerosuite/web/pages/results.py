@@ -7,12 +7,13 @@ import math
 import re
 from contextlib import contextmanager
 from dataclasses import replace
+from html import escape
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 from urllib.parse import quote
 
 import pandas as pd
-from nicegui import ui
+from nicegui import run, ui
 
 from ...engine.errors import AeroSuiteError
 from ...engine.formula import FormulaError, Missing, parse
@@ -33,8 +34,8 @@ from ..results_view import (COST_HEADINGS, SWEEP_LABELS, SWEEP_UNITS, add_parame
                             remove_parameter, shown_plot, shown_values, status_counts, sweep_values, table_text, toggle_filter,
                             variable_text, varying)
 from ..theme import SERIES_COLORS
-from ..ui_kit import (banner, chip_button, field, hint, pill, primary_button, secondary_button, table, td, td_box,
-                      th, titled)
+from ..ui_kit import (banner, chip_button, field, hint, html_table, html_td, html_th, pill, pill_text, pill_tone,
+                      primary_button, secondary_button, table, td, td_box, th, titled)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
 FILTERED = ("Config", "Mach", "Altitude", "Temperature", "Alpha", "Beta")  # the Filters panel's variables
@@ -50,14 +51,27 @@ COST_TIPS = {  # the Cost columns (cases run on Slurm): from sacct and seff
 
 def register() -> None:
     @ui.page("/results")
-    def results_page(project: str = "") -> None:
+    async def results_page(project: str = "") -> None:
         session = open_session(project)
         if session is None:
             return
+        await run.io_bound(prewarm, session.directory, session.project)  # the histories are read off the page's loop
         pages: list = []
         frame = ProjectFrame(session, "results", on_reload=lambda: pages[0].render() if pages else None)
         with frame.content:
             pages.append(ResultsPage(frame))
+
+
+def prewarm(directory: Path, project) -> None:
+    """Read the histories now (in a worker thread), so the page's own, plain `load` finds them in study_results'
+    cache: reading every history of a big sweep takes up to a second, and the whole server waits for it otherwise."""
+    settings = project.results
+    definitions = effective(settings, history_columns(directory, project))
+    for folder in [directory, *(Path(p) for p in settings.compare)]:
+        try:
+            study_results(folder, definitions, settings.average_last)
+        except AeroSuiteError:
+            pass  # the page reports it
 
 
 def number_text(value) -> str:
@@ -143,11 +157,13 @@ class ResultsPage:
             return getattr(self, "_job", None)
         return (latest.id, latest.state) if latest else None
 
-    def _poll(self) -> None:
+    async def _poll(self) -> None:
         key = self._job_key()
         if key != self._job:  # a job started or ended: its cases' results changed
             self._job = key
-            self.render()
+            await run.io_bound(prewarm, self.directory, self.frame.session.project)
+            if not self.body.is_deleted:  # the tab may have gone meanwhile
+                self.render()
 
     # -- actions --------------------------------------------------------------
 
@@ -748,43 +764,42 @@ class ResultsPage:
             columns += ["minmax(7rem, .6fr)"]
             if costs:
                 columns += ["minmax(5.5rem, .5fr)"] * len(COST_HEADINGS)
+            heads = [html_th("Case", classes="as-sticky")]
+            if several:
+                heads.append(html_th("Design"))
+            for name in sweep:
+                heads.append(html_th(SWEEP_LABELS[name] + (f" ({SWEEP_UNITS[name]})" if name in SWEEP_UNITS else "")))
+            for name in params:
+                heads.append(html_th(("ƒ " if name in self.definitions.derived_names else "") + name))
+            heads.append(html_th("Status"))
+            if costs:
+                heads += [html_th(heading, classes="as-cost-head", title=COST_TIPS.get(heading, ""))
+                          for heading in COST_HEADINGS]
+            cells = heads
+            for i, (design, part) in enumerate(zip(self.designs, rows)):
+                for _, row in part.iterrows():
+                    cells += self._row(i, design, row, sweep, params, several, costs)
             with ui.element("div").classes("as-table-scroll w-full"):
-                with table(" ".join(columns)).mark("results-table"):
-                    th("Case").classes("as-sticky")
-                    if several:
-                        th("Design")
-                    for name in sweep:
-                        th(SWEEP_LABELS[name] + (f" ({SWEEP_UNITS[name]})" if name in SWEEP_UNITS else ""))
-                    for name in params:
-                        th(("ƒ " if name in self.definitions.derived_names else "") + name)
-                    th("Status")
-                    if costs:
-                        for heading in COST_HEADINGS:
-                            titled(th(heading).classes("as-cost-head"), COST_TIPS.get(heading, ""))
-                    for i, (design, part) in enumerate(zip(self.designs, rows)):
-                        for _, row in part.iterrows():
-                            self._row(i, design, row, sweep, params, several, costs)
+                html_table(" ".join(columns), cells).mark("results-table")
 
-    def _row(self, i: int, design, row, sweep: list, params: list, several: bool, costs: bool = False) -> None:
+    def _row(self, i: int, design, row, sweep: list, params: list, several: bool, costs: bool = False) -> list[str]:
+        """One case's cells of the results table (see html_table)."""
         case = row["Case"]
-        with td_box() as box:
-            box.classes("as-sticky").mark(f"row-{i}-{case}")
-            ui.element("span").classes("as-swatch").style(f"background: {SERIES_COLORS[i % 8]}")
-            ui.label(case).classes("as-mono")
+        cells = [html_td(classes="as-sticky", marker=f"row-{i}-{case}",
+                         inner=f'<span class="as-swatch" style="background: {SERIES_COLORS[i % 8]}"></span>'
+                               f'<div class="as-mono">{escape(case)}</div>')]
         if several:
-            td(design.name)
+            cells.append(html_td(design.name))
         for name in sweep:
-            td(variable_text(row[name]) if name in row else "—")
+            cells.append(html_td(variable_text(row[name]) if name in row else "—"))
         for name in params:
-            value = row.get(name)
-            cell = td(number_text(value)).mark(f"cell-{i}-{case}-{name}")
-            reason = design.reason(case, name)
-            if reason:
-                titled(cell, reason)
-        with td_box():
-            converged = row.get("Converged")
-            pill("NOT JUDGED" if _blank(converged) else "CONVERGED" if converged else "UNCONVERGED").mark(
-                f"status-{i}-{case}")
+            cells.append(html_td(number_text(row.get(name)), marker=f"cell-{i}-{case}-{name}",
+                                 title=design.reason(case, name) or ""))
+        converged = row.get("Converged")
+        status = "NOT JUDGED" if _blank(converged) else "CONVERGED" if converged else "UNCONVERGED"
+        pill_html = f'<span class="as-pill as-pill-{pill_tone(status)}">{escape(pill_text(status))}</span>'
+        cells.append(html_td(marker=f"status-{i}-{case}", inner=pill_html))
         if costs:
             for heading, text in zip(COST_HEADINGS, cost_cells(design.costs.get(case))):
-                td(text, mono=True).mark(f"cost-{i}-{case}-{heading}")
+                cells.append(html_td(text, classes="as-mono as-muted", marker=f"cost-{i}-{case}-{heading}"))
+        return cells
