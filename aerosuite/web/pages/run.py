@@ -3,6 +3,7 @@ altitude: Mach down, α across, one tile per case) or a List by state (running, 
 and a panel on the right that stays in view: a case's details when one is clicked, then what will run and Submit (or,
 while a Slurm job runs, adding cases to it), checks, the machine or the cluster. A single case is a card. The cases
 earlier sweeps ran (kept, not in the next run) have a tab of their own, Earlier sweeps."""
+import time
 from datetime import datetime
 from typing import NamedTuple, Optional
 from urllib.parse import quote
@@ -30,7 +31,7 @@ from ...engine.results import HISTORY_FILE, history_columns
 from ...engine.settings import AppSettings, load_settings
 from ...engine.slurm_checks import memory_notes
 from ...engine.study_results import study_results
-from ..cluster_view import can_resubmit, case_slurm_text, summary_parts
+from ..cluster_view import can_resubmit, case_slurm_text, node_groups, partition_nodes, summary_parts
 from ..fields import text_field
 from ..rerun_dialog import ask_rerun, keep_changes, kept
 from ..resubmit_dialog import resubmit_case
@@ -39,7 +40,8 @@ from ..slurm_fields import slurm_fields
 from ..jobs import WATCHER, JobView, job_nodes, job_progress
 from ..layout import ProjectFrame, open_session, project_url
 from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, clock_text,
-                        duration_text, earlier_groups, has_board, layout, state_sections, status_counts, tile_text)
+                        duration_text, earlier_groups, has_board, job_left, layout, state_sections, status_counts,
+                        tile_text)
 from ..session import parse_int
 from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, help_tip, hint, node_pills,
                       ok_line, pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table,
@@ -308,7 +310,8 @@ class RunPage:
                 with ui.row().classes("items-center gap-2 no-wrap"):
                     ui.label(f"Running · job {job.id}{where}").classes("as-muted as-small whitespace-nowrap").mark(
                         "run-job")
-                    node_pills(job_nodes(job), "job-node")
+                    node_pills(job_nodes(job, partition_nodes(node_groups(WATCHER.slurm_watch.cluster))),
+                               "job-node")
                 with ui.row().classes("items-baseline gap-2 no-wrap"):
                     ui.label(f"{progress.finished} of {progress.total}").classes("as-run-big").mark("run-what")
                     ui.label("cases done").classes("as-muted")
@@ -321,7 +324,8 @@ class RunPage:
                         ui.label("Now").classes("as-muted")
                         ui.label(progress.current).classes("as-mono as-strong as-truncate").mark("run-current")
                         ui.label("·").classes("as-muted")
-                    self.clock = (job.created, progress.finished, progress.total)
+                    left = job_left(job, max(0.0, (datetime.now() - job.created).total_seconds()))
+                    self.clock = (job.created, None if left is None else time.time() + left)
                     self.clock_label = ui.label("").classes("as-muted as-truncate").mark("run-elapsed")
                     self._tick_clock()
             secondary_button("Monitor", icon="show_chart",
@@ -447,7 +451,7 @@ class RunPage:
                     continue
                 with ui.element("div").classes("as-board" + (" as-board-compact" if compact else "")).style(
                         f"grid-template-columns: 64px repeat({len(section.alphas)}, minmax(0, 1fr))"):
-                    corner = ui.label("Mach \\ α").classes("as-board-col as-board-corner").mark(
+                    corner = ui.label(section.corner).classes("as-board-col as-board-corner").mark(
                         f"board-all-{section.key}")
                     corner.on("click", lambda _, n=list(section.cells.values()): self._toggle_names(n))
                     for alpha in section.alphas:
@@ -455,13 +459,13 @@ class RunPage:
                         col = ui.label(f"α {format_value(alpha)}°").classes("as-board-col").mark(
                             f"board-col-{section.key}-{format_value(alpha)}")
                         col.on("click", lambda _, n=names: self._toggle_names(n))
-                    for mach in section.machs:
-                        names = [name for (m, a), name in section.cells.items() if m == mach]
-                        head_cell = ui.label(f"M {format_value(mach)}").classes("as-board-row").mark(
-                            f"board-row-{section.key}-{format_value(mach)}")
+                    for value in section.rows:
+                        names = [name for (r, a), name in section.cells.items() if r == value]
+                        head_cell = ui.label(section.row_text(value)).classes("as-board-row").mark(
+                            f"board-row-{section.key}-{format_value(value)}")
                         head_cell.on("click", lambda _, n=names: self._toggle_names(n))
                         for alpha in section.alphas:
-                            name = section.cells.get((mach, alpha))
+                            name = section.cells.get((value, alpha))
                             if name is None or name not in rows:
                                 ui.element("div")
                                 continue
@@ -548,13 +552,13 @@ class RunPage:
                 ui.label(section.label).classes("as-muted")
             with ui.element("div").classes("as-board" + (" as-board-compact" if compact else "")).style(
                     f"grid-template-columns: 64px repeat({len(section.alphas)}, minmax(0, 1fr))"):
-                ui.label("Mach \\ α").classes("as-board-col as-board-corner")
+                ui.label(section.corner).classes("as-board-col as-board-corner")
                 for alpha in section.alphas:
                     ui.label(f"α {format_value(alpha)}°").classes("as-board-col")
-                for mach in section.machs:
-                    ui.label(f"M {format_value(mach)}").classes("as-board-row")
+                for value in section.rows:
+                    ui.label(section.row_text(value)).classes("as-board-row")
                     for alpha in section.alphas:
-                        name = section.cells.get((mach, alpha))
+                        name = section.cells.get((value, alpha))
                         if name is None:
                             ui.element("div")
                         else:
@@ -896,8 +900,9 @@ class RunPage:
         label = getattr(self, "clock_label", None)
         if self.clock is None or label is None or label.is_deleted:
             return
-        started, finished, total = self.clock
-        label.text = clock_text(max(0.0, (datetime.now() - started).total_seconds()), finished, total)
+        started, ends = self.clock
+        label.text = clock_text(max(0.0, (datetime.now() - started).total_seconds()),
+                                None if ends is None else max(0.0, ends - time.time()))
 
     def _buttons_state(self, view: JobView, selection: _Selection) -> None:
         if view.active is None:  # one job at a time: while one runs the panel has Cancel, no Submit

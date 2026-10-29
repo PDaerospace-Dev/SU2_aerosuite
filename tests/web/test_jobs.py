@@ -179,8 +179,16 @@ def test_job_nodes_where_a_job_runs_waits_or_ran():
                  "b": SlurmCase(job_id="2", partition="node1", ntasks=96),
                  "c": SlurmCase(job_id="3", partition="node2", ntasks=48)}
     waiting = job_nodes(job)
-    assert waiting.names == ("node1 · queued", "node2 · queued") and not waiting.live
-    assert waiting.tip == "Every case is waiting in the Slurm queue"
+    assert waiting.names == () and waiting.queued == ("node1 · 1 queued", "node2 · 1 queued") and not waiting.live
+    nodes = {"node1": ("hpc1",), "node2": ("hpc2",)}
+    assert job_nodes(job, nodes).queued == ("hpc1 · 1 queued", "hpc2 · 1 queued")  # a partition's only node
+    job.case_status["b"] = CaseState.RUNNING
+    job.slurm["b"].node = "hpc1"
+    split = job_nodes(job, nodes)  # running on hpc1, its last case waits for hpc2
+    assert split.names == ("hpc1",) and split.live and split.queued == ("hpc2 · 1 queued",)
+    job.case_status["d"], job.slurm["d"] = CaseState.PENDING, SlurmCase(job_id="4", partition="node1", ntasks=96)
+    assert job_nodes(job, nodes).queued == ("hpc2 · 1 queued",)  # behind its own case on hpc1: not shown apart
+    del job.case_status["d"], job.slurm["d"]
     job.case_status.update(b=CaseState.RUNNING, c=CaseState.RUNNING)
     job.slurm["b"].node, job.slurm["c"].node = "hpc1", "hpc2"
     running = job_nodes(job)

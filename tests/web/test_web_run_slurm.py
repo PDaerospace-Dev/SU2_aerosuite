@@ -107,7 +107,8 @@ async def test_the_job_bar_shows_the_node_the_job_runs_on(user: User, slurm_proj
     WATCH.track(project_dir, job.id)
     await _open(user, project_dir)
     await eventually(lambda: bool(user.find(marker="job-node-node1").elements), 5)
-    await user.should_see("node1 · queued")  # every case waits
+    await user.should_see("node1 · 2 queued")  # every case waits
+    assert "as-node-pill-queued" in _element(user, "job-node-node1").classes
     fake.run("101", node="hpc1")
     await WATCH.poll_once()
     await eventually(lambda: bool(user.find(marker="job-node-hpc1").elements), 5)

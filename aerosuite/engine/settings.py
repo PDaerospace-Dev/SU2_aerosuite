@@ -126,6 +126,7 @@ class SlurmSettings(BaseModel):
     poll_seconds: float = Field(default=12.0, ge=5, le=120)
     default_time_limit: str = ""  # "" = no -t
     account: str = "pdas"  # "" = no -A
+    node_order: list[str] = Field(default_factory=list)  # the Cluster page's node cards, as dragged there
 
     @field_validator("shared_root")
     @classmethod

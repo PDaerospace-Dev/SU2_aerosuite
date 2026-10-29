@@ -4,8 +4,10 @@ from aerosuite.engine.cluster import MyJob
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
 from aerosuite.engine.slurm import ClusterInfo, QueueRow, Snapshot, parse_sinfo_nodes
 from aerosuite.web.cluster_view import (
-    can_resubmit, case_slurm_text, cluster_status, filter_jobs, job_state_text, job_studies,
-    node_groups, node_jobs, running_count, suggested_partition, summary_line, summary_parts,
+    can_resubmit, case_slurm_text, cluster_status, expected_ends, filter_jobs, glance, job_groups, job_state_text,
+    job_studies, moved, when_text,
+    node_groups, node_jobs, ordered_nodes, partition_nodes, queue_starts, queue_text, running_count, state_words,
+    suggested_partition, summary_line, summary_parts,
 )
 
 NODES = ("hpc1|node1*|alloc|192/0/0/192|125000|20000|96.1|none\n"
@@ -166,3 +168,103 @@ def test_node_jobs_are_whole_study_jobs_as_on_run():
     assert line.started == job.created and line.done == 0.5
     assert line.tip == "Job j · running here: c, d"
     assert found["hpc2"][0].total == 1
+
+
+def _row(slurm_id, study, case, state, partition, node="", job_id="j", **times):
+    active = state in ("RUNNING", "PENDING")
+    return MyJob(slurm_id, Path(study), Path(study).name, case, state, state, job_id, partition, node, "0:00", "", "",
+                 active, slurm_id, False, **times)
+
+
+def test_node_jobs_lists_jobs_queued_for_a_node_in_queue_order():
+    from datetime import datetime, timedelta
+
+    now = datetime(2026, 10, 28, 12, 0)
+    run = _job(a=dict(elapsed="2:00:00"), b=dict(elapsed="2:00:00"), c=dict(elapsed="1:00:00"), d={})  # 2 h a case
+    run.created = now - timedelta(hours=4)
+    run.case_status.update(a=CaseState.CONVERGED, b=CaseState.CONVERGED, c=CaseState.RUNNING)
+    split = _job(x=dict(elapsed="1:00:00"), y={}, z={})  # on hpc2, 1 h a case; one added for node1 waits there
+    split.created = now - timedelta(hours=1)
+    split.case_status.update(x=CaseState.CONVERGED, y=CaseState.RUNNING)
+    later = _job(p={}, q={})
+    records = {("/d/run", "1"): (run, "c"), ("/d/run", "2"): (run, "d"), ("/d/split", "5"): (split, "y"),
+               ("/d/split", "6"): (split, "z"), ("/d/later", "9"): (later, "p"), ("/d/later", "10"): (later, "q")}
+    rows = [_row("1", "/d/run", "c", "RUNNING", "node1", "hpc1"), _row("2", "/d/run", "d", "PENDING", "node1"),
+            _row("5", "/d/split", "y", "RUNNING", "node2", "hpc2"), _row("6", "/d/split", "z", "PENDING", "node1"),
+            _row("9", "/d/later", "p", "PENDING", "node1"), _row("10", "/d/later", "q", "PENDING", "node1")]
+    nodes = {"node1": ("hpc1",), "node2": ("hpc2",)}
+    board = node_jobs(rows, lambda study, slurm_id: records.get((str(study), slurm_id)), nodes, now.timestamp())
+    assert [(j.study_name, j.waiting, j.cases) for j in board["hpc1"]] == [
+        ("run", False, ("c",)), ("split", True, ("z",)), ("later", True, ("p", "q"))]  # run's d is its own chain
+    assert board["hpc1"][1].elsewhere == "running on hpc2 · 1 / 3"
+    assert board["hpc2"][0].elsewhere == "1 more queued on hpc1"
+    starts = queue_starts(board["hpc1"], now)
+    assert starts[0] == (3 * 3600, "run")  # split: when run's job ends (c's last hour, then d's 2 h)
+    assert starts[1] == (4 * 3600, "split")  # later: + split's 1 case here at its 1 h a case
+    assert queue_text(*starts[0]) == "Starts in about 3 h · after run"
+    assert queue_text(None, "run") == "Starts after run" and queue_text(None, "") == "Waiting in the Slurm queue"
+    assert node_jobs(rows, lambda study, slurm_id: records.get((str(study), slurm_id)))["hpc1"][0].study_name == "run"
+
+
+def test_node_order_and_moving_a_card():
+    groups = node_groups(_cluster())
+    assert [n.node for _p, _d, n in ordered_nodes(groups)] == ["hpc1", "hpc2", "hpc3"]
+    assert [n.node for _p, _d, n in ordered_nodes(groups, ["hpc3", "gone"])] == ["hpc3", "hpc1", "hpc2"]
+    assert moved(["a", "b", "c"], "c", "a") == ["c", "a", "b"]  # up: before the card dropped on
+    assert moved(["a", "b", "c"], "a", "b") == ["b", "a", "c"]  # down: after it
+    assert moved(["a", "b"], "a", "x") == ["a", "b"]
+    assert partition_nodes(groups) == {"node1": ("hpc1",), "node2": ("hpc2", "hpc3")}
+    assert [state_words(s) for s in ("alloc", "mix", "idle", "drain*", "down*", "drng", "plnd")] == [
+        "Full", "Partly used", "Free", "Drained", "Down", "Draining", "Plnd"]
+    hpc1 = groups[0][2][0]
+    assert hpc1.memory_used == (122 - 20) / 122 and round(hpc1.load_share, 2) == 0.5
+
+
+def test_glance_tiles():
+    nodes = ordered_nodes(node_groups(_cluster()))
+    job = _job(a={}, b={}, c={})
+    job.case_status.update(a=CaseState.CONVERGED, b=CaseState.RUNNING)
+    rows = [_row("100", "/d/s", "b", "RUNNING", "node1", "hpc1")]
+    board = node_jobs(rows, lambda study, slurm_id: (job, "b"), partition_nodes(node_groups(_cluster())))
+    tiles = {tile.key: tile for tile in glance(nodes, board, rows, lambda study, slurm_id: (job, "b"))}
+    assert (tiles["running"].value, tiles["running"].sub) == ("1 study", "on hpc1")
+    assert (tiles["queued"].value, tiles["queued"].sub) == ("None", "nothing waits")
+    assert (tiles["left"].value, tiles["left"].sub) == ("2", "of 3 · 1 finished")
+    assert (tiles["cpus"].value, tiles["cpus"].sub) == ("192 / 576", "33%")
+    assert (tiles["nodes"].value, tiles["nodes"].sub, tiles["nodes"].alert) == ("2 of 3 up", "hpc2 drained", True)
+
+
+def test_expected_ends_follow_run_times_and_the_queue_order():
+    taken = 1_000_000.0
+    first = _job(a=dict(elapsed="0:30:00"), b=dict(elapsed="0:30:00"), c={}, d={}, e={})  # 30 min a case
+    first.case_status.update(a=CaseState.CONVERGED, b=CaseState.UNCONVERGED, c=CaseState.RUNNING)
+    second = _job(x=dict(elapsed="1:00:00"), y={}, z={})  # 1 h a case, all of it queued behind first
+    second.case_status.update(x=CaseState.CONVERGED)
+    fresh = _job(p={})  # nothing has run to the end: no guess
+    records = {"/d/one": first, "/d/two": second, "/d/new": fresh}
+    rows = [_row("3", "/d/one", "c", "RUNNING", "node1", "hpc1", started=taken - 600),
+            _row("4", "/d/one", "d", "PENDING", "node1"), _row("5", "/d/one", "e", "PENDING", "node1"),
+            _row("8", "/d/two", "y", "PENDING", "node1", job_id="k"),
+            _row("9", "/d/two", "z", "PENDING", "node1", job_id="k"),
+            _row("12", "/d/new", "p", "PENDING", "node2", job_id="m"),
+            _row("1", "/d/one", "a", "COMPLETED", "node1", "hpc1", started=taken - 4200, ended=taken - 2400)]
+    ends, job_ends = expected_ends(rows, lambda study, slurm_id: (records[str(study)], "c"), taken)
+    assert ends["3"] == taken + 1200  # started 10 min ago, 30 min a case
+    assert (ends["4"], ends["5"]) == (taken + 3000, taken + 4800)  # one at a time, as now
+    assert (ends["8"], ends["9"]) == (taken + 8400, taken + 12000)  # after the first job, at its own 1 h
+    assert "12" not in ends and "1" not in ends
+    assert job_ends == {(Path("/d/one"), "j"): taken + 4800, (Path("/d/two"), "k"): taken + 12000}
+    groups = job_groups(rows, lambda study, slurm_id: (records[str(study)], "c"), job_ends, taken)
+    assert [(g.key, g.finished, g.total, g.active) for g in groups] == [
+        ("one-j", 2, 5, True), ("two-k", 1, 3, True), ("new-m", 0, 1, True)]
+    assert groups[0].started == taken - 4200 and groups[0].ended == taken + 4800
+    assert [row.case for row in groups[0].rows] == ["c", "d", "e", "a"]
+
+
+def test_when_text():
+    from datetime import datetime
+
+    today = datetime(2026, 10, 29, 10, 30)
+    assert when_text(datetime(2026, 10, 29, 9, 41).timestamp(), today) == "09:41"
+    assert when_text(datetime(2026, 10, 28, 22, 27).timestamp(), today) == "28 Oct 22:27"
+    assert when_text(None) == "—"

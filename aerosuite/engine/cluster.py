@@ -126,6 +126,8 @@ class MyJob:
     submitted: Optional[float] = None  # when it was submitted (time.time() seconds); None when unknown
     failure: str = ""  # why it failed, in words (jobs/diagnose.py); "" unless it failed
     task: str = ""  # another job of the case (TASKS), e.g. "ASCII files"; "" for the case's run
+    started: Optional[float] = None  # when it started running (time.time() seconds), from Slurm accounting
+    ended: Optional[float] = None  # when it ended; None while queued or running
 
     @property
     def earlier_attempt(self) -> bool:
@@ -165,13 +167,15 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
     seen: dict[str, tuple] = {}
     for job_id, row in recent.items():
         seen[job_id] = (row.name, row.workdir, row.state, row.partition, row.node, row.elapsed, row.exit_code, "",
-                        _timestamp(row.submit))
+                        _timestamp(row.submit), _timestamp(row.start), _timestamp(row.end))
     for job_id, row in queue.items():  # the queue is newer than accounting
         if row.user == user:
-            submitted = seen[job_id][8] if job_id in seen else None
-            seen[job_id] = (row.name, row.workdir, row.state, "", row.node, row.time, "", row.reason, submitted)
+            submitted, started = (seen[job_id][8], seen[job_id][9]) if job_id in seen else (None, None)
+            seen[job_id] = (row.name, row.workdir, row.state, "", row.node, row.time, "", row.reason, submitted,
+                            started if row.state in RUNNING_STATES else None, None)
     rows = []
-    for job_id, (name, workdir, state, partition, node, elapsed, exit_code, reason, submitted) in seen.items():
+    for job_id, (name, workdir, state, partition, node, elapsed, exit_code, reason, submitted, started,
+                 ended) in seen.items():
         found = aerosuite_case(workdir, name)
         if found is None:
             continue
@@ -196,6 +200,6 @@ def my_jobs(queue: Mapping[str, QueueRow], recent: Mapping[str, HistoryRow], use
                     failure = diagnose(job.failure_tail[case], sc.state, sc.time_limit).summary
         rows.append(MyJob(job_id, study, study_name, case, state, case_state, job.id if job else None, partition,
                           node, elapsed, exit_code, reason, state in ACTIVE_STATES, current, resubmittable,
-                          submitted, failure, task))
+                          submitted, failure, task, started, None if state in ACTIVE_STATES else ended))
     rows.sort(key=lambda row: (len(row.slurm_id), row.slurm_id), reverse=True)
     return rows[:limit], max(0, len(rows) - limit)

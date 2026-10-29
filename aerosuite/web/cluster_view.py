@@ -11,6 +11,7 @@ from ..engine.jobs.runner import FINAL_CASE_STATES, JobRecord
 from ..engine.cluster import MyJob
 from ..engine.slurm import (FAILED_STATES, QUEUED_STATES, RESUBMITTABLE, RUNNING_STATES, ClusterInfo,
                              Snapshot, parse_duration)
+from .run_view import about_text, case_seconds, job_left
 
 
 def case_slurm_text(job: Optional[JobRecord], case: str) -> str:
@@ -47,6 +48,16 @@ def suggested_partition(job: JobRecord, case: str, partitions: Sequence[str], li
     return sc.partition
 
 
+NODE_STATES = (("idle", "Free"), ("mix", "Partly used"), ("alloc", "Full"), ("comp", "Finishing"),
+               ("drng", "Draining"), ("drain", "Drained"), ("down", "Down"))  # sinfo's short state -> in words
+
+
+def state_words(state: str) -> str:
+    """'alloc' -> 'Full', 'drain*' -> 'Drained'; a state not listed as Slurm writes it."""
+    plain = state.rstrip("*~#!%$@^-").lower()
+    return next((words for short, words in NODE_STATES if plain.startswith(short)), state.capitalize())
+
+
 @dataclass(frozen=True)
 class NodeLine:
     node: str
@@ -57,6 +68,9 @@ class NodeLine:
     memory: str  # "101 of 122 GB free", "—" when sinfo does not say
     load: str
     reason: str
+    memory_gb: Optional[int] = None
+    free_gb: Optional[int] = None
+    load_value: Optional[float] = None
 
     @property
     def busy_percent(self) -> int:
@@ -65,6 +79,21 @@ class NodeLine:
     @property
     def cpus(self) -> str:
         return f"{self.allocated} / {self.total}"
+
+    @property
+    def memory_used(self) -> Optional[float]:
+        """The share of memory in use (Linux's file cache counts as used: a busy node always looks nearly full)."""
+        if not self.memory_gb or self.free_gb is None:
+            return None
+        return min(1.0, max(0.0, (self.memory_gb - self.free_gb) / self.memory_gb))
+
+    @property
+    def load_share(self) -> float:
+        return min(1.0, self.load_value / self.total) if self.load_value is not None and self.total else 0.0
+
+    @property
+    def words(self) -> str:
+        return state_words(self.state)
 
 
 def _gb(mb: Optional[int]) -> Optional[int]:
@@ -80,7 +109,7 @@ def node_groups(cluster: Optional[ClusterInfo]) -> list[tuple[str, bool, list[No
         total, free = _gb(row.memory_mb), _gb(row.free_mb)
         memory = f"{free} of {total} GB free" if total is not None and free is not None else "—"
         line = NodeLine(row.node, row.state, row.bad, row.allocated, row.total, memory,
-                        "—" if row.load is None else f"{row.load:.1f}", row.reason)
+                        "—" if row.load is None else f"{row.load:.1f}", row.reason, total, free, row.load)
         default, lines = groups.setdefault(row.partition, (row.default, []))
         lines.append(line)
         if row.default and not default:
@@ -89,16 +118,53 @@ def node_groups(cluster: Optional[ClusterInfo]) -> list[tuple[str, bool, list[No
     return [(name, default, lines) for name, (default, lines) in ordered]
 
 
+def ordered_nodes(groups: Sequence[tuple[str, bool, Sequence[NodeLine]]],
+                  order: Sequence[str] = ()) -> list[tuple[str, bool, NodeLine]]:
+    """(partition, is the default, node) for every node: in the user's `order` (dragged on the Cluster page), the
+    nodes it does not name after them in node_groups' order."""
+    nodes = [(partition, default, node) for partition, default, lines in groups for node in lines]
+    place = {name: index for index, name in enumerate(order)}
+    return sorted(nodes, key=lambda item: place.get(item[2].node, len(place)))  # stable: the rest keep their order
+
+
+def moved(order: Sequence[str], node: str, target: str) -> list[str]:
+    """`order` with `node` put where `target` is (dropped on it): before it when moving up, after it when moving
+    down."""
+    names = list(order)
+    if node == target or node not in names or target not in names:
+        return names
+    down = names.index(node) < names.index(target)
+    names.remove(node)
+    at = names.index(target)
+    names.insert(at + 1 if down else at, node)
+    return names
+
+
+def partition_nodes(groups: Sequence[tuple[str, bool, Sequence[NodeLine]]]) -> dict[str, tuple[str, ...]]:
+    return {partition: tuple(node.node for node in lines) for partition, _default, lines in groups}
+
+
+def where_text(partition: str, nodes: Mapping[str, Sequence[str]]) -> str:
+    """Where a partition's queued cases will run, for people: its node when it has one, else its name."""
+    members = nodes.get(partition, ())
+    return members[0] if len(members) == 1 else partition
+
+
 @dataclass(frozen=True)
 class NodeJob:
-    """A study's job with cases running on a node: how far the whole job is, as on its Run page."""
+    """A study's job on a node, as on its Run page (how far the whole job is): running, with cases running there, or
+    waiting, with cases queued for the node's partition and none running there."""
     study: Path
     study_name: str
     job_id: str
     started: datetime
     finished: int
     total: int
-    cases: tuple[str, ...]  # its cases running on this node
+    cases: tuple[str, ...]  # its cases running on this node (waiting: queued for it)
+    waiting: bool = False
+    elsewhere: str = ""  # where else the job is: "6 more queued on hpc1", "running on hpc2 · 5 / 20"
+    per_case: Optional[float] = None  # its average case run time (s), once a case has run to the end
+    ends: Optional[float] = None  # about when the whole job ends (time.time() seconds; see job_left)
 
     @property
     def done(self) -> float:
@@ -106,28 +172,150 @@ class NodeJob:
 
     @property
     def tip(self) -> str:
+        if self.waiting:
+            return f"Job {self.job_id} · {len(self.cases)} case{'' if len(self.cases) == 1 else 's'} queued here"
         return f"Job {self.job_id} · running here: {', '.join(self.cases)}"
 
+    def left(self, now: datetime) -> Optional[float]:
+        return None if self.ends is None else max(0.0, self.ends - now.timestamp())
 
-def node_jobs(rows: Iterable[MyJob],
-              lookup: Callable[[Path, str], Optional[tuple[JobRecord, str]]]) -> dict[str, tuple[NodeJob, ...]]:
-    """Node -> the study jobs with cases running there (from My jobs' rows and the job records), by study name."""
-    found: dict[tuple[str, Path, str], tuple[JobRecord, str, list[str]]] = {}
+
+def node_jobs(rows: Iterable[MyJob], lookup: Callable[[Path, str], Optional[tuple[JobRecord, str]]],
+              nodes: Optional[Mapping[str, Sequence[str]]] = None,
+              taken: float = 0.0) -> dict[str, tuple[NodeJob, ...]]:
+    """Node -> the study jobs on it (from My jobs' rows and the job records): those with cases running there by
+    study name, then, given each partition's nodes, those with cases queued for it and none running there, in the
+    order they were submitted. `taken`: when Slurm was asked (time.time()), for when each job ends."""
+    running: dict[tuple[Path, str], dict[str, list[str]]] = {}  # job -> node -> its cases running there
+    queued: dict[tuple[Path, str], dict[str, list[str]]] = {}  # job -> partition -> its cases queued for it
+    records: dict[tuple[Path, str], tuple[JobRecord, str]] = {}
+    first: dict[tuple[Path, str], int] = {}  # job -> its lowest queued Slurm id: the queue's order
     for row in rows:
-        if (row.slurm_state not in RUNNING_STATES or not row.node or row.study is None or row.job_id is None
-                or row.earlier_attempt):
+        if row.study is None or row.job_id is None or row.earlier_attempt or row.task:
             continue
-        record = lookup(row.study, row.slurm_id)
-        if record is None:
+        key = (row.study, row.job_id)
+        if row.slurm_state in RUNNING_STATES and row.node:
+            places, into = row.node.split(","), running
+        elif row.slurm_state in QUEUED_STATES and row.partition and nodes is not None:
+            places, into = [row.partition], queued
+            first[key] = min(first.get(key, 1 << 62), int(row.slurm_id) if row.slurm_id.isdigit() else 1 << 62)
+        else:
             continue
-        for node in row.node.split(","):
-            found.setdefault((node, row.study, row.job_id), (record[0], row.study_name, []))[2].append(row.case)
-    jobs: dict[str, list[NodeJob]] = {}
-    for (node, study, job_id), (job, name, cases) in found.items():
-        finished = sum(1 for name in job.cases if job.case_status.get(name) in FINAL_CASE_STATES)
-        jobs.setdefault(node, []).append(NodeJob(study, name, job_id, job.created, finished, len(job.cases),
-                                                 tuple(sorted(cases))))
-    return {node: tuple(sorted(lines, key=lambda j: (j.study_name, j.job_id))) for node, lines in jobs.items()}
+        if key not in records:
+            record = lookup(row.study, row.slurm_id)
+            if record is None:
+                continue
+            records[key] = (record[0], row.study_name)
+        for place in places:
+            into.setdefault(key, {}).setdefault(place, []).append(row.case)
+
+    def line(key, cases, waiting=False, elsewhere=""):
+        job, name = records[key]
+        finished = sum(1 for case in job.cases if job.case_status.get(case) in FINAL_CASE_STATES)
+        left = job_left(job, max(0.0, taken - job.created.timestamp()))
+        return NodeJob(key[0], name, key[1], job.created, finished, len(job.cases), tuple(sorted(cases)), waiting,
+                       elsewhere, case_seconds(job), None if left is None else taken + left)
+
+    partitions = nodes or {}
+    lines: dict[str, list[NodeJob]] = {}
+    for key, here in running.items():
+        for node, cases in here.items():
+            others = [f"{len(more)} more queued on {where_text(p, partitions)}"
+                      for p, more in queued.get(key, {}).items() if not set(partitions.get(p, ())) & set(here)]
+            others += [f"also running on {other}" for other in sorted(here) if other != node]
+            lines.setdefault(node, []).append(line(key, cases, elsewhere=" · ".join(others)))
+    for node in lines:
+        lines[node].sort(key=lambda j: (j.study_name, j.job_id))
+    for key in sorted(queued, key=lambda k: first.get(k, 1 << 62)):
+        on = sorted(running.get(key, {}))
+        for partition, cases in queued[key].items():
+            for node in partitions.get(partition, ()):
+                if node in on:
+                    continue  # queued behind its own cases there: part of the running line
+                elsewhere = ""
+                if on:
+                    job, _name = records[key]
+                    done = sum(1 for case in job.cases if job.case_status.get(case) in FINAL_CASE_STATES)
+                    elsewhere = f"running on {', '.join(on)} · {done} / {len(job.cases)}"
+                lines.setdefault(node, []).append(line(key, cases, True, elsewhere))
+    return {node: tuple(found) for node, found in lines.items()}
+
+
+def queue_starts(lines: Sequence[NodeJob], now: datetime) -> list[tuple[Optional[float], str]]:
+    """For each waiting line on a node, about when it starts (seconds from now, None when not known yet) and after
+    which study: the first when the first running job there ends, each next after the one before it has run its cases
+    here at its job's average time per case."""
+    running = [(job.left(now), job.study_name) for job in lines if not job.waiting]
+    known = [item for item in running if item[0] is not None]
+    if known:
+        free, after = min(known)
+    else:
+        free, after = None, running[0][1] if running else ""
+    starts = []
+    for job in lines:
+        if not job.waiting:
+            continue
+        starts.append((free, after))
+        free = free + job.per_case * len(job.cases) if free is not None and job.per_case is not None else None
+        after = job.study_name
+    return starts
+
+
+def queue_text(start: Optional[float], after: str) -> str:
+    if start is not None and after:
+        return f"Starts in about {about_text(start)} · after {after}"
+    return f"Starts after {after}" if after else "Waiting in the Slurm queue"
+
+
+@dataclass(frozen=True)
+class Glance:
+    """One of the Cluster page's tiles at the top."""
+    key: str
+    label: str
+    value: str
+    sub: str
+    alert: bool = False
+
+
+def _plural(count: int, word: str, many: str = "") -> str:
+    return f"{count} {word if count == 1 else many or word + 's'}"
+
+
+def glance(nodes: Sequence[tuple[str, bool, NodeLine]], board: Mapping[str, Sequence[NodeJob]],
+           rows: Iterable[MyJob], lookup: Callable[[Path, str], Optional[tuple[JobRecord, str]]]) -> tuple[Glance, ...]:
+    """The tiles: studies running and where, studies queued, cases to go in the active jobs, CPUs in use, nodes up."""
+    running: dict[str, set[str]] = {}
+    waiting: dict[tuple[Path, str], tuple[str, set[str]]] = {}  # a partition of several nodes lists it on each
+    for node, lines in board.items():
+        for job in lines:
+            if job.waiting:
+                waiting.setdefault((job.study, job.job_id), (job.study_name, set()))[1].update(job.cases)
+            else:
+                running.setdefault(job.study_name, set()).add(node)
+    queued = sorted((name, len(cases)) for name, cases in waiting.values() if name not in running)  # nothing runs
+    active: dict[tuple[Path, str], JobRecord] = {}
+    for row in rows:
+        if row.active and row.study is not None and row.job_id is not None and (row.study, row.job_id) not in active:
+            record = lookup(row.study, row.slurm_id)
+            if record is not None:
+                active[(row.study, row.job_id)] = record[0]
+    total = sum(len(job.cases) for job in active.values())
+    finished = sum(1 for job in active.values() for case in job.cases if job.case_status.get(case) in FINAL_CASE_STATES)
+    where = sorted({node for found in running.values() for node in found})
+    cpus, used = sum(n.total for _p, _d, n in nodes), sum(n.allocated for _p, _d, n in nodes)
+    bad = [n for _p, _d, n in nodes if n.bad]
+    return (
+        Glance("running", "Running", _plural(len(running), "study", "studies") if running else "None",
+               f"on {', '.join(where)}" if where else "nothing of yours runs now"),
+        Glance("queued", "Queued", _plural(len(queued), "study", "studies") if queued else "None",
+               " · ".join(f"{name} · {_plural(count, 'case')}" if len(queued) == 1 else f"{name} {count}"
+                          for name, count in queued) or "nothing waits"),
+        Glance("left", "Cases to go", str(total - finished),
+               f"of {total} · {finished} finished" if total else "no active job"),
+        Glance("cpus", "CPUs in use", f"{used} / {cpus}", f"{round(100 * used / cpus) if cpus else 0}%"),
+        Glance("nodes", "Nodes", f"{len(nodes) - len(bad)} of {len(nodes)} up",
+               ", ".join(f"{n.node} {n.words.lower()}" for n in bad) or "all up", bool(bad)),
+    )
 
 
 def cluster_status(snapshot: Optional[Snapshot], cluster: Optional[ClusterInfo]) -> tuple[str, str]:
@@ -210,6 +398,127 @@ def summary_parts(cluster: Optional[ClusterInfo], snapshot: Optional[Snapshot], 
     queued = sum(1 for r in rows if r.state in QUEUED_STATES)
     mine = " · ".join(text for count, text in ((running, f"{running} running"), (queued, f"{queued} queued")) if count)
     return SummaryParts("", status == "amber", tuple(nodes), mine)
+
+
+def started_at(row: MyJob, taken: float) -> Optional[float]:
+    """When a case started: Slurm accounting's time, else (running, accounting not asked yet) from its run time."""
+    if row.started is not None:
+        return row.started
+    if row.slurm_state in RUNNING_STATES and taken:
+        return taken - (parse_duration(row.elapsed) or 0.0)
+    return None
+
+
+def _job_key(row: MyJob) -> Optional[tuple[Path, str]]:
+    if row.study is None or row.job_id is None or row.task or row.earlier_attempt:
+        return None
+    return row.study, row.job_id
+
+
+def expected_ends(rows: Sequence[MyJob], lookup: Callable[[Path, str], Optional[tuple[JobRecord, str]]],
+                  taken: float) -> tuple[dict[str, float], dict[tuple[Path, str], float]]:
+    """About when each running or queued case ends (by Slurm id), and each active study job: a running case at its
+    start plus its job's average case run time; then, per partition, the queued cases in the order Slurm got them
+    (their job's in the order they were submitted, after the jobs before it there), as many at a time as that job
+    runs there now. Left out when not known: before a case of the job has run to the end, or a job whose cases all
+    wait behind someone else's."""
+    per: dict[tuple[Path, str], Optional[float]] = {}
+    for row in rows:
+        key = _job_key(row)
+        if key is not None and row.active and key not in per:
+            record = lookup(row.study, row.slurm_id)
+            per[key] = case_seconds(record[0]) if record is not None else None
+    ends: dict[str, float] = {}
+    for row in rows:
+        key = _job_key(row)
+        if key in per and row.slurm_state in RUNNING_STATES and per[key] is not None:
+            start = started_at(row, taken)
+            if start is not None:
+                ends[row.slurm_id] = max(taken, start + per[key])
+
+    def order(row: MyJob) -> int:
+        return int(row.slurm_id) if row.slurm_id.isdigit() else 1 << 62
+
+    by_partition: dict[str, dict[tuple[Path, str], list[MyJob]]] = {}
+    for row in sorted(rows, key=order):
+        key = _job_key(row)
+        if key in per and row.active and row.partition:
+            by_partition.setdefault(row.partition, {}).setdefault(key, []).append(row)
+    unknown: set[tuple[Path, str]] = set()
+    for jobs in by_partition.values():
+        base: Optional[float] = None
+        for key, found in jobs.items():  # in the order of each job's first Slurm id there
+            slots = [ends.get(row.slurm_id) for row in found if row.slurm_state in RUNNING_STATES]
+            if not slots:
+                slots = [base]
+            queued = [row for row in found if row.slurm_state not in RUNNING_STATES]
+            if per[key] is None or any(slot is None for slot in slots):
+                unknown.add(key)
+                base = None
+                continue
+            for row in queued:
+                at = min(range(len(slots)), key=lambda i: slots[i])
+                slots[at] = ends[row.slurm_id] = slots[at] + per[key]
+            base = max(slots)
+    job_ends: dict[tuple[Path, str], float] = {}
+    for key in per:
+        mine = [row for row in rows if _job_key(row) == key and row.active]
+        if key not in unknown and mine and all(row.slurm_id in ends for row in mine):
+            job_ends[key] = max(ends[row.slurm_id] for row in mine)
+    return ends, job_ends
+
+
+@dataclass(frozen=True)
+class JobGroup:
+    """A study job in My jobs grouped by job: its cases' rows under a line saying how far it is and when it started
+    and ended (or about when it ends)."""
+    key: str  # for markers: "<study name>-<job id>", or the study name for rows of no job
+    study: Optional[Path]
+    study_name: str
+    job_id: Optional[str]
+    state: str  # the job's ("Running", "Done", ...); "" without a job record
+    finished: int
+    total: int
+    started: Optional[float]
+    ended: Optional[float]  # when it ended; while it runs, about when it ends (None: not known yet)
+    active: bool
+    rows: tuple[MyJob, ...]
+
+
+def job_groups(rows: Sequence[MyJob], lookup: Callable[[Path, str], Optional[tuple[JobRecord, str]]],
+               job_ends: Mapping[tuple[Path, str], float], taken: float) -> list[JobGroup]:
+    """My jobs' rows (in their order) under their study job, the groups in the order of their first row."""
+    found: dict[tuple, list[MyJob]] = {}
+    for row in rows:
+        found.setdefault((row.study_name, row.study, None if row.task else row.job_id), []).append(row)
+    groups = []
+    for (name, study, job_id), members in found.items():
+        record = None
+        if study is not None and job_id is not None:
+            record = next((r[0] for r in (lookup(study, row.slurm_id) for row in members) if r is not None), None)
+        starts = [s for s in (started_at(row, taken) for row in members) if s is not None]
+        if record is None:
+            groups.append(JobGroup(name, study, name, job_id, "", 0, 0, min(starts, default=None), None, False,
+                                   tuple(members)))
+            continue
+        finished = sum(1 for case in record.cases if record.case_status.get(case) in FINAL_CASE_STATES)
+        if record.is_active:
+            ended = job_ends.get((study, job_id))
+        else:
+            ends = [row.ended for row in members if row.ended is not None]
+            ended = max(ends) if ends else (record.finished.timestamp() if record.finished else None)
+        groups.append(JobGroup(f"{name}-{job_id}", study, name, job_id, record.state.value.capitalize(), finished,
+                               len(record.cases), min(starts, default=None), ended, record.is_active,
+                               tuple(members)))
+    return groups
+
+
+def when_text(stamp: Optional[float], today: Optional[datetime] = None) -> str:
+    """'09:41' today, '28 Oct 22:27' on another day, '—' when not known."""
+    if stamp is None:
+        return "—"
+    moment = datetime.fromtimestamp(stamp)
+    return f"{moment:%H:%M}" if moment.date() == (today or datetime.now()).date() else f"{moment:%d %b %H:%M}"
 
 
 JOB_KINDS = ("all", "active", "failed")

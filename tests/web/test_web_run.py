@@ -332,6 +332,22 @@ async def test_a_grid_of_cases_is_a_board(user: User, ready_project, su2_env):
     await user.should_see(marker="list-not-run")
 
 
+async def test_a_sweep_at_one_mach_is_a_board_with_altitude_rows(user: User, ready_project, su2_env):
+    project_dir, project = ready_project
+    from aerosuite.engine.models import Case
+
+    project.cases = [Case(name=f"M2p0_{h:g}km_a{a:g}", mach=2.0, alpha=a, beta=0.0, altitude_km=h)
+                     for h in (25.0, 35.0) for a in (0.0, 15.0)]
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    assert _element(user, "run-tabs").value == "board"
+    await user.should_see(marker="board-M2|0")
+    assert _text(user, "board-all-M2|0") == "km \\ α" and _text(user, "board-row-M2|0-35") == "35 km"
+    assert _text(user, "run-what") == "4"
+    user.find(marker="board-row-M2|0-35").click()  # a row: that altitude's cases
+    assert _text(user, "run-what") == "2"
+
+
 async def test_the_list_groups_cases_by_state(user: User, ready_project, su2_env):
     project_dir, project = ready_project
     _run_to_end(project_dir, project, **{A2: "fail", A4: "diverge"})

@@ -181,8 +181,8 @@ it at 127.0.0.1 while it runs; a login token is planned before AeroSuite is used
 Your recent projects, *Open* (choose or paste a folder), **New project** and **Import SU2 runs**.
 
 - Each recent project shows its kind (*sweep · 40 cases*), where its latest job runs and how it is doing: a blue
-  node pill (*hpc2*) while a case runs there, *node2 · queued* while every case waits, grey once the job has ended
-  (where it ran), *this PC* for a local run.
+  node pill (*hpc2*) while a case runs there, a dashed one (*node2 · 20 queued*) where its cases wait, grey once the
+  job has ended (where it ran), *this PC* for a local run.
 
 - A new project is a **General case** (one config, no sweep) or an **Aircraft study** (pick a profile such as X07;
   the sweep is on).
@@ -303,8 +303,10 @@ the server.
 
 #### The job bar
 Across the top: the running job (*6 of 20 cases done*, a progress bar, the case running now, elapsed and about how
-long is left) with **Monitor**, **Log** and **Cancel**. Its first line names the job and partition, with a pill per
-node its cases run on now (*node1 · queued* while they all wait). With none running, how the last one ended (*Done · job
+long is left: on Slurm, the cases still to run at the job's average case run time, as many at a time as run now, so
+time spent waiting in the queue does not count; shown once a case has run to the end) with **Monitor**, **Log** and
+**Cancel**. Its first line names the job and partition, with a pill per node its cases run on now and a dashed one
+where its other cases wait in the queue (*hpc1 · 6 queued*, e.g. cases added for another node). With none running, how the last one ended (*Done · job
 20261024-1151 · 40 cases · 2 converged · 38 unconverged*) with its **Log** and **Job history**.
 
 #### Board, List, Earlier and Job history
@@ -313,8 +315,9 @@ The cases are in tabs (`?tab=board|list|earlier|history` in the address opens on
 - Above the cases, one bar shows every status at a glance: each part is coloured as its tiles and holds its count
   (*3 · 2 · 29 · 6*; hover a part for its words, the ⓘ for the order). On the Board, the two icons next to it size
   the tiles, large or compact (compact from 40 cases).
-- **Board** (when the cases make a grid): a grid per altitude (and per β when β is swept), Mach down and α across,
-  one coloured tile per case: running, queued (with its place, *#3*), converged (*✓ 812 it*), unconverged
+- **Board** (when the cases make a grid): a grid per altitude (and per β when β is swept), Mach down and α across;
+  a sweep at one Mach over several altitudes is one grid (*M 2*), altitude down and α across. One coloured tile per
+  case: running, queued (with its place, *#3*), converged (*✓ 812 it*), unconverged
   (*1500 it*), failed (*! failed*, red border) or not run. An altitude's head names only its failed cases
   (*0 km · 20 cases · 2 failed*). It folds to that one line, and opens by itself while something runs, waits or
   failed there.
@@ -459,13 +462,28 @@ From the Projects page, Setup, or the project switcher: every profile, and what 
 The **Cluster** button in the top bar, when Slurm is there. Its dot is green, amber for a drained or down node, red
 when Slurm does not answer; the number next to it is your running jobs.
 
-- Every node as a compact card. Under it, each study job with cases running there, as on its Run page: a ring with
-  cases finished / in all, how long since the job started, and about how long is left (the cases still to go at the
-  job's average time per finished case; shown after its first case ends). Hover for the cases on that node; click to
-  open the study's Run page.
+- Tiles at the top: the studies running and on which nodes, the studies queued, the cases still to go in your active
+  jobs, CPUs in use and how many nodes are up (red while one is drained or down).
+- A card per node: CPU, memory and load dials and its state in words (*Full*, *Partly used*, *Free*, *Drained*;
+  hover for Slurm's own). Memory counts Linux's file cache as used, so a busy node looks nearly full. A drained or
+  down node shows why.
+  - **Running**: each study job with cases running there, as on its Run page: cases finished / in all, the case
+    now and about how long is left (as on Run's job bar: from the job's average case run time).
+  - **Next**: each study job queued for the node with none of its cases running there, in the order it was
+    submitted, and about when it starts: when the job ahead of it is expected to end, plus the cases of each queued
+    job before it at that job's average case run time. A guess: Slurm decides the order, and jobs without a time
+    limit give it no start time of its own.
+  - A job on two nodes shows on both, linked (*6 more queued on hpc1*, *running on hpc2 · 5 / 20*). Click a line
+    to open the study's Run page.
+  - Drag a card to move it; the order is kept (`slurm.node_order` in the settings).
 - **My jobs**: your AeroSuite cases on Slurm from every study (queued, running, or ended in the last 7 days) with
-  Cancel (one case), Resubmit and Log. A case's *ASCII files* job (ParaView menu) is listed under its case, its Log
-  showing `to_ascii-<job id>.out`. It folds.
+  Cancel (one case), Resubmit and Log. Each case's *Started* and *Ended* times come from Slurm accounting (*09:41*
+  today, *28 Oct 22:27* before); a running or queued case shows about when it ends in grey (*≈ 14:03*): its job's
+  average case run time, the queued ones in the order Slurm got them, one after another as many at a time as the
+  job runs now, after the jobs queued before them there. **Group** (on at first) puts the cases under a line per
+  study job: its state, cases finished / in all, when it started, when it ended (or about when it ends) and how long
+  it took (or about how long is left); click a line to fold its cases (an ended job's start folded). A case's *ASCII
+  files* job (ParaView menu) is listed under its case, its Log showing `to_ascii-<job id>.out`. It folds.
 - The Run page keeps a one-line summary. How jobs are submitted: the README's *Running on the Slurm cluster*.
 
 ### Calculators
@@ -580,8 +598,9 @@ aerosuite settings                   # partitions, default tasks, memory limits,
   AeroSuite estimates the memory from the mesh header (`NELEM` × 3.9 GB per million cells, configurable), warns when
   it is over the partition's limit and refuses on partitions set to block (node2).
 - The **Cluster** page (top bar; its dot is green, amber for a drained or down node, red when Slurm does not answer)
-  shows every node as a compact card, then your AeroSuite cases on Slurm from every study — queued, running or ended in
-  the last 7 days — with Cancel (one case), Resubmit and Log; the list folds. The Run page keeps
+  shows tiles at a glance and a card per node (what runs there and what is queued for it), then your AeroSuite cases
+  on Slurm from every study — queued, running or ended in the last 7 days, with when each started and ended — with
+  Cancel (one case), Resubmit and Log; the list folds. The Run page keeps
   a one-line summary. The Results page adds a **Cost** group per case (elapsed, s/iter, peak memory and CPU use from
   `sacct`/`seff`) and the study's node-hours.
 - **node0 (hpc0, the Ubuntu workstation)** is a partition like the others, but its job script does not use

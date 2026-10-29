@@ -44,8 +44,27 @@ def test_durations_and_time_left():
 
 
 def test_the_job_clock_text():
-    assert clock_text(600, 2, 5) == "Elapsed 10 min · about 15 min left"
-    assert clock_text(30, 0, 5) == "Elapsed 30 s · time left shown after the first case"
+    assert clock_text(600, 900) == "Elapsed 10 min · about 15 min left"
+    assert clock_text(600, 10) == "Elapsed 10 min · about 1 min left"
+    assert clock_text(30, None) == "Elapsed 30 s · time left shown after the first case"
+
+
+def test_job_left_counts_run_time_not_queue_time():
+    from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
+    from aerosuite.web.run_view import case_seconds, job_left
+
+    job = JobRecord(id="j", backend="slurm", cases=list("abcde"), log_path="jobs/j.log", state="RUNNING",
+                    case_status={"a": CaseState.CONVERGED, "b": CaseState.UNCONVERGED, "c": CaseState.RUNNING,
+                                 "d": CaseState.PENDING, "e": CaseState.PENDING})
+    job.slurm = {name: SlurmCase(job_id=str(i), partition="node1", ntasks=96, elapsed=elapsed)
+                 for i, (name, elapsed) in enumerate(zip("abcde", ("00:30:00", "00:30:00", "00:10:00", "", "")))}
+    assert case_seconds(job) == 1800  # Slurm's run times: 30 min a case
+    assert job_left(job, elapsed=10 * 3600) == 2 * 1800 + 1200  # 5 h queued before: not counted
+    job.case_status["d"], job.slurm["d"].elapsed = CaseState.RUNNING, "00:20:00"
+    assert job_left(job, elapsed=0) == (1800 + 1200 + 600) / 2  # two at a time
+    local = JobRecord(id="k", backend="local", cases=["a", "b"], log_path="jobs/k.log", state="RUNNING",
+                      case_status={"a": CaseState.CONVERGED, "b": CaseState.RUNNING})
+    assert case_seconds(local) is None and job_left(local, elapsed=600) == 600  # since it started, as before
 
 
 def test_a_single_cases_conditions_come_from_its_config():
@@ -65,11 +84,29 @@ def test_board_sections_are_one_grid_per_altitude_and_beta():
     sections = board_sections(cases)
     assert [s.label for s in sections] == ["0 km · β 0°", "0 km · β 2°", "10 km · β 0°", "10 km · β 2°"]
     first = sections[0]
-    assert (first.key, first.machs, first.alphas) == ("0|0", [0.3, 0.6], [0.0, 5.0])
+    assert (first.key, first.rows, first.alphas) == ("0|0", [0.3, 0.6], [0.0, 5.0])
+    assert (first.corner, first.row_text(0.6)) == ("Mach \\ α", "M 0.6")
     assert first.cells[(0.6, 5.0)] == "M0.6_0.0km_a5.0_b0.0"
     assert has_board(cases)
     one_mach = [Case(name=f"a{a}", mach=0.8, alpha=a, beta=0.0) for a in (0.0, 2.0, 4.0)]
     assert not has_board(one_mach) and board_sections(one_mach)[0].label == ""
+
+
+def test_a_sweep_at_one_mach_is_one_grid_with_altitude_rows():
+    from aerosuite.engine.models import Case
+    from aerosuite.web.run_view import board_sections, has_board
+
+    cases = [Case(name=f"M2p0_{h:g}km_a{a:g}", mach=2.0, alpha=a, beta=0.0, altitude_km=h)
+             for h in (25.0, 35.0, 45.0) for a in (0.0, 15.0, 30.0)]
+    (section,) = board_sections(cases)
+    assert (section.key, section.label, section.rows, section.alphas) == ("M2|0", "M 2", [25.0, 35.0, 45.0],
+                                                                          [0.0, 15.0, 30.0])
+    assert section.by_altitude and section.cells[(35.0, 15.0)] == "M2p0_35km_a15"
+    assert (section.corner, section.row_text(35.0)) == ("km \\ α", "35 km")
+    assert has_board(cases)
+    betas = [Case(name=f"{h:g}_{b:g}", mach=2.0, alpha=a, beta=b, altitude_km=h)
+             for h in (25.0, 35.0) for a in (0.0, 5.0) for b in (0.0, 2.0)]
+    assert [s.label for s in board_sections(betas)] == ["M 2 · β 0°", "M 2 · β 2°"]
 
 
 def test_tile_text():
