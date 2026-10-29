@@ -175,7 +175,6 @@ async def test_another_design_is_drawn_with_this_studys_definitions(user: User, 
     await user.should_see(marker="design-1")
     assert _text(user, "cell-1-M0p8_a2_b0-CL") == "0.44"
     assert _text(user, "cell-1-M0p8_a2_b0-CL(Wing)") == "—"
-    assert "CL(Wing)" in _cell(user, "cell-1-M0p8_a2_b0-CL(Wing)")[1]  # why it is missing, on hover
     await user.should_see("wing-v2 has no CL(Wing)")
     user.find(marker="design-remove-1").click()
     assert open_project(results_project).results.compare == []

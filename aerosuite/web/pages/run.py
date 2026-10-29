@@ -924,7 +924,7 @@ class RunPage:
     def _set_partitions(self, text: str) -> Optional[str]:
         message = self.frame.save(lambda p: setattr(p.run, "partitions", parse_int(text, "Cores per case")))
         if message is None:
-            self._machine_values()
+            ui.timer(0, self._machine_values, once=True)  # the note on cores asked for
         return message
 
     def _monitor_url(self, case: Optional[str] = None) -> str:
