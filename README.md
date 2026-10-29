@@ -120,10 +120,9 @@ Submitting to Slurm (`--backend slurm`, `--partition`, `resubmit`) is in [docs/C
 - `aerosuite edit` waits for the editor to exit, so a GUI editor needs its wait flag, e.g. `EDITOR="code --wait"`.
 
 ## Future Plans
-See [docs/ROADMAP.md](docs/ROADMAP.md). Next:
-
 - **One case on several nodes:** run a case across 2 or 4 identical nodes over InfiniBand, with a scaling test
   that measures how much faster it gets.
+>See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Legacy desktop app (PyQt5)
 The original desktop version is still in the repository (`run_aerosuite.py`, `aerosuite/main.py`, `ui/`, `core/`,
@@ -134,10 +133,15 @@ uv run python run_aerosuite.py
 alias su2aero2='uv run --project /path/to/SU2_aerosuite python /path/to/SU2_aerosuite/run_aerosuite.py'
 ```
 
-Its pages follow the same order as the web UI: Calculators, Directory, Mesh, CFG (*Aircraft Aero* or *General*),
-Sweep, Control File (scan the configs into `run_control.txt`), Run (launches `aoa_sweep_v8.py` and streams its
-output), Monitor (live residuals) and Results (summary CSV and plots). **Profiles → Save / Load SU2 Profile**
-(Ctrl+S / Ctrl+O) keeps its settings in a JSON file; the web UI's Profiles page replaces that.
+Its pages follow the similiar order as the web UI: 
+- Calculators
+- Directory
+- Mesh
+- CFG (*Aircraft Aero* or *General*)
+- Sweep, Control File (scan the configs into `run_control.txt`)
+- Run (launches `aoa_sweep_v8.py`
+- Monitor (live residuals)
+- Results (summary CSV and plots).
 
 ## Contributors
 Thanks to the following contributors for their work on this project:
