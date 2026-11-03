@@ -9,7 +9,7 @@ AeroSuite is a web application for preparing, running and reviewing SU2 CFD stud
 
 **Cluster:** Slurm nodes and your jobs management
 **Calculators:** (ISA atmosphere and y+)
-**ParaView:** Open your cases in Paraview
+**ParaView:** Open your cases in Paraview/ Write ASCII files for paraview to read
 
 It runs as a service on the workstation and opens in any browser; everything it does is also available as the `aerosuite` command.
 
@@ -20,7 +20,7 @@ One-time setup (no admin rights needed; Python 3.12 in its own environment, mana
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-cd /path/to/SU2_aerosuite
+cd */path/to/SU2_aerosuite*
 uv sync
 uv run aerosuite service install --root /data   # starts at boot, listens on 127.0.0.1:8080
 ```
@@ -38,9 +38,8 @@ Then open http://localhost:8080 on the workstation, or from your PC with the lau
 6. **Monitor** — residuals and coefficients while a case runs.
 7. **Results** — parameters averaged over the last iterations, as plots, tables and CSV.
 
-Alongside: **Cluster** (Slurm nodes and your jobs), **Calculators** (ISA atmosphere, y+), **ParaView**,
-**Settings** and **Profiles**. Each is described in the [web UI guide](docs/WEB_UI.md); the **?** in the top bar opens it on the
-page you are on.
+Alongside: **Cluster** (Slurm nodes and your jobs), **Calculators** (ISA atmosphere, y+), **ParaView**, **Settings** and **Profiles**.
+Each is described in the [web UI guide](docs/WEB_UI.md); the **?** in the top bar opens it on the page you are on.
 
 ## Project structure
 ```
