@@ -315,6 +315,7 @@ async def test_a_grid_of_cases_is_a_board(user: User, ready_project, su2_env):
     assert _element(user, "run-tabs").value == "board"
     await user.should_see(marker=f"tile-{first}")
     assert _text(user, "run-what") == "14"  # nothing has run: every case is selected
+    assert "Ctrl-click" in _text(user, "board-help")  # how to select several tiles
     user.find(marker="board-row-|0-0.6").click()  # a row's name: all selected, so unselect them
     assert _text(user, "run-what") == "7"
     user.find(marker="board-col-|0-3").click()  # a column: select its cases

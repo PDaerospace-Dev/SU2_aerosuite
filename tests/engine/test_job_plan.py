@@ -7,7 +7,7 @@ import pytest
 from aerosuite.engine.cfg import CONFIGS_DIR, RUN_CONTROL_FILE, generate_configs
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.plan import plan_restarts, prepare_job
-from aerosuite.engine.restarts import RUNS_DIR
+from aerosuite.engine.restarts import RUNS_DIR, su2_path_length, su2_solution_path
 
 A0, A2, A4 = "M0p8_a0_b0", "M0p8_a2_b0", "M0p8_a4_b0"
 
@@ -216,6 +216,26 @@ def test_a_restart_path_with_a_comma_is_refused(ready_project, tmp_path):
     with pytest.raises(JobError, match=re.escape(str(odd))):
         prepare_job(project_dir, project, "j11", [A0])
     assert not (project_dir / "jobs" / "j11").exists()
+
+
+def test_a_restart_path_too_long_for_su2_is_refused(ready_project, tmp_path):
+    """SU2 copies SOLUTION_FILENAME into a char[100]: a longer path aborts it ("buffer overflow detected")."""
+    project_dir, project = ready_project
+    deep = tmp_path / ("x" * 60) / ("y" * 60) / "restart_flow.dat"
+    project.cases[0].restart, project.cases[0].restart_ref = "custom", str(deep)
+    generate_configs(project_dir, project)
+    with pytest.raises(JobError, match="SU2 aborts above 99"):
+        prepare_job(project_dir, project, "j13", [A0])
+    assert not (project_dir / "jobs" / "j13").exists()
+
+
+def test_su2_reads_the_shorter_of_the_absolute_and_relative_path(tmp_path):
+    run = tmp_path / "study" / RUNS_DIR / "M0p3_20km_a10"
+    near = tmp_path / "study" / "jobs" / "20261102-1058" / "add-2" / "restart" / "M0p3_20km_a10" / "restart_flow.dat"
+    assert su2_solution_path(near, run) == "../../jobs/20261102-1058/add-2/restart/M0p3_20km_a10/restart_flow.dat"
+    assert su2_solution_path("../M0p3_20km_a5/restart_flow", run) == "../M0p3_20km_a5/restart_flow"
+    assert su2_solution_path("/r.dat", run) == "/r.dat"  # absolute when that is shorter
+    assert (su2_path_length("a/restart_flow.dat"), su2_path_length("a/restart_flow")) == (18, 18)
 
 
 def test_a_project_folder_with_a_comma_cannot_set_a_solution_aside(ready_project, tmp_path):

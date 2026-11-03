@@ -1,9 +1,12 @@
 """Job records and the Runner interface every backend (local, Slurm) implements."""
 from __future__ import annotations
 
+import functools
 import os
+import re
 import shutil
 import sys
+import threading
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -77,10 +80,36 @@ class JobRecord(BaseModel):
     slurm: dict[str, SlurmCase] = Field(default_factory=dict)  # by case name; empty for local jobs
     changes: dict[str, dict[str, str]] = Field(default_factory=dict)  # config lines for this job only, by case
     attempts: dict[str, str] = Field(default_factory=dict)  # earlier runs it put aside (attempts/), by case
+    note: str = ""  # what the run is for, in the user's words; #tags in it are found by note_tags()
+    outcome: str = ""  # what came of it, written afterwards
 
     @property
     def is_active(self) -> bool:
         return self.state not in TERMINAL_JOB_STATES
+
+    @property
+    def tags(self) -> list[str]:
+        return note_tags(self.note)
+
+
+TAG_RE = re.compile(r"#([a-z][\w-]*)")
+
+
+def note_tags(note: str) -> list[str]:
+    """The #tags in a note, lower case, each once, in order of appearance: "#wing-v2 mesh #fine" -> [wing-v2, fine]."""
+    return list(dict.fromkeys(TAG_RE.findall(note)))
+
+
+def serialized(method):
+    """A runner changes job records under one lock (`self._lock`): the poller's thread, a Cancel and a note edited on
+    the Cluster page must not undo each other."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def unfinished(job: JobRecord) -> list[str]:
@@ -92,7 +121,10 @@ def unfinished(job: JobRecord) -> list[str]:
 class Runner(Protocol):
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
                continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
-               starts: Optional[Mapping[str, Optional[str]]] = None) -> JobRecord: ...
+               starts: Optional[Mapping[str, Optional[str]]] = None, note: str = "") -> JobRecord: ...
+
+    def annotate(self, project_dir: Path, job_id: str, note: Optional[str] = None, outcome: Optional[str] = None,
+                 append: bool = False) -> tuple[str, JobRecord]: ...
 
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord: ...
 

@@ -26,7 +26,8 @@ from ..attempts import ATTEMPTS_DIR
 from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE, apply_parameters
 from ..errors import JobError
 from ..models import Case, Project
-from ..restarts import find_restart_file, own_case_of, restart_file
+from ..restarts import (RUNS_DIR, SU2_MAX_PATH, find_restart_file, own_case_of, restart_file, su2_path_length,
+                        su2_solution_path)
 from .store import JOBS_DIR
 
 RESTART_DIR = "restart"
@@ -161,6 +162,11 @@ def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequenc
         if reference is not None and "," in reference:
             raise JobError(f"{line.case}: the restart path {reference} contains a comma, which "
                            "run_control.txt cannot hold; rename or move it")
+        if reference is not None:  # SU2 runs a Slurm case in runs/<case>/ (a local sweep in runs/: shorter)
+            length = su2_path_length(su2_solution_path(reference, project_dir / RUNS_DIR / line.case))
+            if length > SU2_MAX_PATH:
+                raise JobError(f"{line.case}: the restart path {reference} is {length} characters as SU2 reads it, "
+                               f"and SU2 aborts above {SU2_MAX_PATH}; move the project to a shorter folder")
     configs = job_dir / CONFIGS_DIR
     try:
         configs.mkdir(parents=True)

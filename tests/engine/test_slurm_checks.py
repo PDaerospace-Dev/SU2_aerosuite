@@ -8,7 +8,7 @@ from aerosuite.engine.jobs.executors import slurm_options
 from aerosuite.engine.preflight import preflight
 from aerosuite.engine.project import save_project, set_mesh
 from aerosuite.engine.settings import AppSettings, set_value
-from aerosuite.engine.slurm_checks import memory_check, memory_notes, mesh_elements, slurm_problems
+from aerosuite.engine.slurm_checks import memory_check, memory_summary, mesh_elements, slurm_problems
 
 MESH_HEADER = "% a comment\n%\nNDIME= 3\nNELEM= {nelem}\n"
 
@@ -93,10 +93,22 @@ def test_a_good_submit_has_no_problems(study, tmp_path):
     assert problems == []
 
 
-def test_memory_estimate_in_the_notes(study, tmp_path):
+def test_memory_estimate_in_the_note(study, tmp_path):
     project_dir, project = study
-    notes = memory_notes(project_dir, project, None, "node1", _settings(tmp_path))
-    assert notes == ["≈ 58 GB of 120 GB on node1 (15.0M cells)"]
+    summary = memory_summary(project_dir, project, None, "node1", _settings(tmp_path))
+    assert summary.note == "≈ 58 GB of 120 GB on node1 (15.0M cells)"
+
+
+def test_the_memory_summary_is_the_largest_mesh_against_the_partitions_limit(study, tmp_path):
+    project_dir, project = study
+    settings = _settings(tmp_path)
+    summary = memory_summary(project_dir, project, None, "node2", settings)
+    assert (round(summary.estimate_gb), round(summary.limit_gb), summary.elements, summary.over) == (
+        58, 61, 15_000_000, False)
+    set_mesh(project, _mesh(tmp_path / "wing.su2", 20_700_000))
+    generate_configs(project_dir, project)
+    assert memory_summary(project_dir, project, None, "node2", settings).over
+    assert memory_summary(project_dir, project, None, "nowhere", settings) is None
 
 
 def test_over_the_limit_warns_on_node1_and_blocks_on_node2(study, tmp_path):

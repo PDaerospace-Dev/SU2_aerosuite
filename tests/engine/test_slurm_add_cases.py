@@ -65,7 +65,7 @@ def test_an_added_case_waits_for_the_running_case_it_restarts_from(slurm_study):
     assert job.slurm[A2].depends_on == A0
     assert fake.job("102")["dependency"] == "afterany:101"
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
-    assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg
+    assert f"SOLUTION_FILENAME= ../{A0}/restart_flow" in cfg
     assert "RESTART_SOL= YES" in cfg
     solution = project_dir / "runs" / A0 / "restart_flow"
     assert f"[ -f {solution} ] || [ -f {solution}.dat ] || [ -f {solution}.csv ]" in (

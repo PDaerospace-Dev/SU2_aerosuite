@@ -2,12 +2,13 @@ from pathlib import Path
 
 from aerosuite.engine.cluster import MyJob
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
+from aerosuite.engine.settings import PartitionSettings, SlurmSettings
 from aerosuite.engine.slurm import ClusterInfo, QueueRow, Snapshot, parse_sinfo_nodes
 from aerosuite.web.cluster_view import (
     can_resubmit, case_slurm_text, cluster_status, expected_ends, filter_jobs, glance, job_groups, job_state_text,
     job_studies, moved, when_text,
     node_groups, node_jobs, ordered_nodes, partition_nodes, queue_starts, queue_text, running_count, state_words,
-    suggested_partition, summary_line, summary_parts,
+    suggested_partition, summary_line, summary_parts, full_note, fitting_partition,
 )
 
 NODES = ("hpc1|node1*|alloc|192/0/0/192|125000|20000|96.1|none\n"
@@ -138,14 +139,30 @@ def test_sort_jobs_by_each_column():
     assert ids("elapsed", True) == ["2", "1", "3"]  # 1:02:00, 10:00; no time last
 
 
-def test_summary_parts_give_a_pill_per_partition_and_your_jobs():
+def test_summary_parts_give_a_pill_per_partition_free_ones_first_and_your_jobs():
     parts = summary_parts(_cluster("hpc1|node1*|mix|96/96/0/192|1|1|0|none\nhpc2|node2|idle|0/192/0/192|1|1|0|none\n"
-                                   "hpc3|node3|drain|0/0/192/192|1|1|0|bad DIMM\n"), Snapshot(), "me")
-    assert [(n[0], n[1], n[2]) for n in parts.nodes] == [("node1", "busy", "node1 50%"), ("node2", "free", "node2 free"),
-                                                          ("node3", "bad", "node3 drain")]
+                                   "hpc3|node3|drain|0/0/192/192|1|1|0|bad DIMM\nhpc0|node0|alloc|192/0/0/192|1|1|0|none\n"),
+                          Snapshot(), "me")
+    assert [(n[0], n[1], n[2]) for n in parts.nodes] == [
+        ("node2", "free", "node2 · free"), ("node1", "free", "node1 · 50% free"), ("node0", "full", "node0 · full"),
+        ("node3", "bad", "node3 · drain")]
     assert parts.bad and parts.message == "" and parts.mine == ""
     assert summary_parts(None, None, "me").message == "Asking Slurm…"
     assert summary_parts(_cluster(), Snapshot(error="x"), "me") == ("Slurm controller unreachable", True, (), "")
+
+def test_summary_parts_with_the_settings_show_only_known_partitions_and_exclusive_room():
+    slurm = SlurmSettings(partitions=[
+        PartitionSettings(name="node1", default_ntasks=96, memory_limit_mb=1),  # --exclusive (Slurm-wide)
+        PartitionSettings(name="node2", default_ntasks=48, memory_limit_mb=1),
+        PartitionSettings(name="node0", default_ntasks=32, memory_limit_mb=1, exclusive=False)])
+    parts = summary_parts(_cluster("hpc1|node1*|mix|96/96/0/192|1|1|0|none\nhpc0|node0|mix|96/96/0/192|1|1|0|none\n"
+                                   "hpc2|node2|mix|96/96/0/192|1|1|0|none\nhpc5|node2|idle|0/192/0/192|1|1|0|none\n"
+                                   "hpc9|debug|idle|0/192/0/192|1|1|0|none\n"), Snapshot(), "me", slurm)
+    assert [(n[0], n[1], n[2]) for n in parts.nodes] == [
+        ("node0", "free", "node0 · 50% free"), ("node2", "free", "node2 · 1 of 2 nodes free"),  # equal: sinfo order
+        ("node1", "full", "node1 · full")]
+    assert parts.nodes[2][3] == "96/192 busy; an exclusive case needs an idle node"
+
 
 
 def test_node_jobs_are_whole_study_jobs_as_on_run():
@@ -268,3 +285,23 @@ def test_when_text():
     assert when_text(datetime(2026, 10, 29, 9, 41).timestamp(), today) == "09:41"
     assert when_text(datetime(2026, 10, 28, 22, 27).timestamp(), today) == "28 Oct 22:27"
     assert when_text(None) == "—"
+
+
+PILLS = (("node2", "free", "", ""), ("node1", "free", "", ""), ("node0", "full", "", ""), ("node3", "bad", "", ""))
+
+
+def test_a_full_partition_says_where_the_cases_could_start_now():
+    assert full_note(PILLS, "node0") == "node0 is full, so cases will wait in the queue. node2 can start them now."
+    assert full_note(PILLS[2:], "node0") == "node0 is full, so cases will wait in the queue."
+    assert full_note(PILLS, "node1") == "" and full_note(PILLS, "node3") == "" and full_note(PILLS, "other") == ""
+
+
+def test_another_partition_with_enough_memory_is_found_with_room_first():
+    class Part:
+        def __init__(self, name, gb):
+            self.name, self.memory_limit_mb = name, gb * 1024
+
+    parts = [Part("node0", 229), Part("node1", 120), Part("node2", 60), Part("node3", 229)]
+    assert fitting_partition(81, "node2", parts, PILLS) == ("node1", 120)  # node1 has room, node0 is full
+    assert fitting_partition(200, "node2", parts, PILLS) == ("node0", 229)  # node3 is down
+    assert fitting_partition(300, "node2", parts, PILLS) is None

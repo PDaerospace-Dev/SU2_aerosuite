@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from nicegui.testing import User
 
@@ -6,7 +8,7 @@ from aerosuite.engine.jobs.executors import runner_for
 from aerosuite.engine.jobs.runner import CaseState, JobState
 from aerosuite.engine.jobs.store import list_jobs
 from aerosuite.engine.project import open_project, save_project, set_mesh
-from aerosuite.engine.settings import AppSettings, save_settings, set_value
+from aerosuite.engine.settings import AppSettings, load_settings, save_settings, set_value
 from aerosuite.web.layout import project_url
 from aerosuite.web.slurm_watch import WATCH
 
@@ -60,14 +62,16 @@ async def test_another_partition_brings_its_own_tasks_and_the_warnings(user: Use
     mesh = tmp_path / "wing.su2"
     mesh.write_text("NDIME= 3\nNELEM= 15000000\nNMARK= 2\nMARKER_TAG= farfield\nMARKER_TAG= wall\n")
     await _open(user, project_dir)
-    assert "≈ 58 GB of 120 GB on node1" in _text(user, "run-memory")
+    assert _text(user, "run-memory-value") == "58 of 120 GB"
+    assert _text(user, "run-memory-cells") == "Largest case: 15.0M cells"
+    await user.should_not_see(marker="run-over")
     with user:
         _element(user, "run-partition").set_value("node2")
     await user.should_see("Tasks per case")
     assert _element(user, "run-ntasks").value == "48"
     saved = open_project(project_dir).run.slurm
     assert (saved.partition, saved.ntasks) == ("node2", None)
-    assert "of 61 GB on node2" in _text(user, "run-memory")
+    assert _text(user, "run-memory-value") == "58 of 61 GB"
     with user:
         box = _element(user, "run-ntasks")
         box.set_value("96")
@@ -196,18 +200,55 @@ async def test_add_cases_to_the_running_job_on_the_other_node(user: User, slurm_
     await user.should_see(marker="run-add")
     assert _element(user, "add-partition").value == "node2"  # the node this job does not use
     assert _element(user, "add-ntasks").value == "48"
-    assert _text(user, "add-cases") == "Add 1 case to the running job"  # A4: the one not run yet
+    assert _text(user, "add-cases") == "Add 1 case"  # A4: the one not run yet
+    await user.should_see(marker="run-problems-none")  # one line, under the button
     user.find(marker="select-all").click()  # A0 and A2 are busy
     assert _text(user, "add-skipped") == "2 selected cases are already queued or running in this job: skipped"
-    assert _text(user, "add-cases") == "Add 1 case to the running job"
+    assert _text(user, "add-cases") == "Add 1 case"
     user.find(marker="add-cases").click()
     await eventually(lambda: A4 in list_jobs(project_dir)[0].slurm, 10)
     job = list_jobs(project_dir)[0]
     assert len(list_jobs(project_dir)) == 1
     assert (job.slurm[A4].job_id, job.slurm[A4].partition, job.slurm[A4].ntasks) == ("103", "node2", 48)
     assert open_project(project_dir).run.slurm.partition is None  # not saved with the study
-    await eventually(lambda: _text(user, "add-cases") == "Add 0 cases to the running job", 5)
+    await eventually(lambda: _text(user, "add-cases") == "Add cases", 5)
     assert not _element(user, "add-cases").enabled
+
+
+async def test_add_cases_can_continue_from_the_last_solution(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    (project_dir / "runs" / A4).mkdir(parents=True, exist_ok=True)
+    (project_dir / "runs" / A4 / "restart_flow.dat").write_text("first-order solution")
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])
+    fake.run("101", node="hpc1")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    await user.should_see(marker="run-add")
+    with user:
+        _element(user, f"tick-{A4}").set_value(True)
+    assert _element(user, "continue").value is False  # not unconverged: fresh unless asked
+    with user:
+        _element(user, "continue").set_value(True)
+    user.find(marker="add-cases").click()
+    await eventually(lambda: A4 in list_jobs(project_dir)[0].slurm, 10)
+    configs = project_dir / "jobs" / job.id / "add-2" / "configs"
+    assert "RESTART_SOL= YES" in (configs / f"{A4}.cfg").read_text()
+
+
+async def test_a_note_on_added_cases_joins_the_job_note(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2], note="First order #polar")
+    fake.run("101", node="hpc1")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    await user.should_see(marker="run-add")
+    with user:
+        _element(user, "run-note").set_value("MUSCL on, second order")
+    user.find(marker="add-cases").click()
+    await eventually(lambda: A4 in list_jobs(project_dir)[0].slurm, 10)
+    await eventually(lambda: list_jobs(project_dir)[0].note == "First order #polar · MUSCL on, second order", 5)
 
 
 async def test_no_add_block_for_a_local_job_or_without_a_job(user: User, slurm_project):
@@ -225,12 +266,14 @@ async def test_slurm_mode_shows_a_cluster_summary_and_the_slurm_fields(user: Use
     await _open(user, project_dir)
     await user.should_not_see(marker="run-machine")
     await user.should_not_see(marker="run-partitions")
-    assert _text(user, "run-node-node1") == "node1 50%" and _text(user, "run-node-node2") == "node2 free"
+    # node1 is --exclusive: a node partly in use has no room for its next case
+    assert _text(user, "run-node-node1") == "node1 · full" and _text(user, "run-node-node2") == "node2 · free"
     assert _element(user, "run-cluster-link").props["href"].startswith("/cluster?back=%2Frun%3Fproject%3D")
     assert _element(user, "run-backend").value == "slurm"
     assert _element(user, "run-partition").value == "node1"
     assert _element(user, "run-ntasks").value == "96"
-    assert _text(user, "submit") == "Submit 3 cases to Slurm"
+    assert _text(user, "submit") == "Submit 3 cases"
+    assert _text(user, "run-problems-none") == "Ready to submit"
 
 
 async def test_the_summary_turns_red_for_a_drained_node_or_an_outage(user: User, slurm_project, eventually):
@@ -240,12 +283,129 @@ async def test_the_summary_turns_red_for_a_drained_node_or_an_outage(user: User,
     WATCH.show_cluster()
     await WATCH.poll_once()
     await _open(user, project_dir)
-    assert _text(user, "run-node-node1") == "node1 free"
+    assert _text(user, "run-node-node1") == "node1 · free"
     bad = _element(user, "run-node-node2")
-    assert bad.text == "node2 drain" and "as-error-text" in bad.classes
+    assert bad.text == "node2 · drain" and "as-error-text" in bad.classes
     fake.update(controller_down=True)
     await WATCH.poll_once()
     await eventually(lambda: _text(user, "run-cluster-message") == "Slurm controller unreachable", 5)
+
+
+def _big_mesh(tmp_path, cells=20_700_000):
+    (tmp_path / "wing.su2").write_text(f"NDIME= 3\nNELEM= {cells}\nNMARK= 2\nMARKER_TAG= farfield\nMARKER_TAG= wall\n")
+
+
+async def test_the_strip_lists_the_free_nodes_first_and_a_pill_chooses_the_partition(user: User, slurm_project):
+    project_dir, _project, fake = slurm_project
+    fake.update(nodes=["hpc1|node1*|alloc|192/0/0/192|125000|101000|48.0|none",
+                       "hpc0|node0|mix|96/96/0/192|235000|200000|0.2|none",  # not --exclusive: shared
+                       "hpc9|debug|idle|0/192/0/192|62000|57000|0.0|none"])  # not in the settings: no pill
+    WATCH.show_cluster()
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    pills = [e.text for e in user.find(marker="run-cluster-summary").elements.pop().default_slot.children
+             for e in e.default_slot.children]
+    assert pills == ["node0 · 50% free", "node1 · full"]
+    assert "as-nodepill-on" in _element(user, "run-pill-node1").classes  # the study's partition
+    assert "as-nodepill-on" not in _element(user, "run-pill-node0").classes
+    user.find(marker="run-pill-node0").click()
+    await user.should_see("Tasks per case")
+    assert open_project(project_dir).run.slurm.partition == "node0"
+    assert _element(user, "run-partition").value == "node0"
+    assert "as-nodepill-on" in _element(user, "run-pill-node0").classes
+
+
+async def test_a_full_partition_says_the_cases_wait_and_where_they_could_start(user: User, slurm_project):
+    project_dir, _project, fake = slurm_project
+    fake.update(nodes=["hpc1|node1*|alloc|192/0/0/192|125000|101000|48.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.2|none"])
+    WATCH.show_cluster()
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    assert _text(user, "run-full") == "node1 is full, so cases will wait in the queue. node2 can start them now."
+    fake.update(nodes=["hpc1|node1*|idle|0/192/0/192|125000|101000|0.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.2|none"])
+    await WATCH.poll_once()
+    await asyncio.sleep(2.5)  # the page looks again every 2 s
+    await user.should_not_see(marker="run-full")  # kept current while the page is open
+
+
+async def test_the_primary_button_counts_the_cases_and_waits_for_a_selection(user: User, slurm_project):
+    project_dir, _project, _fake = slurm_project
+    await _open(user, project_dir)
+    assert _text(user, "submit") == "Submit 3 cases" and "as-btn-accent" in _element(user, "submit").classes
+    user.find(marker="select-none").click()
+    assert _text(user, "submit") == "Submit cases"  # never "Submit 0 cases"
+    assert not _element(user, "submit").enabled
+    assert _text(user, "submit-blocked") == "Select at least one case"
+    await user.should_not_see(marker="run-problems-none")  # nothing to be ready for
+    assert _text(user, "run-what") == "0"
+
+
+async def test_over_the_memory_limit_turns_red_offers_another_node_and_blocks_the_submit(
+        user: User, slurm_project, tmp_path):
+    project_dir, _project, fake = slurm_project
+    _big_mesh(tmp_path)
+    fake.update(nodes=["hpc1|node1*|mix|96/96/0/192|125000|101000|48.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.2|none"])
+    WATCH.show_cluster()
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    assert _text(user, "run-memory-value") == "81 of 120 GB"
+    await user.should_not_see(marker="run-over")
+    user.find(marker="run-pill-node2").click()
+    await user.should_see(marker="run-over")
+    assert _text(user, "run-memory-value") == "81 of 61 GB"
+    assert _text(user, "run-over") == "These cases need 20 GB more than node2 has. node1 has 120 GB."
+    assert "as-field-over" in _element(user, "run-partition").classes
+    assert not _element(user, "submit").enabled
+    await user.should_not_see(marker="run-problems-none")
+    assert _text(user, "run-switch") == "Switch to node1"
+    user.find(marker="run-switch").click()
+    await user.should_not_see(marker="run-over")
+    assert _element(user, "run-partition").value == "node1"
+    assert "as-field-over" not in _element(user, "run-partition").classes
+    assert _element(user, "submit").enabled
+
+
+async def test_over_the_memory_limit_on_a_warn_partition_still_submits(user: User, slurm_project, tmp_path):
+    project_dir, _project, fake = slurm_project
+    _big_mesh(tmp_path)
+    settings, _ = load_settings()
+    parts = [p.model_copy(update={"block_over_memory": False}) for p in settings.slurm.partitions]
+    save_settings(settings.model_copy(update={"slurm": settings.slurm.model_copy(update={"partitions": parts})}))
+    fake.update(nodes=["hpc1|node1*|mix|96/96/0/192|125000|101000|48.0|none",
+                       "hpc2|node2|idle|0/192/0/192|62000|57000|0.2|none"])
+    WATCH.show_cluster()
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    user.find(marker="run-pill-node2").click()
+    await user.should_see(marker="run-over")
+    assert _text(user, "run-over").endswith("node2 warns only, so you can still submit.")
+    assert _element(user, "submit").enabled
+
+
+async def test_adding_cases_over_the_memory_limit_is_blocked_and_switchable(user: User, slurm_project, tmp_path,
+                                                                            eventually):
+    project_dir, project, fake = slurm_project
+    _big_mesh(tmp_path)
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2])  # node1
+    fake.run("101", node="hpc1")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    await user.should_see(marker="run-add")
+    assert _element(user, "add-partition").value == "node2"
+    assert _text(user, "add-memory-value") == "81 of 61 GB"
+    assert _text(user, "add-over") == "This case needs 20 GB more than node2 has. node1 has 120 GB."
+    assert not _element(user, "add-cases").enabled
+    await user.should_not_see(marker="run-problems-none")
+    await user.should_not_see("on node1")  # no second estimate for the job's own partition
+    user.find(marker="add-switch").click()
+    await user.should_not_see(marker="add-over")
+    assert _element(user, "add-partition").value == "node1"
+    assert _text(user, "add-memory-value") == "81 of 120 GB"
+    assert _element(user, "add-cases").enabled
 
 
 DIVERGED_OUT = """AeroSuite: Slurm job 101 on hpc1, 96 ranks, start 2026-10-22T11:43:00+09:00

@@ -181,12 +181,15 @@ def _case_meshes(project_dir: Path, project: Project, names: Sequence[str], read
     return meshes, missing, problems
 
 
-def memory_notes(project_dir: Path, project: Project, cases: Optional[Sequence[str]], partition: Optional[str],
-                 settings: AppSettings) -> list[str]:
-    """The Checks panel's memory line for each mesh the cases use."""
+def memory_summary(project_dir: Path, project: Project, cases: Optional[Sequence[str]], partition: Optional[str],
+                   settings: AppSettings) -> Optional[MemoryCheck]:
+    """The estimate that decides memory for `cases` on `partition`: the largest mesh's. When no mesh has an estimate,
+    the first check (its note says why); None when there is nothing to check (an unknown partition, no .su2 mesh)."""
     part = settings.slurm.partition(partition)
     if part is None:
-        return []
+        return None
     names = [case.name for case in project.cases] if cases is None else list(cases)
     meshes, _missing, _problems = _case_meshes(project_dir, project, names, read_configs=False)
-    return [memory_check(mesh, part.name, settings).note for mesh in meshes if mesh and Path(mesh).is_file()]
+    checks = [memory_check(mesh, part.name, settings) for mesh in meshes if mesh and Path(mesh).is_file()]
+    known = [check for check in checks if check.estimate_gb is not None]
+    return max(known, key=lambda check: check.estimate_gb) if known else (checks[0] if checks else None)

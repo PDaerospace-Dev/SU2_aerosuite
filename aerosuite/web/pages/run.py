@@ -16,6 +16,7 @@ from ...engine.freestream import sweeps_altitude
 from ...engine.attempts import attempts, make_current
 from ...engine.errors import AeroSuiteError
 from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
+from ...engine.jobs.changes import config_changes
 from ...engine.jobs.diagnose import Diagnosis, diagnose, residual_trend
 from ...engine.jobs.overview import NOT_RUN
 from ...engine.jobs.plan import started_from
@@ -29,22 +30,24 @@ from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import RUNS_DIR, restart_file
 from ...engine.results import HISTORY_FILE, history_columns
 from ...engine.settings import AppSettings, load_settings
-from ...engine.slurm_checks import memory_notes
+from ...engine.slurm_checks import memory_summary
 from ...engine.study_results import study_results
-from ..cluster_view import can_resubmit, case_slurm_text, node_groups, partition_nodes, summary_parts
+from ..cluster_view import (can_resubmit, case_slurm_text, fitting_partition, full_note, node_groups, partition_nodes,
+                            summary_parts)
 from ..fields import text_field
 from ..rerun_dialog import ask_rerun, keep_changes, kept
 from ..resubmit_dialog import resubmit_case
 from .cluster import cluster_url
-from ..slurm_fields import slurm_fields
+from ..slurm_fields import partition_row, select_partition, slurm_fields
 from ..jobs import WATCHER, JobView, job_nodes, job_progress
 from ..layout import ProjectFrame, open_session, project_url
+from ..notes import NoteField, changes_line, note_label
 from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, clock_text,
                         duration_text, earlier_groups, has_board, job_left, layout, state_sections, status_counts,
                         tile_text)
 from ..session import parse_int
 from ..ui_kit import (banner, card, card_head, chip_button, danger_button, flat_button, help_tip, hint, node_pills,
-                      ok_line, pill, pill_text, pill_tone, primary_button, secondary_button, stat, status_dot, table,
+                      ok_line, pill, pill_text, pill_tone, primary_button, secondary_button, stat, table,
                       td, td_box, th, titled, warning_group)
 
 MACHINE_SECONDS = 10.0  # how often the machine strip is read again
@@ -73,7 +76,7 @@ def register() -> None:
                                  focus=case or None))
 
 
-_NODE_DOTS = {"free": "done", "busy": "attention", "bad": "red"}
+_OUT_OF_MEMORY = "(OUT_OF_MEMORY)"  # ends the preflight warning about a mesh over the limit: the red box says it
 _JOB_DOTS = {"done": "done", "running": "running", "failed": "red", "unconverged": "attention", "cancelled": "plain",
              "pending": "plain"}
 
@@ -170,6 +173,10 @@ class RunPage:
         self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
         self.add_ntasks: Optional[int] = None  # None: that partition's default
         self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
+        self.note = ""  # what the next run is for (kept while the panel is drawn again)
+        self.changes_open = False  # the list of config changes under the note is open
+        self.over_memory = False  # the memory estimate is over the chosen partition's limit: nothing is submitted
+        self.summary_selected: Optional[str] = None  # the partition whose pill has the ring
         self.holder = ui.column().classes("as-content w-full")
         self.render()
         ui.timer(POLL_SECONDS, self.poll)
@@ -200,8 +207,7 @@ class RunPage:
         except AeroSuiteError:
             return
         self._tick_clock()
-        if getattr(self, "backend", "local") == "slurm":
-            self._summary_values()  # the poller's latest; cheap
+        self._summary_values()  # the poller's latest; cheap
         if view.active is None and not self.was_active:
             return
         # Rebuild only when something shown changed: a rebuild every poll would collapse an open
@@ -266,24 +272,26 @@ class RunPage:
                     if self.focus is not None and (kind != "single" or self.focus != self.project.cases[0].name):
                         self._details(view)
                     with ui.column().classes("as-run-panel gap-0").mark("run-panel"):
+                        adding = view.active is not None and view.active.backend == "slurm" and kind != "single"
+                        if adding:
+                            self._add_target(view)
+                        if adding or (view.active is None and self.slurm):
+                            self._node_strip(self.add_partition if adding else self.options.partition,
+                                             self._pick_add if adding else self._pick_run, full=not adding)
                         if view.active is None:
                             with ui.column().classes("as-run-part w-full gap-2"):
                                 self._launch(view, selection, single=kind == "single")
-                        elif view.active.backend == "slurm" and kind != "single":
+                        elif adding:
                             with ui.column().classes("as-run-part w-full gap-2").mark("run-add"):
                                 self._add_block(view, selection)
                         else:
                             with ui.column().classes("as-run-part w-full gap-2").mark("run-wait"):
                                 ui.label("One job at a time").classes("as-run-head")
                                 hint("Cases can be run again once this job ends, or after Cancel.")
-                        if view.active is not None:  # idle: the checks sit above Submit
                             with ui.column().classes("as-run-part w-full gap-2"):
-                                self._checks(view, selection)
-                                self._plan(view, selection)
-                        with ui.column().classes("as-run-part as-run-foot w-full gap-1"):
-                            if self.slurm:
-                                self._cluster_summary()
-                            else:
+                                self._checks(view, selection, self.options)
+                        if not self.slurm:
+                            with ui.column().classes("as-run-part as-run-foot w-full gap-1"):
                                 self._machine()
         self._buttons_state(view, selection)
 
@@ -470,6 +478,8 @@ class RunPage:
                                 ui.element("div")
                                 continue
                             self._tile(rows[name], places.get(name), compact, other=name in others)
+        hint("Click a tile for its details · Ctrl-click (⌘ on a Mac) or Shift-click to select several · click a heading "
+             "to select its row or column").mark("board-help")
 
     def _tile(self, row, place: Optional[int], compact: bool, other: bool = False) -> None:
         iterations = (_iterations(self.directory / RUNS_DIR / row.name / HISTORY_FILE)
@@ -773,11 +783,44 @@ class RunPage:
             with ui.row().classes("items-baseline gap-2 no-wrap"):
                 ui.label(str(len(selection.ticked))).classes("as-run-big").mark("run-what")
                 ui.label(f"of {_plural(len(self.project.cases), 'case')} selected").classes("as-muted")
+        over = False
         if self.slurm:
-            self._slurm_fields()
+            partition = self.options.partition
+            check = memory_summary(self.directory, self.project, selection.ticked or None, partition, self.settings)
+            slurm_fields(self.frame, self.settings, self.render, mark="run", compact=True,
+                         over=check is not None and check.over)
+            self._full_note("run")
+            over = self._memory("run", check, len(selection.ticked) or len(self.project.cases), partition,
+                                self._pick_run)
         else:
             text_field("Cores per case (MPI partitions)", self.project.run.partitions, self._set_partitions,
                        mark="run-partitions")
+        self.over_memory = over
+        self._continue_box(selection, single)
+        with ui.column().classes("as-run-checks w-full gap-1"):
+            clean = self._checks(view, selection, self.options)
+            self._plan(view, selection)
+        if self.slurm and self.submit_error:
+            banner("error", f"Submit failed: {self.submit_error}").mark("submit-error")
+        NoteField(self.directory, self.note, self._set_note)
+        self._changes(view, selection)
+        count = len(selection.ticked)
+        if self.checking:
+            label = "Checking the configs with SU2…"
+        elif self.submitting:
+            label = "Submitting…"
+        elif single:
+            label = "Submit to Slurm" if self.slurm else "Run case"
+        else:
+            label = f"Submit {_plural(count, 'case')}" if count else "Submit cases"
+        self.submit_button = primary_button(label, on_click=self.submit, icon="play_arrow").classes(
+            "w-full as-btn-accent").mark("submit")
+        self.blocked = hint("").mark("submit-blocked")
+        if clean and count and not over:
+            ok_line("Ready to submit").mark("run-problems-none")
+
+    def _continue_box(self, selection: _Selection, single: bool) -> None:
+        """Start the selected cases from their last solution (e.g. second order from a first-order run) or fresh."""
         box = ui.checkbox("Continue from the last solution" if single else "Continue from each case's last solution",
                           value=selection.chosen, on_change=lambda e: self._set_continue(e.value)).mark("continue")
         if selection.no_solution:
@@ -786,24 +829,94 @@ class RunPage:
             text = ("No solution to continue from yet" if single else
                     f"{_plural(count, 'selected case')} {'has' if count == 1 else 'have'} no solution to continue from")
             titled(hint(text), ", ".join(selection.no_solution)).mark("continue-missing")
-        with ui.column().classes("as-run-checks w-full gap-1"):
-            self._checks(view, selection)
-            self._plan(view, selection)
-        if self.slurm and self.submit_error:
-            banner("error", f"Submit failed: {self.submit_error}").mark("submit-error")
-        label = "Run case" if single else f"Submit {_plural(len(selection.ticked), 'case')}"
-        if self.slurm:
-            label = "Submitting…" if self.submitting else (
-                "Submit to Slurm" if single else f"Submit {_plural(len(selection.ticked), 'case')} to Slurm")
-        if self.checking:
-            label = "Checking the configs with SU2…"
-        self.submit_button = primary_button(label, on_click=self.submit, icon="play_arrow").classes("w-full").mark(
-            "submit")
-        self.blocked = hint("").mark("submit-blocked")
 
-    def _slurm_fields(self) -> None:
-        """Partition, tasks per case and time limit (saved with the project); always one node."""
-        slurm_fields(self.frame, self.settings, self.render, mark="run", compact=True)
+    def _set_note(self, text: str) -> None:
+        self.note = text
+
+    def _changes(self, view: JobView, selection: _Selection) -> None:
+        """"Note · N config changes since last run" under the note field: the config lines that differ from what the
+        selected cases last ran with (rerun lines for the next job included)."""
+        if not selection.ticked:
+            return
+        try:
+            found = config_changes(self.directory, self.project, read_template(self.directory, self.project),
+                                   selection.ticked, view.overview.jobs, (self.rerun_with or {}).get("changes"))
+        except AeroSuiteError:
+            return
+
+        def toggle(opened: bool) -> None:
+            self.changes_open = opened
+            self.render()
+
+        changes_line(found, self.changes_open, toggle)
+
+    def _pick_run(self, name: str) -> None:
+        """A node pill or "Switch to": the study's partition (saved with it)."""
+        select_partition(self.frame, name, self.options.partition, self.render)
+
+    def _pick_add(self, name: str) -> None:
+        self._set_add_partition(name)
+
+    def _full_note(self, mark: str) -> None:
+        """A warning under the fields while the chosen partition has no free core; kept current by poll()."""
+        self.full_label = banner("warning", "").mark(f"{mark}-full")
+        self._full_note_values()
+
+    def _full_note_values(self, parts=None) -> None:
+        label = getattr(self, "full_label", None)
+        if label is None or label.is_deleted:
+            return
+        parts = parts or self._summary()
+        text = full_note(parts.nodes, self.summary_selected)
+        label.text = text
+        label.parent_slot.parent.set_visibility(bool(text))
+
+    def _memory(self, mark: str, check, count: int, partition: str, pick) -> bool:
+        """Memory per case on `partition`: the estimate of the largest mesh against its limit, a bar under it and the
+        cells. Over the limit the bar is red and a box says by how much, names a node with enough memory and offers
+        to switch to it. Returns whether that blocks the submit: only on a partition set to Block (else a warning)."""
+        if check is None:
+            return False
+        if check.estimate_gb is None:
+            hint(check.note).mark(f"{mark}-memory")
+            return False
+        over = check.over
+        with ui.column().classes("as-memory w-full gap-1").mark(f"{mark}-memory"):
+            with ui.row().classes("as-memory-row w-full gap-2"):
+                ui.label("Memory per case").classes("as-muted")
+                ui.space()
+                ui.label(f"{check.estimate_gb:.0f} of {check.limit_gb:.0f} GB").classes(
+                    "as-strong" + (" as-error-text" if over else "")).mark(f"{mark}-memory-value")
+            ui.linear_progress(min(1.0, check.estimate_gb / check.limit_gb), show_value=False, size="4px",
+                               color="negative" if over else "positive").classes("as-memory-bar w-full").mark(
+                f"{mark}-memory-bar")
+            hint(f"Largest case: {check.elements / 1e6:.1f}M cells").mark(f"{mark}-memory-cells")
+        if over:
+            short = max(1, round(check.estimate_gb - check.limit_gb))
+            nodes = self._summary().nodes
+            other = fitting_partition(check.estimate_gb, partition, self.settings.slurm.partitions, nodes)
+            text = f"{'This case needs' if count == 1 else 'These cases need'} {short} GB more than {partition} has."
+            text += f" {other[0]} has {other[1]:.0f} GB." if other else " No other node has enough memory."
+            part = self.settings.slurm.partition(partition)
+            blocks = part is not None and part.block_over_memory
+            if not blocks:
+                text += f" {partition} warns only, so you can still submit."
+            with ui.column().classes("w-full gap-1"):
+                banner("error" if blocks else "warning", text).mark(f"{mark}-over")
+                if other:
+                    secondary_button(f"Switch to {other[0]}", on_click=lambda n=other[0]: pick(n)).props(
+                        "dense").mark(f"{mark}-switch")
+            return blocks
+        return False
+
+    def _add_target(self, view: JobView) -> None:
+        """Where "Add cases" sends them: the partition last chosen, else one the job does not use yet."""
+        job = view.active
+        busy = WATCHER.slurm_runner.busy_cases(job)
+        names = [p.name for p in self.settings.slurm.partitions]
+        used = {job.slurm[name].partition for name in busy if name in job.slurm}
+        if self.add_partition not in names:
+            self.add_partition = next((name for name in names if name not in used), names[0] if names else None)
 
     def _add_block(self, view: JobView, selection: _Selection) -> None:
         """More cases into the running Slurm job, e.g. on the other node while it runs; the partition and tasks
@@ -812,33 +925,34 @@ class RunPage:
         busy = WATCHER.slurm_runner.busy_cases(job)
         addable = [name for name in selection.ticked if name not in busy]
         skipped = len(selection.ticked) - len(addable)
-        partitions = self.settings.slurm.partitions
-        names = [p.name for p in partitions]
-        used = {job.slurm[name].partition for name in busy if name in job.slurm}
-        if self.add_partition not in names:
-            self.add_partition = next((name for name in names if name not in used), names[0] if names else None)
+        names = [p.name for p in self.settings.slurm.partitions]
         part = self.settings.slurm.partition(self.add_partition)
         ntasks = self.add_ntasks or (part.default_ntasks if part else 1)
+        check = memory_summary(self.directory, self.project, addable or None, self.add_partition, self.settings)
         ui.label("Add cases").classes("as-run-head")
         hint("Run more selected cases in this job while it runs, e.g. on the other node").mark("add-note")
-        ui.select(names, value=self.add_partition, label="Partition",
-                  on_change=lambda e: self._set_add_partition(e.value)).classes("w-full").props("dense").mark(
-            "add-partition")
-        text_field("Tasks per case (MPI ranks)", ntasks, self._set_add_ntasks, mark="add-ntasks")
-        if part is not None and part.ntasks_warn_above and ntasks > part.ntasks_warn_above:
-            hint(f"{part.name} gains nothing above about {part.ntasks_warn_above} tasks").classes(
-                "as-hint-warning").mark("add-ntasks-note")
-        for note in memory_notes(self.directory, self.project, addable or None, self.add_partition, self.settings):
-            hint(note).mark("add-memory")
-        label = "Adding…" if self.submitting else f"Add {_plural(len(addable), 'case')} to the running job"
+        partition_row(names, self.add_partition, ntasks, part, self._set_add_partition, self._set_add_ntasks, "add",
+                      over=check is not None and check.over, ntasks_label="Tasks per case (MPI ranks)")
+        self._full_note("add")
+        over = self._memory("add", check, len(addable) or len(self.project.cases), self.add_partition,
+                            self._pick_add)
+        self.over_memory = over
+        self._continue_box(selection, single=False)
+        NoteField(self.directory, self.note, self._set_note)
+        options = slurm_options(self.project, self.settings, partition=self.add_partition, ntasks=self.add_ntasks)
+        clean = self._checks(view, selection, options)
+        count = len(addable)
+        label = "Adding…" if self.submitting else (f"Add {_plural(count, 'case')}" if count else "Add cases")
         button = primary_button(label, icon="playlist_add", on_click=lambda: self.add_cases(addable)).classes(
-            "w-full").mark("add-cases")
-        button.set_enabled(bool(addable) and not self.submitting)
+            "w-full as-btn-accent").mark("add-cases")
+        button.set_enabled(bool(addable) and not self.submitting and not over)
         if skipped:
-            count = f"{skipped} selected case{' is' if skipped == 1 else 's are'}"
-            hint(f"{count} already queued or running in this job: skipped").mark("add-skipped")
+            noun = f"{skipped} selected case{' is' if skipped == 1 else 's are'}"
+            hint(f"{noun} already queued or running in this job: skipped").mark("add-skipped")
         elif not selection.ticked:
-            hint("Select cases to add them to this job").mark("add-skipped")
+            hint("Select at least one case").mark("add-skipped")
+        if clean and addable and not over:
+            ok_line("Ready to submit").mark("run-problems-none")
 
     def _set_add_partition(self, name: str) -> None:
         if name != self.add_partition:
@@ -858,7 +972,7 @@ class RunPage:
 
     async def add_cases(self, cases: list) -> None:
         extra, self.rerun_with = self.rerun_with or {}, None
-        if self.submitting or not cases:
+        if self.submitting or not cases or self.over_memory:
             return
         self._load_settings()
         options = slurm_options(self.project, self.settings, partition=self.add_partition, ntasks=self.add_ntasks)
@@ -885,6 +999,9 @@ class RunPage:
             generate_configs(self.directory, self.project)  # as a submit: the current settings
             await run.io_bound(WATCHER.add_cases, self.directory, self.project, job_id, cases, continue_cases,
                                options, extra.get("changes"), extra.get("starts"))
+            if self.note.strip():  # a job has one note: the batch's is added to it
+                await run.io_bound(WATCHER.annotate, self.directory, job_id, " ".join(self.note.split()), None, True)
+                self.note = ""
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
         else:
@@ -908,7 +1025,7 @@ class RunPage:
         if view.active is None:  # one job at a time: while one runs the panel has Cancel, no Submit
             self.clock = None
             self.submit_button.set_enabled(bool(selection.ticked) and not self.has_errors and not self.submitting
-                                           and not self.checking)
+                                           and not self.checking and not self.over_memory)
             self.blocked.text = ("Fix the error below to run" if self.has_errors else
                                  "Select at least one case" if not selection.ticked else "")
 
@@ -938,6 +1055,8 @@ class RunPage:
             ui.label("Last job finished " + _ago(job.finished) if job is not None and job.finished else
                      "Nothing has run yet" if job is None else "Last job").classes("as-jobbar-title").mark(
                 "last-job-when")
+            if job is not None and job.note:
+                note_label(job.note, job.outcome, quoted=True).classes("as-job-note").mark("last-job-note")
         if job is None:
             ui.space()
             ui.label("No job yet").classes("as-muted").mark("last-job")
@@ -953,25 +1072,25 @@ class RunPage:
             secondary_button("Job history", icon="history", on_click=lambda: self._set_tab("history")).mark(
                 "last-job-history")
 
-    def _checks(self, view: JobView, selection: _Selection) -> None:
+    def _checks(self, view: JobView, selection: _Selection, options: Optional[SlurmOptions]) -> bool:
+        """The problems with submitting: errors stay in view, warnings fold into one row. Returns whether there are
+        none (the caller then says "Ready to submit" under its button)."""
         cases = selection.ticked or None
-        problems = preflight(self.directory, self.project, "submit", cases=cases, options=self.options,
+        problems = preflight(self.directory, self.project, "submit", cases=cases, options=options,
                              settings=self.settings)
-        if self.slurm:
-            for note in memory_notes(self.directory, self.project, cases, self.options.partition, self.settings):
-                hint(note).mark("run-memory")
         if view.active is not None:  # "job ... is still running" is what the table already shows
             problems = [p for p in problems if not p.message.startswith(f"Job {view.active.id} ")]
+        if self.over_memory:  # the memory box says it
+            problems = [p for p in problems if _OUT_OF_MEMORY not in p.message]
         self.has_errors = has_errors(problems)
         found = [(p.severity, p.message) for p in problems] + [("warning", m) for m in view.overview.problems]
-        if not found:
-            ok_line("No problems found.").mark("run-problems-none")
-        for severity, message in found:  # errors stay in view; warnings fold into one row
+        for severity, message in found:
             if severity == "error":
                 banner("error", f"Error: {message}").mark("run-problem-error")
         warnings = [message for severity, message in found if severity != "error"]
         if warnings:
             warning_group(warnings, mark="run-warnings")
+        return not found
 
     def _machine(self) -> None:
         """This machine now: cores (free), memory, SU2 solvers running, who uses the cores; kept current by a
@@ -1008,37 +1127,53 @@ class RunPage:
         self.machine_note.set_visibility(bool(note))
         self.machine_usage.text = "\n".join(usage_text(item) for item in items) or "nothing much"
 
-    def _cluster_summary(self) -> None:
-        """One pill per partition (free, share busy, or bad), your jobs under them and a link to the Cluster page;
-        kept current by poll()."""
+    def _node_strip(self, selected: Optional[str], pick, full: bool) -> None:
+        """The top of the panel, in a light strip: a pill per partition, the ones with room first, the chosen one
+        ringed; clicking a pill chooses it. `full`: also your jobs and a link to the Cluster page. Kept current by
+        poll()."""
         self.summary_sig = None
-        with ui.row().classes("items-center w-full no-wrap gap-2"):
-            self.summary_box = ui.row().classes("items-center gap-1 grow").mark("run-cluster-summary")
-            ui.link("Cluster →", cluster_url(project_url("run", self.directory))).style("white-space: nowrap").mark(
-                "run-cluster-link")
-        self.summary_mine = ui.label("").classes("as-muted").mark("run-cluster-mine")
+        self.summary_selected, self.summary_pick = selected, pick
+        with ui.column().classes("as-run-part as-run-strip w-full gap-1"):
+            self.summary_box = ui.row().classes("items-center gap-1 w-full").mark("run-cluster-summary")
+            self.summary_mine = None
+            if full:
+                with ui.row().classes("items-center w-full no-wrap gap-2"):
+                    self.summary_mine = ui.label("").classes("as-muted as-small grow").mark("run-cluster-mine")
+                    ui.link("Cluster →", cluster_url(project_url("run", self.directory))).style(
+                        "white-space: nowrap").mark("run-cluster-link")
         self._summary_values()
+
+    def _summary(self):
+        """The node strip's pills: the partitions in the settings, as their cases would start there."""
+        watch = WATCHER.slurm_watch
+        return summary_parts(watch.cluster, watch.snapshot, watch.user, self.settings.slurm)
 
     def _summary_values(self) -> None:
         box = getattr(self, "summary_box", None)
         if box is None or box.is_deleted:
             return
-        watch = WATCHER.slurm_watch
-        parts = summary_parts(watch.cluster, watch.snapshot, watch.user)
-        if parts == self.summary_sig:
+        parts = self._summary()
+        self._full_note_values(parts)
+        if (parts, self.summary_selected) == self.summary_sig:
             return  # nothing visible changed: no redraw
-        self.summary_sig = parts
+        self.summary_sig = (parts, self.summary_selected)
         box.clear()
         with box:
             if parts.message:
                 ui.label(parts.message).classes("as-error-text" if parts.bad else "as-muted").mark("run-cluster-message")
             for name, level, text, tip in parts.nodes:
-                with ui.row().classes("as-nodepill items-center no-wrap gap-1"):
-                    status_dot(_NODE_DOTS[level])
+                row = ui.row().classes(f"as-nodepill as-nodepill-{level} items-center no-wrap gap-1"
+                                       + (" as-nodepill-on" if name == self.summary_selected else ""))
+                row.props("role=button tabindex=0").mark(f"run-pill-{name}")
+                row.on("click", lambda _, n=name: self.summary_pick(n))
+                row.on("keydown.enter", lambda _, n=name: self.summary_pick(n))
+                with row:
                     titled(ui.label(text), tip).classes("as-error-text" if level == "bad" else "").mark(
                         f"run-node-{name}")
-        self.summary_mine.text = f"Yours: {parts.mine}" if parts.mine else ""
-        self.summary_mine.set_visibility(bool(parts.mine))
+        mine = getattr(self, "summary_mine", None)
+        if mine is not None and not mine.is_deleted:
+            mine.text = f"Your jobs: {parts.mine}" if parts.mine else ""
+            mine.set_visibility(bool(parts.mine))
 
     def _selection(self, view: JobView) -> _Selection:
         ticked = [case.name for case in self.project.cases if case.name in self.ticked]
@@ -1362,6 +1497,8 @@ class RunPage:
         self.render()
 
     async def submit(self) -> None:
+        if self.over_memory:
+            return
         stale = self.frame.ensure_current(notify=False)
         if stale is not None:
             if self.frame.session.load_error is not None:  # project.json on disk is invalid
@@ -1389,33 +1526,36 @@ class RunPage:
                 self.submitting = True
                 self.submit_error = None
                 self.render()
-                background_tasks.create(self._submit_slurm(cases, list(self.continue_cases), self.options, extra))
+                background_tasks.create(self._submit_slurm(cases, list(self.continue_cases), self.options, extra,
+                                                           self.note))
             return
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
             WATCHER.submit(self.directory, self.project, cases, self.continue_cases,
-                           changes=extra.get("changes"), starts=extra.get("starts"))
+                           changes=extra.get("changes"), starts=extra.get("starts"), note=self.note)
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")
             self.render()
             return
         ui.notify(f"Started {_plural(len(cases), 'case')}", type="positive")
+        self.note = ""
         self.frame.refresh()
         self.render()
 
     async def _submit_slurm(self, cases: list, continue_cases: list, options: SlurmOptions,
-                            extra: Optional[dict] = None) -> None:
+                            extra: Optional[dict] = None, note: str = "") -> None:
         """sbatch once per case (seconds for a big sweep, or up to the timeout when Slurm is slow): in a worker
         thread, so the server keeps answering."""
         extra = extra or {}
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
             await run.io_bound(WATCHER.submit, self.directory, self.project, cases, continue_cases, options,
-                               extra.get("changes"), extra.get("starts"))
+                               extra.get("changes"), extra.get("starts"), note)
         except AeroSuiteError as exc:
             self.submit_error = str(exc)
             ui.notify(str(exc), type="negative")
         else:
+            self.note = ""
             ui.notify(f"Submitted {_plural(len(cases), 'case')} to Slurm ({options.partition})", type="positive")
         finally:
             self.submitting = False

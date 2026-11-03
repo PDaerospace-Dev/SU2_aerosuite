@@ -23,7 +23,7 @@ from .jobs.runner import CaseState, sweep_environment
 from .jobs.slurm import job_name, script_head
 from .jobs.store import active_lock, load_job
 from .models import Project
-from .restarts import RUNS_DIR, find_restart_file
+from .restarts import RUNS_DIR, find_restart_file, su2_solution_path
 from .settings import AppSettings
 
 ASCII_CFG = "to_ascii.cfg"
@@ -135,6 +135,7 @@ def write_ascii(project_dir: Path, project: Project, case: str, settings: AppSet
     if restart is None:
         raise JobError(f"{case} has no restart file to write the ASCII files from")
     scratch = f"{SCRATCH_ROOT}/aerosuite-ascii-{re.sub(r'[^A-Za-z0-9_.-]', '_', project.name)}-{case}"
+    restart = Path(su2_solution_path(restart, folder))  # SU2_SOL runs in the case folder
     config = ascii_config(_case_config(folder, case).read_text(encoding="utf-8", errors="replace"), restart, scratch)
     try:
         (folder / ASCII_CFG).write_text(config, encoding="utf-8", newline="\n")
