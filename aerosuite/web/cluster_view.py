@@ -72,6 +72,7 @@ class NodeLine:
     memory_gb: Optional[int] = None
     free_gb: Optional[int] = None
     load_value: Optional[float] = None
+    threads: int = 1  # allocated and total are physical cores; Slurm's CPUs are this many threads per core
 
     @property
     def busy_percent(self) -> int:
@@ -109,8 +110,9 @@ def node_groups(cluster: Optional[ClusterInfo]) -> list[tuple[str, bool, list[No
     for row in cluster.nodes:
         total, free = _gb(row.memory_mb), _gb(row.free_mb)
         memory = f"{free} of {total} GB free" if total is not None and free is not None else "—"
-        line = NodeLine(row.node, row.state, row.bad, row.allocated, row.total, memory,
-                        "—" if row.load is None else f"{row.load:.1f}", row.reason, total, free, row.load)
+        line = NodeLine(row.node, row.state, row.bad, row.cores_allocated, row.cores, memory,
+                        "—" if row.load is None else f"{row.load:.1f}", row.reason, total, free, row.load,
+                        row.threads)
         default, lines = groups.setdefault(row.partition, (row.default, []))
         lines.append(line)
         if row.default and not default:

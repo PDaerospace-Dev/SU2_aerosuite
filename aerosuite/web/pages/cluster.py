@@ -341,10 +341,10 @@ class ClusterPage:
         self._text(tip, read(lambda n: f"{n.memory} (Linux keeps its file cache out of free memory)"))
         ring, label, _caption, tip = _dial(
             node.load_share, node.load if node.load == "—" else f"{float(node.load):.0f}", "Load",
-            f"node-{name}-load", f"Load {node.load} on {node.total} CPUs")
+            f"node-{name}-load", _load_tip(node))
         self._value(ring, read(lambda n: n.load_share))
         self._text(label, load_text)
-        self._text(tip, read(lambda n: f"Load {n.load} on {n.total} CPUs"))
+        self._text(tip, read(_load_tip))
 
     def _node_jobs(self, node: str, jobs: tuple, bad: bool) -> None:
         """Running: a line per study job with cases running here (cases finished / in all and a bar, as on its Run
@@ -440,7 +440,7 @@ class ClusterPage:
         (header row for extra controls, whether the body is shown)."""
         opened = key not in _COLLAPSED
         with ui.column().classes("as-card as-card-flush w-full gap-0").mark(mark):
-            with ui.row().classes("items-center w-full no-wrap gap-2 pr-3") as head:
+            with ui.row().classes("as-section-bar items-center w-full gap-2 pr-3") as head:  # controls wrap under
                 with ui.button(on_click=lambda: self._toggle(key), color=None).props(
                         f'flat no-caps align=left aria-expanded={"true" if opened else "false"}').classes(
                         "as-section-toggle grow").mark(f"{mark}-toggle"):
@@ -493,7 +493,8 @@ class ClusterPage:
                       "minmax(10rem, auto)"]
             if grouped:  # the group's line names the study; the cases keep their own times
                 headings, widths = headings[2:], widths[2:]
-            with table(" ".join(widths)).classes("as-table-compact w-full"):
+            with ui.element("div").classes("as-table-scroll w-full"), \
+                    table(" ".join(widths)).classes("as-table-compact w-full"):  # scrolls across in a narrow window
                 for heading in headings:
                     self._heading(heading)
                 if grouped:
@@ -565,7 +566,7 @@ class ClusterPage:
             if not opened:
                 ui.label(f"{len(group.rows)} case{'' if len(group.rows) == 1 else 's'} folded").classes(
                     "as-muted as-small").mark(f"group-{group.key}-folded")
-            if group.job_id and group.note:  # last on the line, pushed to its right end
+            if group.job_id and group.note:  # last on the line, right after "cases folded"
                 self._note_pop(group)
 
     def _group_where(self, group: JobGroup) -> None:
@@ -582,7 +583,7 @@ class ClusterPage:
         """The note icon: hover shows the note, its outcome, the job id and when the job was saved with an Edit
         link; a click keeps it open."""
         key = group.key
-        icon = ui.icon("sticky_note_2").classes("as-group-icon cursor-pointer ml-auto").mark(f"group-{key}-note")
+        icon = ui.icon("sticky_note_2").classes("as-group-icon cursor-pointer").mark(f"group-{key}-note")
         state = {"pinned": False, "inside": False}
         with icon:
             menu = ui.menu().props("no-parent-event no-focus anchor=\"bottom left\" self=\"top left\"")
@@ -789,6 +790,11 @@ def _state_tone(node) -> str:
     if node.bad:
         return "bad"
     return {"Full": "full", "Partly used": "part", "Free": "free"}.get(node.words, "other")
+
+
+def _load_tip(node) -> str:
+    threads = f" ({node.total * node.threads} threads)" if node.threads > 1 else ""
+    return f"Load {node.load} on {node.total} cores{threads}"
 
 
 def _dial(value: float, text: str, caption: str, mark: str, tip: Optional[str] = None) -> tuple:

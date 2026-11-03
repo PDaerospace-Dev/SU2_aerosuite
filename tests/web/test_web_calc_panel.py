@@ -11,7 +11,8 @@ def _element(user, marker):
 async def test_the_button_is_labelled_and_opens_the_panel_on_the_page(user: User, ready_project):
     project_dir, _ = ready_project
     await user.open(project_url("setup", project_dir))
-    assert _element(user, "calculators").text == "Calculators"
+    assert _element(user, "calculators").props["title"] == "Calculators"  # its name on hover, when the window is narrow
+    await user.should_see("Calculators")
     await user.should_not_see(marker="calc-panel")
     user.find(marker="calculators").click()
     await user.should_see(marker="calc-panel")

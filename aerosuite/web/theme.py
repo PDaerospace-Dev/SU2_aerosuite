@@ -50,11 +50,17 @@ SERIES_COLORS = ["#2f6fe4", "#8250df", "#1a7f37", "#bf8700", "#cf222e", "#0a7ea4
 BADGE_COLORS = ["#8250df", "#2f6fe4", "#1a7f37", "#bf3989", "#0a7ea4", "#bc4c00"]
 
 SIDEBAR_KEY = "aerosuite-sidebar"
-# Runs in <head> before the page is drawn, so a collapsed sidebar never flashes open first.
-RESTORE_SIDEBAR = ("<script>try { if (localStorage.getItem('%s') === 'mini') "
-                   "document.documentElement.classList.add('as-mini'); } catch (e) {}</script>" % SIDEBAR_KEY)
+NARROW = "(max-width: 1024px)"  # a window this narrow shows the sidebar collapsed, whatever was chosen when wider
+# Runs in <head> before the page is drawn, so a collapsed sidebar never flashes open first; again as the window
+# crosses NARROW.
+RESTORE_SIDEBAR = ("<script>(function () { const narrow = matchMedia('%s'); function apply() { let mini = false;"
+                   " try { mini = localStorage.getItem('%s') === 'mini'; } catch (e) {}"
+                   " document.documentElement.classList.toggle('as-mini', narrow.matches || mini); }"
+                   " apply(); narrow.addEventListener('change', apply); })();</script>" % (NARROW, SIDEBAR_KEY))
+# Remembered only in a wide window: opening it in a narrow one is for now.
 TOGGLE_SIDEBAR = ("const mini = document.documentElement.classList.toggle('as-mini');"
-                  "try { localStorage.setItem('%s', mini ? 'mini' : 'full'); } catch (e) {}" % SIDEBAR_KEY)
+                  "if (!matchMedia('%s').matches) try { localStorage.setItem('%s', mini ? 'mini' : 'full'); }"
+                  " catch (e) {}" % (NARROW, SIDEBAR_KEY))
 
 BASE_CSS = """
 body { background: var(--as-page); color: var(--as-text); font-family: var(--as-font); font-size: 13px; }
@@ -80,6 +86,9 @@ body { background: var(--as-page); color: var(--as-text); font-family: var(--as-
 .as-topbar-icon { width: 30px; height: 30px; min-height: 30px; padding: 0; border: 1px solid var(--as-topbar-border);
   border-radius: 7px; color: var(--as-topbar-muted); }
 .as-topbar-icon.as-round { border-radius: 50%; }
+.as-topbar-labelled .q-btn__content { flex-wrap: nowrap; white-space: nowrap; }
+.as-topbar > * { flex-shrink: 0; }
+.as-topbar > .as-job, .as-topbar > .as-switcher { flex-shrink: 1; min-width: 0; }
 html.as-mini .as-when-full, html:not(.as-mini) .as-when-mini { display: none; }
 .as-job { padding: 6px 12px; gap: 10px; cursor: pointer; align-items: center; flex-wrap: nowrap; }
 .as-job-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--as-running);
@@ -92,7 +101,7 @@ html.as-mini .as-when-full, html:not(.as-mini) .as-when-mini { display: none; }
 .as-initials { width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center;
   justify-content: center; font-weight: 600; color: #fff; flex: none; }
 .as-switcher-name { font-size: 13px; line-height: 1.15; max-width: 16rem; }
-.as-switcher-kind { font-size: 11px; line-height: 1.15; }
+.as-switcher-kind { font-size: 11px; line-height: 1.15; white-space: nowrap; }
 
 .as-body { min-height: calc(100vh - 52px); flex-wrap: nowrap; align-items: stretch; gap: 0; }
 .as-sidebar { width: 210px; min-width: 210px; background: #fff; border-right: 1px solid var(--as-frame);
@@ -124,7 +133,7 @@ a.as-step:hover { background: #f6f8fa; }
 .as-crumb-project { max-width: 24rem; }
 .as-crumb-sep { color: #c4c9cf; }
 .as-crumb-current { font-weight: 600; }
-.as-content { gap: 14px; }
+.as-content { gap: 14px; container: as-content / inline-size; }
 .as-page { padding: 14px 28px 76px; gap: 14px; }
 
 .as-card { background: #fff; border: 1px solid var(--as-frame); border-radius: 10px; padding: 16px 18px;
@@ -415,6 +424,10 @@ a.as-step:hover { background: #f6f8fa; }
 .as-pill-small { font-size: 11.5px; padding: 1px 7px; }
 .as-section-toggle { min-height: 48px; justify-content: flex-start; gap: 10px; padding: 0 16px; }
 .as-section-toggle .q-btn__content { gap: 10px; flex-wrap: nowrap; }
+.as-section-toggle .as-card-title { white-space: nowrap; }
+.as-section-toggle .as-small { text-align: left; }
+.as-section-bar { row-gap: 4px; padding-bottom: 4px; } .as-section-bar > .as-section-toggle { flex: 1 1 320px; }
+.as-chip .q-btn__content { flex-wrap: nowrap; white-space: nowrap; }
 .as-sort-head { justify-content: flex-start; border-radius: 0; min-height: 0; font-weight: 600; }
 .as-sort-head .q-btn__content { justify-content: flex-start; }
 .as-node-card .as-mono { white-space: nowrap; }
@@ -473,8 +486,6 @@ a.as-step:hover { background: #f6f8fa; }
 .as-group-cell { background: #f6f8fa; gap: 6px; }
 .as-group-name { cursor: pointer; }
 .as-group-name:hover { background: var(--as-hairline); }
-@media (max-width: 1100px) { .as-run { grid-template-columns: minmax(0, 1fr); } .as-run-panel { position: static;
-  max-height: none; } }
 .as-stat-label { font-size: 11px; color: var(--as-muted); }
 .as-stat-value { font-weight: 600; }
 
@@ -494,6 +505,19 @@ a.as-step:hover { background: #f6f8fa; }
   grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .as-topbar-icon.as-topbar-labelled { width: auto; padding: 0 10px; font-weight: 500; }
 .as-topbar-labelled .q-icon { margin-right: 6px; }
+/* a narrower window: the buttons by their icons (their names on hover), then the brand by its mark and the project
+   by its initials, then the running job by its dot */
+@media (max-width: 1360px) {
+  .as-topbar-label { display: none; }
+  .as-topbar-labelled .q-icon { margin-right: 0; }
+  .as-topbar-icon.as-topbar-labelled { padding: 0 6px; }
+}
+@media (max-width: 1024px) {
+  .as-brand { width: auto; } .as-logo-text { display: none; }
+  .as-switcher > .nicegui-column { display: none; }
+  .as-job-text { max-width: 9rem; }
+}
+@media (max-width: 760px) { .as-job-text, .as-job-bar { display: none; } }
 .as-calc { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; width: 100%; }
 .as-calc-item { padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; gap: 2px; }
 .as-calc-item:hover { background: #fff; }
@@ -575,9 +599,44 @@ a.as-step:hover { background: #f6f8fa; }
 .as-jobbar-live { background: #dcebff; border-color: #79b8ff; }
 .as-jobbar-title { font-size: 17px; font-weight: 700; }
 .as-jobbar-progress { max-width: 320px; }
-.as-run-side { position: sticky; top: 68px; max-height: calc(100vh - 84px); overflow-y: auto; min-width: 0; }
+.as-jobbar { row-gap: 10px; }
+.as-jobbar > .grow { flex: 1 1 220px; }  /* the progress, or the last job's line: under, before the buttons wrap */
+.as-jobbar-actions { gap: 8px; margin-left: auto; }
+.as-run-side { position: sticky; top: 68px; max-height: calc(100vh - 84px); overflow-y: auto; min-width: 0;
+  overflow-x: hidden; }  /* its own scrollbar takes width: the panel narrows, it never scrolls across */
+.as-run-side > * { width: 100%; min-width: 0; }
+.as-run-panel .q-field { min-width: 0; }
 .as-run-side .as-run-panel { position: static; max-height: none; overflow: visible; }
+/* the side column under the cases once the page is too narrow for both: by the page's width, not the window's,
+   so a sidebar open or closed counts */
+@container as-content (max-width: 1040px) { .as-run { grid-template-columns: minmax(0, 1fr) 300px; } }
+@container as-content (max-width: 880px) {
+  .as-run { grid-template-columns: minmax(0, 1fr); }
+  .as-run-side { position: static; max-height: none; overflow: visible; max-width: 640px; }
+}
 .as-details { padding: 14px 16px; }
+/* Starts from: the choice, and what each selected case starts from (folded) */
+.as-start-choice .q-radio { width: 100%; }
+.as-start-choice .q-radio__label { font-size: 13px; line-height: 1.35; padding: 3px 0 3px 6px; }
+.as-start-choice { gap: 0; }
+.as-starts { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 8px; }
+.as-starts .q-item { min-height: 36px; padding: 4px 10px; }
+.as-starts .q-item__label { font-size: 11.5px; font-weight: 600; color: #57606a; }
+.as-starts .q-item__label--caption { font-weight: 400; text-transform: none; }
+.as-starts .q-expansion-item__content { padding: 0 10px 8px; }
+.as-starts .q-expansion-item__content > * { gap: 0 !important; padding: 0 !important; margin: 0; }
+.as-start-group, .as-start-line { border-top: 1px solid #eaeef2; padding: 6px 0; }
+.as-start-line .as-small { overflow-wrap: anywhere; }
+.as-start-name { font-weight: 600; font-size: 11.5px; white-space: nowrap; }
+.as-start-chip { background: #fff; border: 1px solid #d0d7de; border-radius: 4px; padding: 0 5px; font-size: 11.5px; }
+.as-start-tag { flex: none; border-radius: 4px; padding: 0 6px; font-size: 10.5px; font-weight: 600;
+  white-space: nowrap; line-height: 17px; }
+.as-start-own { background: #dafbe1; color: #116329; }
+.as-start-kept, .as-start-attempt, .as-start-folder { background: #ddf4ff; color: #0550ae; }
+.as-start-case { background: #f3e8ff; color: #6f42c1; }
+.as-start-after, .as-start-running { background: #fff8c5; color: #7a5200; }
+.as-start-scratch { background: #eaeef2; color: #424a53; }
+.as-start-none { background: #ffebe9; color: #a40e26; }
 .as-detail-row { padding: 4px 0; border-bottom: 1px solid var(--as-hairline); font-size: 12.5px; gap: 8px; }
 .as-section-head { cursor: pointer; padding-bottom: 8px; border-bottom: 1px solid #d8dee4; margin-bottom: 4px;
   flex-wrap: wrap; row-gap: 4px; }
@@ -591,10 +650,11 @@ a.as-step:hover { background: #f6f8fa; }
 .as-board-col:hover, .as-board-row:hover { background: var(--as-hairline); }
 .as-board-corner { text-align: left; }
 .as-tile { border-radius: 7px; padding: 7px 8px; min-height: 48px; cursor: pointer; border: 1px solid transparent;
-  justify-content: center; position: relative; }
+  justify-content: center; position: relative; min-width: 0; }
 .as-board-compact .as-tile { min-height: 30px; padding: 3px 6px; align-items: center; border-radius: 5px; }
 .as-tile-word { font-size: 12.5px; font-weight: 600; }
 .as-tile-text { font-size: 11px; }
+.as-tile-word, .as-tile-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .as-tile-done { background: #dafbe1; color: #116329; }
 .as-tile-unconverged { background: #fff8c5; color: #7a5200; }
 .as-tile-running { background: #b6e3ff; color: #033d8b; border: 2px solid #218bff; }

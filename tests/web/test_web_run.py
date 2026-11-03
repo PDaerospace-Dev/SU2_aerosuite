@@ -86,12 +86,17 @@ async def test_rerun_failed_and_unconverged_cases(user: User, ready_project, su2
 
     user.find(marker="select-failed").click()
     assert _element(user, f"tick-{A2}").value and not _element(user, f"tick-{A4}").value
-    assert not _element(user, "continue").enabled  # A2 failed before writing a solution
-    await user.should_see(marker="continue-missing")
+    assert _element(user, "start-mode").value == "sweep"  # as the sweep says until changed
+    with user:
+        _element(user, "start-mode").set_value("last")
+    assert not _element(user, "submit").enabled  # A2 failed before writing a solution
+    assert "no solution to start from" in _text(user, "submit-blocked")
+    await user.should_see(marker=f"start-{A2}")
 
     user.find(marker="select-unconverged").click()
     assert _element(user, f"tick-{A4}").value and not _element(user, f"tick-{A0}").value
-    assert _element(user, "continue").value is True  # UNCONVERGED with a solution: on by default
+    assert _element(user, "start-mode").value == "last"  # the choice stays as the selection changes
+    assert _element(user, "submit").enabled
     user.find(marker="submit").click()
     await eventually(lambda: _text(user, f"status-{A4}") == "CONVERGED", timeout=20)
     latest = list_jobs(project_dir)[0]

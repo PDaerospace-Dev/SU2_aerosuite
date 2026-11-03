@@ -19,10 +19,9 @@ from ...engine.jobs.executors import SlurmOptions, backend_of, slurm_options
 from ...engine.jobs.changes import config_changes
 from ...engine.jobs.diagnose import Diagnosis, diagnose, residual_trend
 from ...engine.jobs.overview import NOT_RUN
-from ...engine.jobs.plan import started_from
+from ...engine.jobs.plan import START_MODES, last_solution, mode_starts, preview_starts, started_from
 from ...engine.jobs.rerun import describe
 from ...engine.jobs.store import JOBS_DIR
-from ...engine.jobs.plan import plan_restarts
 from ...engine.machine import machine, partitions_note, usage, usage_text
 from ...engine.naming import format_value, parse_case_name
 from ...engine.packages import effective
@@ -30,7 +29,7 @@ from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import RUNS_DIR, restart_file
 from ...engine.results import HISTORY_FILE, history_columns
 from ...engine.settings import AppSettings, load_settings
-from ...engine.slurm_checks import memory_summary
+from ...engine.slurm_checks import memory_summary, outside_load_problems
 from ...engine.study_results import study_results
 from ..cluster_view import (can_resubmit, case_slurm_text, fitting_partition, full_note, node_groups, partition_nodes,
                             summary_parts)
@@ -39,6 +38,7 @@ from ..rerun_dialog import ask_rerun, keep_changes, kept
 from ..resubmit_dialog import resubmit_case
 from .cluster import cluster_url
 from ..slurm_fields import partition_row, select_partition, slurm_fields
+from ..starts_view import start_choice, start_preview
 from ..jobs import WATCHER, JobView, job_nodes, job_progress
 from ..layout import ProjectFrame, open_session, project_url
 from ..notes import NoteField, changes_line, note_label
@@ -143,18 +143,19 @@ def _answer(dialog: ui.dialog, value: bool) -> None:
     dialog.delete()
 
 
+_START_MODE: dict[str, str] = {}  # each project's "Starts from" choice (START_MODES), kept while the server runs
+
+
 class _Selection(NamedTuple):
     ticked: list[str]  # the selected cases, in case order
-    chosen: bool  # "Continue from each case's last solution" is ticked
-    no_solution: list[str]  # selected cases with nothing to continue from
 
 
 class RunPage:
     def __init__(self, frame: ProjectFrame, tab: Optional[str] = None, focus: Optional[str] = None) -> None:
         self.frame = frame
         self.ticked: Optional[set] = None  # the selected cases; chosen at the first draw (see _default_ticked)
-        self.continue_choice: Optional[bool] = None  # None: the default for the selected cases
-        self.continue_cases: list[str] = []
+        self.starts_open = True  # "What each starts from" is unfolded
+        self.start_problem: Optional[str] = None  # why the selected cases cannot start as chosen (nothing runs)
         self.opened: set[str] = set()  # failed cases whose "why it failed" box is open
         self.tab: Optional[str] = tab  # "board", "list", "earlier" or "history"; chosen at the first draw, then kept
         self.compact: Optional[bool] = None  # small tiles; None: by the number of cases
@@ -169,7 +170,8 @@ class RunPage:
         self.submitting = False  # a Slurm submit (or adding cases) is running in a worker thread
         self.checking = False  # SU2 is checking the configs before a submit
         self.attempts_open: set[str] = set()  # cases whose earlier attempts are listed
-        self.rerun_with: Optional[dict] = None  # the next submit's {"changes": {case: lines}, "starts": {case: ref}}
+        self.rerun_with: Optional[dict] = None  # the next submit's {"changes": {case: lines}, "starts": {case: ref},
+        # "mode": its start (START_MODES)}
         self.add_partition: Optional[str] = None  # where "Add cases" sends them (not saved with the study)
         self.add_ntasks: Optional[int] = None  # None: that partition's default
         self.submit_error: Optional[str] = None  # why the last Slurm submit failed, shown until the next one
@@ -307,7 +309,7 @@ class RunPage:
     def _job_bar(self, view: JobView, single: bool) -> None:
         """The running job across the top (how far, the case now, time, Monitor, Log, Cancel), or the last job."""
         job = view.active
-        with ui.row().classes("as-jobbar w-full items-center no-wrap" + (" as-jobbar-live" if job else "")).mark(
+        with ui.row().classes("as-jobbar w-full items-center" + (" as-jobbar-live" if job else "")).mark(
                 "job-bar"):
             if job is None:
                 self._last_job(view, single)
@@ -327,22 +329,23 @@ class RunPage:
                 ui.linear_progress(progress.finished / progress.total if progress.total else 0,
                                    show_value=False).props("rounded size=8px").classes("as-jobbar-progress").mark(
                     "run-progress")
-                with ui.row().classes("items-baseline gap-1 no-wrap min-w-0"):
+                with ui.row().classes("items-baseline gap-1 min-w-0"):  # the time wraps under, when narrow
                     if progress.current:
                         ui.label("Now").classes("as-muted")
                         ui.label(progress.current).classes("as-mono as-strong as-truncate").mark("run-current")
                         ui.label("·").classes("as-muted")
                     left = job_left(job, max(0.0, (datetime.now() - job.created).total_seconds()))
                     self.clock = (job.created, None if left is None else time.time() + left)
-                    self.clock_label = ui.label("").classes("as-muted as-truncate").mark("run-elapsed")
+                    self.clock_label = ui.label("").classes("as-muted").mark("run-elapsed")
                     self._tick_clock()
-            secondary_button("Monitor", icon="show_chart",
-                             on_click=lambda: ui.navigate.to(self._monitor_url(progress.current))).mark("run-monitor")
-            secondary_button("Log", icon="terminal", on_click=lambda: self.frame.log.open(job.id)).mark("run-log")
-            if self.cancelling or WATCHER.is_cancelling(self.directory):
-                danger_button("Cancelling…").mark("cancel").set_enabled(False)
-            else:
-                danger_button("Cancel", on_click=self.confirm_cancel, icon="stop").mark("cancel")
+            with ui.row().classes("as-jobbar-actions items-center no-wrap"):  # wrap as one group
+                secondary_button("Monitor", icon="show_chart",
+                                 on_click=lambda: ui.navigate.to(self._monitor_url(progress.current))).mark("run-monitor")
+                secondary_button("Log", icon="terminal", on_click=lambda: self.frame.log.open(job.id)).mark("run-log")
+                if self.cancelling or WATCHER.is_cancelling(self.directory):
+                    danger_button("Cancelling…").mark("cancel").set_enabled(False)
+                else:
+                    danger_button("Cancel", on_click=self.confirm_cancel, icon="stop").mark("cancel")
 
     # -- the views: board, list, job history ------------------------------------------------------------------
 
@@ -514,7 +517,6 @@ class RunPage:
             self.ticked -= set(names)
         else:
             self.ticked |= set(names)
-        self.continue_choice = None
         self.render()
 
     def _fold(self, key: str, opened: bool) -> None:
@@ -757,6 +759,11 @@ class RunPage:
                     secondary_button("Continue it", icon="play_arrow",
                                      on_click=lambda: self._only(row.name, continue_=True)).props("dense").mark(
                         "details-continue")
+                elif case is not None and row.status == "FAILED" and restart_file(self.directory, row.name) is None \
+                        and last_solution(self.directory, row.name) is not None:  # it stopped before writing one
+                    secondary_button("Run again from where it started", icon="replay",
+                                     on_click=lambda: self._only(row.name, continue_=True)).props("dense").mark(
+                        "details-continue")
                 if case is not None and row.status == "UNCONVERGED":
                     self._rerun_button(row.name, "unconverged")
                 if row.status in ("CONVERGED", "UNCONVERGED"):
@@ -796,10 +803,9 @@ class RunPage:
             text_field("Cores per case (MPI partitions)", self.project.run.partitions, self._set_partitions,
                        mark="run-partitions")
         self.over_memory = over
-        self._continue_box(selection, single)
+        self._starts_box(selection.ticked, single)
         with ui.column().classes("as-run-checks w-full gap-1"):
             clean = self._checks(view, selection, self.options)
-            self._plan(view, selection)
         if self.slurm and self.submit_error:
             banner("error", f"Submit failed: {self.submit_error}").mark("submit-error")
         NoteField(self.directory, self.note, self._set_note)
@@ -819,16 +825,43 @@ class RunPage:
         if clean and count and not over:
             ok_line("Ready to submit").mark("run-problems-none")
 
-    def _continue_box(self, selection: _Selection, single: bool) -> None:
-        """Start the selected cases from their last solution (e.g. second order from a first-order run) or fresh."""
-        box = ui.checkbox("Continue from the last solution" if single else "Continue from each case's last solution",
-                          value=selection.chosen, on_change=lambda e: self._set_continue(e.value)).mark("continue")
-        if selection.no_solution:
-            box.disable()
-            count = len(selection.no_solution)
-            text = ("No solution to continue from yet" if single else
-                    f"{_plural(count, 'selected case')} {'has' if count == 1 else 'have'} no solution to continue from")
-            titled(hint(text), ", ".join(selection.no_solution)).mark("continue-missing")
+    @property
+    def start_mode(self) -> str:
+        return _START_MODE.get(str(self.directory), "sweep")
+
+    def _set_start_mode(self, mode: str) -> None:
+        _START_MODE[str(self.directory)] = mode
+        self.render()
+
+    def _fold_starts(self, opened: bool) -> None:
+        self.starts_open = opened  # no render: the expansion folds itself
+
+    def _starts_box(self, cases: list, single: bool, busy=()) -> None:
+        """How the run starts its cases (as the sweep says, each case's own last solution, from scratch) and what
+        each selected case then starts from; a case with nothing to start from as chosen stops the run."""
+        self.start_problem = None
+        start_choice(self.start_mode, self.project.cases, self._set_start_mode, single)
+        if not cases:
+            return
+        try:
+            starts = preview_starts(self.directory, self.project, cases, self.start_mode, busy=busy)
+        except AeroSuiteError as exc:
+            self.start_problem = str(exc)
+            start_preview([], self.starts_open, self._fold_starts, error=f"Error: {exc}")
+            return
+        start_preview(starts, self.starts_open, self._fold_starts)
+        missing = [start.case for start in starts if start.kind == "none"]
+        if missing:
+            count = len(missing)
+            self.start_problem = (f"{_plural(count, 'selected case')} {'has' if count == 1 else 'have'} no solution "
+                                  "to start from: choose another start")
+
+    def _run_starts(self, cases: list, extra: dict) -> tuple[list, dict]:
+        """continue_cases and starts for running `cases`: the chosen start (a rerun's own, else Starts from) with a
+        rerun's starts on top."""
+        continue_cases, starts = mode_starts(extra.get("mode") or self.start_mode, cases)
+        starts = {**starts, **(extra.get("starts") or {})}
+        return [name for name in continue_cases if name not in starts], starts
 
     def _set_note(self, text: str) -> None:
         self.note = text
@@ -937,7 +970,7 @@ class RunPage:
         over = self._memory("add", check, len(addable) or len(self.project.cases), self.add_partition,
                             self._pick_add)
         self.over_memory = over
-        self._continue_box(selection, single=False)
+        self._starts_box(addable, single=False, busy=busy)
         NoteField(self.directory, self.note, self._set_note)
         options = slurm_options(self.project, self.settings, partition=self.add_partition, ntasks=self.add_ntasks)
         clean = self._checks(view, selection, options)
@@ -945,8 +978,10 @@ class RunPage:
         label = "Adding…" if self.submitting else (f"Add {_plural(count, 'case')}" if count else "Add cases")
         button = primary_button(label, icon="playlist_add", on_click=lambda: self.add_cases(addable)).classes(
             "w-full as-btn-accent").mark("add-cases")
-        button.set_enabled(bool(addable) and not self.submitting and not over)
-        if skipped:
+        button.set_enabled(bool(addable) and not self.submitting and not over and not self.start_problem)
+        if self.start_problem and addable:
+            hint(self.start_problem).mark("add-skipped")
+        elif skipped:
             noun = f"{skipped} selected case{' is' if skipped == 1 else 's are'}"
             hint(f"{noun} already queued or running in this job: skipped").mark("add-skipped")
         elif not selection.ticked:
@@ -972,7 +1007,7 @@ class RunPage:
 
     async def add_cases(self, cases: list) -> None:
         extra, self.rerun_with = self.rerun_with or {}, None
-        if self.submitting or not cases or self.over_memory:
+        if self.submitting or not cases or self.over_memory or (self.start_problem and not extra):
             return
         self._load_settings()
         options = slurm_options(self.project, self.settings, partition=self.add_partition, ntasks=self.add_ntasks)
@@ -987,10 +1022,11 @@ class RunPage:
         if errors:
             ui.notify(errors[0].message, type="negative")
             return
+        continue_cases, starts = self._run_starts(cases, extra)
         self.submitting = True
         self.render()
-        continue_cases = [name for name in self.continue_cases if name in cases]
-        background_tasks.create(self._add_slurm(view.active.id, cases, continue_cases, options, extra))
+        background_tasks.create(self._add_slurm(view.active.id, cases, continue_cases, options,
+                                                {**extra, "starts": starts}))
 
     async def _add_slurm(self, job_id: str, cases: list, continue_cases: list, options: SlurmOptions,
                          extra: Optional[dict] = None) -> None:
@@ -1025,9 +1061,9 @@ class RunPage:
         if view.active is None:  # one job at a time: while one runs the panel has Cancel, no Submit
             self.clock = None
             self.submit_button.set_enabled(bool(selection.ticked) and not self.has_errors and not self.submitting
-                                           and not self.checking and not self.over_memory)
+                                           and not self.checking and not self.over_memory and not self.start_problem)
             self.blocked.text = ("Fix the error below to run" if self.has_errors else
-                                 "Select at least one case" if not selection.ticked else "")
+                                 "Select at least one case" if not selection.ticked else self.start_problem or "")
 
     def _set_backend(self, backend: str) -> None:
         if backend == self.backend:
@@ -1067,10 +1103,11 @@ class RunPage:
         state = pill_text(job.state).capitalize()
         titled(ui.label(f"{state} · job {job.id} · {_plural(len(job.cases), 'case')}" + (f" · {counts}" if counts else "")
                         + took).classes("as-muted grow as-truncate"), f"Last job {job.id}").mark("last-job")
-        secondary_button("Log", icon="terminal", on_click=lambda: self.frame.log.open(job.id)).mark("last-job-log")
-        if not single:
-            secondary_button("Job history", icon="history", on_click=lambda: self._set_tab("history")).mark(
-                "last-job-history")
+        with ui.row().classes("as-jobbar-actions items-center no-wrap"):
+            secondary_button("Log", icon="terminal", on_click=lambda: self.frame.log.open(job.id)).mark("last-job-log")
+            if not single:
+                secondary_button("Job history", icon="history", on_click=lambda: self._set_tab("history")).mark(
+                    "last-job-history")
 
     def _checks(self, view: JobView, selection: _Selection, options: Optional[SlurmOptions]) -> bool:
         """The problems with submitting: errors stay in view, warnings fold into one row. Returns whether there are
@@ -1082,6 +1119,10 @@ class RunPage:
             problems = [p for p in problems if not p.message.startswith(f"Job {view.active.id} ")]
         if self.over_memory:  # the memory box says it
             problems = [p for p in problems if _OUT_OF_MEMORY not in p.message]
+        if self.slurm:  # the nodes as the cluster watch last read them
+            cluster = WATCHER.slurm_watch.cluster
+            partition = (options or slurm_options(self.project, self.settings)).partition
+            problems += outside_load_problems(partition, () if cluster is None else cluster.nodes)
         self.has_errors = has_errors(problems)
         found = [(p.severity, p.message) for p in problems] + [("warning", m) for m in view.overview.problems]
         for severity, message in found:
@@ -1176,26 +1217,7 @@ class RunPage:
             mine.set_visibility(bool(parts.mine))
 
     def _selection(self, view: JobView) -> _Selection:
-        ticked = [case.name for case in self.project.cases if case.name in self.ticked]
-        status = {row.name: row.status for row in view.overview.rows}
-        no_solution = [name for name in ticked if restart_file(self.directory, name) is None]
-        default = bool(ticked) and not no_solution and all(status.get(n) == "UNCONVERGED" for n in ticked)
-        chosen = (default if self.continue_choice is None else self.continue_choice) and not no_solution
-        self.continue_cases = ticked if chosen else []
-        return _Selection(ticked, chosen, no_solution)
-
-    def _plan(self, view: JobView, selection: _Selection) -> None:
-        if not selection.ticked or view.active is not None:
-            return
-        try:
-            plan = plan_restarts(self.directory, self.project, selection.ticked, self.continue_cases)
-        except AeroSuiteError as exc:
-            banner("error", f"Error: {exc}").mark("plan-error")
-        else:
-            if plan.warnings:
-                count = len(plan.warnings)
-                warning_group(plan.warnings, mark="plan-warnings",
-                              label=f"{count} warning{'' if count == 1 else 's'} about continuing")
+        return _Selection([case.name for case in self.project.cases if case.name in self.ticked])
 
     # -- the cases on the left -------------------------------------------------
 
@@ -1342,10 +1364,9 @@ class RunPage:
             return
         changes, start = answer
         self.ticked = {name}
-        self.continue_choice = start == "last"
-        self.render()  # works out the Continue choice for the ticked case
-        starts = {} if start == "last" else {name: None if start == "scratch" else start}
-        self.rerun_with = {"changes": {name: changes} if changes else {}, "starts": starts}
+        self.render()
+        mode, starts = (start, {}) if start in START_MODES else ("sweep", {name: start})  # else a solution's path
+        self.rerun_with = {"changes": {name: changes} if changes else {}, "starts": starts, "mode": mode}
         view = WATCHER.state(self.directory, self.project)
         if view.active is not None and view.active.backend == "slurm":
             await self.add_cases([name])
@@ -1436,9 +1457,10 @@ class RunPage:
         self.render()
 
     def _only(self, name: str, continue_: bool) -> None:
-        """Tick just this case (and Continue or not): Submit is then one click away."""
+        """Tick just this case, starting from its own last solution or as the sweep says: Submit is then one click
+        away."""
         self.ticked = {name}
-        self.continue_choice = continue_
+        _START_MODE[str(self.directory)] = "last" if continue_ else "sweep"
         self.render()
 
     def _history(self, view: JobView) -> None:
@@ -1468,7 +1490,6 @@ class RunPage:
         else:
             rows = view.overview.rows
             self.ticked = {r.name for r in rows} if statuses is None else {r.name for r in rows if r.status in statuses}
-        self.continue_choice = None
         self.render()
 
     def _tick(self, name: str, value: bool) -> None:
@@ -1476,7 +1497,6 @@ class RunPage:
             self.ticked.add(name)
         else:
             self.ticked.discard(name)
-        self.continue_choice = None
         self.render()
 
     def _set_tab(self, tab: str) -> None:
@@ -1492,10 +1512,6 @@ class RunPage:
         else:
             self._focus(name)
 
-    def _set_continue(self, value: bool) -> None:
-        self.continue_choice = value
-        self.render()
-
     async def submit(self) -> None:
         if self.over_memory:
             return
@@ -1508,6 +1524,10 @@ class RunPage:
             return
         extra, self.rerun_with = self.rerun_with or {}, None
         cases = [case.name for case in self.project.cases if case.name in self.ticked]
+        if self.start_problem and not extra:
+            return
+        continue_cases, starts = self._run_starts(cases, extra)
+        extra = {**extra, "starts": starts}
         self._load_settings()
         self.checking = True  # SU2 checks each config: a few seconds, off the event loop
         self.render()
@@ -1526,12 +1546,11 @@ class RunPage:
                 self.submitting = True
                 self.submit_error = None
                 self.render()
-                background_tasks.create(self._submit_slurm(cases, list(self.continue_cases), self.options, extra,
-                                                           self.note))
+                background_tasks.create(self._submit_slurm(cases, continue_cases, self.options, extra, self.note))
             return
         try:
             generate_configs(self.directory, self.project)  # a run always uses the current settings
-            WATCHER.submit(self.directory, self.project, cases, self.continue_cases,
+            WATCHER.submit(self.directory, self.project, cases, continue_cases,
                            changes=extra.get("changes"), starts=extra.get("starts"), note=self.note)
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative")

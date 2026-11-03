@@ -15,11 +15,13 @@ from .cfg import CONFIGS_DIR
 from .models import Project
 from .preflight import Problem
 from .settings import AppSettings, valid_time_limit
+from .slurm import NodeRow
 
 HEADER_LINES = 64
 LINE_LIMIT = 4096  # a header line is short; never read a binary mesh's "line" of gigabytes
 _NELEM_RE = re.compile(r"^\s*NELEM\s*=\s*(\d+)")
 _MESH_RE = re.compile(r"^\s*MESH_FILENAME\s*=\s*(\S+)", re.MULTILINE)
+OUTSIDE_LOAD_SHARE = 0.25  # load beyond the allocated CPUs, as a share of the node's CPUs, that Slurm cannot explain
 
 
 def mesh_elements(path: Path) -> Optional[int]:
@@ -89,6 +91,21 @@ def memory_check(mesh: str, partition: str, settings: AppSettings) -> Optional[M
     elements = mesh_elements(Path(mesh))
     estimate = None if elements is None else memory_estimate_gb(elements, settings.slurm.gb_per_million_cells)
     return MemoryCheck(mesh, elements, estimate, part.memory_limit_mb / 1024, part.name)
+
+
+def outside_load_problems(partition: Optional[str], nodes: Sequence[NodeRow]) -> list[Problem]:
+    """A warning for each node of `partition` busy beyond the cores Slurm gave out: Slurm counts only its own jobs, so a
+    run started there by hand is invisible to it and a new job would start at once and share the cores."""
+    problems = []
+    for row in nodes:
+        if row.partition != partition or row.bad or row.load is None or not row.cores:
+            continue
+        outside = row.load - row.cores_allocated  # a job runs one process per core, so its load is its cores
+        if outside >= OUTSIDE_LOAD_SHARE * row.cores:
+            problems.append(Problem("warning", f"{row.node} is busy outside Slurm: load {row.load:.0f} with "
+                                               f"{row.cores_allocated} of {row.cores} cores allocated. A job placed "
+                                               "there starts at once and shares its cores"))
+    return problems
 
 
 def slurm_problems(project_dir: Path, project: Project, cases: Optional[Sequence[str]], partition: Optional[str],

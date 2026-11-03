@@ -49,8 +49,9 @@ def calculators_url(directory=None, calc: Optional[str] = None) -> str:
 def _calculators_button(frame=None) -> None:
     """The top bar's Calculators button: it opens the calculators over the page, from the right."""
     panel = CalcPanel(frame)
-    ui.button("Calculators", icon="calculate", color=None, on_click=panel.toggle).props(
-        "flat dense no-caps").classes("as-topbar-icon as-topbar-labelled").mark("calculators")
+    with titled(ui.button(icon="calculate", color=None, on_click=panel.toggle).props(
+            "flat dense no-caps").classes("as-topbar-icon as-topbar-labelled"), "Calculators").mark("calculators"):
+        ui.label("Calculators").classes("as-topbar-label")
 
 
 def initials(name: str) -> str:
@@ -92,7 +93,7 @@ def _cluster_button() -> None:
     with ui.button(color=None, on_click=lambda: ui.navigate.to(target)).props("flat dense no-caps").classes(
             "as-topbar-icon as-topbar-labelled").mark("cluster"):
         dot = ui.element("span").classes("as-cluster-dot as-dot-grey").mark("cluster-dot")
-        ui.label("Cluster")
+        ui.label("Cluster").classes("as-topbar-label")
         count = ui.label("").classes("as-cluster-count").mark("cluster-count")
     watch.show_cluster()
     ui.context.client.on_delete(watch.hide_cluster)  # not on_disconnect: a brief socket drop reconnects

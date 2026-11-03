@@ -305,3 +305,12 @@ def test_another_partition_with_enough_memory_is_found_with_room_first():
     assert fitting_partition(81, "node2", parts, PILLS) == ("node1", 120)  # node1 has room, node0 is full
     assert fitting_partition(200, "node2", parts, PILLS) == ("node0", 229)  # node3 is down
     assert fitting_partition(300, "node2", parts, PILLS) is None
+
+
+def test_a_hyperthreaded_node_shows_physical_cores():
+    cluster = ClusterInfo(nodes=parse_sinfo_nodes(
+        "hpc1|hpc1*|alloc|192/0/0/192|125000|1987|96.01|2:48:2|none\n"
+        "hpc0|hpc0|idle|0/64/0/64|235000|199238|53.23|2:32:1|none\n"))
+    nodes = {n.node: n for _p, _d, lines in node_groups(cluster) for n in lines}
+    assert (nodes["hpc1"].cpus, nodes["hpc1"].load_share, nodes["hpc1"].threads) == ("96 / 96", 1.0, 2)
+    assert nodes["hpc0"].cpus == "0 / 64"

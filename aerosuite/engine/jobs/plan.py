@@ -50,6 +50,82 @@ class RestartPlan:
     missing_continue: list[str] = field(default_factory=list)  # continued cases with no solution
 
 
+START_MODES = ("sweep", "last", "scratch")  # how a run starts its cases: as the sweep says, from each case's own
+# last solution, or from scratch
+
+
+@dataclass(frozen=True)
+class Start:
+    """What a case of a run about to start begins from, to show before it runs."""
+    case: str
+    kind: str  # "own", "kept", "case", "after", "running", "folder", "attempt", "scratch" or "none" (no solution)
+    source: str = ""  # the case it starts from (or whose lack of one makes it start from scratch), a job id, a path
+
+
+def mode_starts(mode: str, cases: Sequence[str]) -> tuple[list[str], dict[str, None]]:
+    """(continue_cases, starts) for prepare_job: a run of `cases` started by `mode` (START_MODES)."""
+    if mode not in START_MODES:
+        raise JobError(f"Unknown start {mode!r}")
+    if mode == "last":
+        return list(cases), {}
+    return [], ({name: None for name in cases} if mode == "scratch" else {})
+
+
+def _with_starts(project: Project, starts: Optional[Mapping[str, Optional[str]]]) -> Project:
+    """The project with these cases' restart replaced, for one job: None from scratch, else that solution."""
+    if not starts:
+        return project
+    project = project.model_copy(deep=True)
+    for case in project.cases:
+        if case.name in starts:
+            ref = starts[case.name]
+            case.restart, case.restart_ref = ("none", None) if ref is None else ("custom", ref)
+    return project
+
+
+def preview_starts(project_dir: Path, project: Project, cases: Sequence[str], mode: str,
+                   starts: Optional[Mapping[str, Optional[str]]] = None, busy: Iterable[str] = ()) -> list[Start]:
+    """What each of `cases` starts from in a run started by `mode`, with `starts` on top (a rerun's own choice).
+    `busy`: cases still queued or running in the job these are added to, whose solution an added case waits for."""
+    continue_cases, own = mode_starts(mode, cases)
+    starts = {**own, **(starts or {})}
+    continue_cases = [name for name in continue_cases if name not in starts]
+    project = _with_starts(project, starts)
+    plan = plan_restarts(project_dir, project, cases, continue_cases)
+    names = [case.name for case in project.cases]
+    by_name = {case.name: case for case in project.cases}
+    busy = set(busy)
+    runs, jobs = Path(project_dir) / RUNS_DIR, Path(project_dir) / JOBS_DIR
+    found: list[Start] = []
+    for index, line in enumerate(plan.lines):
+        name = line.case
+        target = None if name in continue_cases else _referenced_case(project_dir, by_name[name], names)
+        if line.option == "none":
+            if name in plan.missing_continue:
+                found.append(Start(name, "none"))
+            elif target in busy:
+                found.append(Start(name, "running", target))
+            else:
+                found.append(Start(name, "scratch", target or ""))
+        elif line.option == "previous":
+            found.append(Start(name, "after", plan.lines[index - 1].case))
+        elif line.option == "from_case":
+            found.append(Start(name, "after", (line.ref or "").removesuffix(".cfg")))
+        else:
+            path = line.copy_from or Path(line.ref or "")
+            if _within(path, Path(project_dir) / ATTEMPTS_DIR):
+                found.append(Start(name, "attempt", str(path)))
+            elif _within(path, runs) and path.parent.parent.resolve() == runs.resolve():
+                other = path.parent.name
+                kind = "own" if other == name else "running" if other in busy else "case"
+                found.append(Start(name, kind, other))
+            elif _within(path, jobs):
+                found.append(Start(name, "kept", path.resolve().relative_to(jobs.resolve()).parts[0]))
+            else:
+                found.append(Start(name, "folder", str(path)))
+    return found
+
+
 def plan_restarts(project_dir: Path, project: Project, cases: Sequence[str],
                   continue_cases: Iterable[str] = ()) -> RestartPlan:
     """How each selected case restarts in a job running `cases` (in the project's case order)."""
@@ -68,7 +144,7 @@ def plan_restarts(project_dir: Path, project: Project, cases: Sequence[str],
     missing: list[str] = []
     for position, name in enumerate(selected):
         if name in continued:
-            solution = restart_file(project_dir, name)
+            solution = last_solution(project_dir, name)
             if solution is None:
                 missing.append(name)
                 lines.append(ControlLine(name, "none"))
@@ -141,12 +217,7 @@ def prepare_job(project_dir: Path, project: Project, job_id: str, cases: Sequenc
     Returns the configs folder. On any error nothing of this job is left behind.
     """
     project_dir = Path(project_dir).resolve()
-    if starts:
-        project = project.model_copy(deep=True)
-        for case in project.cases:
-            if case.name in starts:
-                ref = starts[case.name]
-                case.restart, case.restart_ref = ("none", None) if ref is None else ("custom", ref)
+    project = _with_starts(project, starts)
     plan = plan_restarts(project_dir, project, cases, continue_cases)
     if plan.missing_continue:
         raise JobError("These cases have no solution to continue from: " + ", ".join(plan.missing_continue))
@@ -210,9 +281,9 @@ def _batches(job_dir: Path) -> list[Path]:
                                                                      else 0)]
 
 
-def started_from(job_dir: Path, case: str) -> Optional[Path]:
-    """The solution set aside for `case`'s last attempt in this job, while it is still there."""
-    found = None
+def _last_start(job_dir: Path, case: str) -> tuple[bool, Optional[Path]]:
+    """Whether `case` ran in this job, and the solution set aside for its last attempt here (while it is there)."""
+    listed, found = False, None
     for batch in _batches(Path(job_dir)):
         try:
             text = (batch / CONFIGS_DIR / RUN_CONTROL_FILE).read_text(encoding="utf-8")
@@ -221,9 +292,33 @@ def started_from(job_dir: Path, case: str) -> Optional[Path]:
         for raw in text.splitlines():
             parts = [part.strip() for part in raw.split(",", 2)]
             if parts[0] in (case, f"{case}.cfg"):
+                listed = True
                 ref = Path(parts[2]) if len(parts) > 2 else None
                 found = ref if ref is not None and (batch / RESTART_DIR) in ref.parents else None
-    return found if found is not None and found.is_file() else None
+    return listed, found if found is not None and found.is_file() else None
+
+
+def started_from(job_dir: Path, case: str) -> Optional[Path]:
+    """The solution set aside for `case`'s last attempt in this job, while it is still there."""
+    return _last_start(job_dir, case)[1]
+
+
+def last_solution(project_dir: Path, case: str) -> Optional[Path]:
+    """What continuing `case` from its last solution starts it from: the restart in its run folder, else (its last
+    run failed before writing one, e.g. SU2 stopped at once) the solution that run started from, while it is kept."""
+    own = restart_file(project_dir, case)
+    if own is not None:
+        return own
+    try:
+        jobs = sorted((path for path in (Path(project_dir) / JOBS_DIR).iterdir() if path.is_dir()),
+                      key=lambda path: path.name, reverse=True)  # job ids are times: newest first
+    except OSError:
+        return None
+    for job_dir in jobs:
+        listed, start = _last_start(job_dir, case)
+        if listed:  # its last run: what that one started from, or nothing when it started from scratch
+            return start
+    return None
 
 
 def prune_restarts(job_dir: Path, keep_for: Iterable[str]) -> None:

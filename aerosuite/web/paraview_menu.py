@@ -17,7 +17,7 @@ from ..engine.jobs.overview import run_solutions
 from ..engine.paraview import CaseOutput, case_outputs, open_in_paraview
 from ..engine.restarts import RUNS_DIR
 from ..engine.settings import load_settings
-from .ui_kit import hint, primary_button, secondary_button
+from .ui_kit import hint, primary_button, secondary_button, titled
 
 MENU_CASES = 10  # cases listed by name; "All cases" covers the rest
 REMOTE_NOTE = "ParaView opens on the workstation only: a case copies its folder path"
@@ -34,8 +34,9 @@ def is_local(ip: str) -> bool:
 class ParaViewMenu:
     def __init__(self, frame) -> None:
         self.frame = frame
-        with ui.button("ParaView", icon="view_in_ar", color=None).props("flat dense no-caps").classes(
-                "as-topbar-icon as-topbar-labelled").mark("paraview"):
+        with titled(ui.button(icon="view_in_ar", color=None).props("flat dense no-caps").classes(
+                "as-topbar-icon as-topbar-labelled"), "ParaView").mark("paraview"):
+            ui.label("ParaView").classes("as-topbar-label")
             # Filled each time it opens: flow files appear as cases finish.
             self.menu = ui.menu().mark("paraview-menu")
         self.menu.on_value_change(lambda e: self._fill() if e.value else None)

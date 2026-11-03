@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 
 import pytest
 from nicegui.testing import User
@@ -227,14 +228,64 @@ async def test_add_cases_can_continue_from_the_last_solution(user: User, slurm_p
     await user.should_see(marker="run-add")
     with user:
         _element(user, f"tick-{A4}").set_value(True)
-    assert _element(user, "continue").value is False  # not unconverged: fresh unless asked
+    assert _element(user, "start-mode").value == "sweep"  # as the sweep says unless asked
     with user:
-        _element(user, "continue").set_value(True)
+        _element(user, "start-mode").set_value("last")
     user.find(marker="add-cases").click()
     await eventually(lambda: A4 in list_jobs(project_dir)[0].slurm, 10)
     configs = project_dir / "jobs" / job.id / "add-2" / "configs"
     assert "RESTART_SOL= YES" in (configs / f"{A4}.cfg").read_text()
 
+
+async def test_a_case_that_failed_at_once_is_added_again_from_the_solution_it_started_from(user: User, slurm_project,
+                                                                                         eventually):
+    project_dir, project, fake = slurm_project
+    for name in (A0, A4):
+        (project_dir / "runs" / name).mkdir(parents=True, exist_ok=True)
+        (project_dir / "runs" / name / "restart_flow.dat").write_text(f"first-order solution of {name}")
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A4], continue_cases=[A0, A4])
+    (project_dir / "runs" / A4 / "restart_flow.dat").unlink(missing_ok=True)  # SU2 stopped before writing one
+    fake.run("101", node="hpc1")
+    fake.finish("102", "FAILED", "134:0")
+    WATCH.track(project_dir, job.id)
+    await WATCH.poll_once()
+    await _open(user, project_dir)
+    await user.should_see(marker="run-add")
+    user.find(marker="select-none").click()  # the cases not run yet are ticked at first
+    with user:
+        _element(user, f"tick-{A4}").set_value(True)
+    with user:
+        _element(user, "start-mode").set_value("last")
+    await user.should_see(marker=f"start-{A4}")
+    await user.should_see("the solution its failed run started from, kept by job " + job.id)
+    assert _element(user, "add-cases").enabled
+    user.find(marker="add-cases").click()
+    await eventually(lambda: list_jobs(project_dir)[0].slurm[A4].attempts, 10)
+    configs = project_dir / "jobs" / job.id / "add-2" / "configs"
+    assert "RESTART_SOL= YES" in (configs / f"{A4}.cfg").read_text()
+    reference = (configs / "run_control.txt").read_text().split(", ")[2].strip()
+    assert Path(reference).read_text() == f"first-order solution of {A4}"
+
+async def test_starts_from_shows_each_case_and_from_scratch_overrides_the_sweep(user: User, slurm_project, eventually):
+    project_dir, project, fake = slurm_project
+    for case in project.cases[1:]:
+        case.restart = "previous"  # each from the previous one
+    save_project(project_dir, project)
+    await _open(user, project_dir)
+    assert _element(user, "start-mode").value == "sweep"
+    assert "each case from the previous one" in _text(user, "start-mode-words")
+    assert _element(user, "starts").props["caption"] == "3 cases · 1 scratch · 2 after it runs"
+    await user.should_see(marker=f"start-{A2}")  # A2 <- A0, once it has run
+    with user:
+        _element(user, "starts").set_value(False)  # folded: kept so as the panel is drawn again
+        _element(user, "start-mode").set_value("scratch")
+    assert _element(user, "starts").value is False
+    assert _element(user, "starts").props["caption"] == "3 cases · 3 scratch"
+    user.find(marker="submit").click()
+    await eventually(lambda: len(list_jobs(project_dir)) == 1, 10)
+    configs = project_dir / "jobs" / list_jobs(project_dir)[0].id / "configs"
+    assert all("RESTART_SOL= NO" in (configs / f"{n}.cfg").read_text() for n in (A0, A2, A4))
+    assert (configs / "run_control.txt").read_text().splitlines() == [f"{n}.cfg, none" for n in (A0, A2, A4)]
 
 async def test_a_note_on_added_cases_joins_the_job_note(user: User, slurm_project, eventually):
     project_dir, project, fake = slurm_project
@@ -452,7 +503,7 @@ async def test_a_time_limit_offers_to_continue_from_the_last_solution(user: User
     await eventually(lambda: bool(user.find(marker=f"fix-{A0}").elements))
     user.find(marker=f"fix-{A0}").click()
     assert _element(user, f"tick-{A0}").value and not _element(user, f"tick-{A2}").value
-    assert _element(user, "continue").value
+    assert _element(user, "start-mode").value == "last"
 
 
 async def test_rerun_a_diverged_case_with_changes_then_keep_them(user: User, slurm_project, eventually):
@@ -518,8 +569,9 @@ async def test_a_failed_continuation_reruns_from_the_solution_it_started_from(us
     await user.should_see(marker=f"kept-start-{A0}")
     user.find(marker=f"rerun-{A0}").click()
     await eventually(lambda: bool(user.find(marker="rerun-dialog").elements))
-    kept = _element(user, "rerun-start").value
-    assert kept.endswith("restart_flow.dat") and "/jobs/" in kept  # offered first
+    start = _element(user, "rerun-start")
+    assert start.value == "last"  # its own folder has none: its last solution is the one its run started from
+    assert f"kept by job {job.id}" in start.options["last"]
     user.find(marker="rerun-confirm").click()
     await eventually(lambda: len(list_jobs(project_dir)) == 2, 10)
     rerun = list_jobs(project_dir)[0]
