@@ -12,8 +12,8 @@ bar opens this guide on the page you are on; the box above the list searches it.
 | From | How |
 |---|---|
 | Locally | http://localhost:8080 |
-| SSH (remotely) | Use the launcher from **Settings → Open from your PC** (`AeroSuite.bat` on Windows, `aerosuite.command` on Mac or Linux). Double-click it: it connects to the workstation and opens AeroSuite in your browser. Closing its window disconnects. |
-| SSH (remotely)  | `ssh -N -L 8080:127.0.0.1:8080 user@workstation`, then http://localhost:8080 |
+| SSH remote (launcher) | Use the launcher from **Settings → Open from your PC** (`AeroSuite.bat` on Windows, `aerosuite.command` on Mac or Linux). Double-click it: it connects to the workstation and opens AeroSuite in your browser. Closing its window disconnects. |
+| SSH remote (command)  | `ssh -N -L 8080:127.0.0.1:8080 user@workstation`, then http://localhost:8080 |
 
 If AeroSuite does not answer at all, it is not running on the workstation: see *Command line → Keep it running*.
 
@@ -46,37 +46,37 @@ If AeroSuite does not answer at all, it is not running on the workstation: see *
   directly. `?tab=solver` opens a tab on Aircraft, `?tab=board|list|history&case=<name>` on Run.
 
 ### Frequently Asked Questions (FAQ)
-**…restart cases that failed?**
+**How do I restart cases that failed?**
 On **Run**, click **Failed** above the board, choose **Starts from → Each case's own last solution**, open *What
 each starts from* to check, then **Submit** (or **Add N cases** while a job runs). A failed case that started from a
 solution starts from that same solution again (*kept*).
 
-**…carry on unconverged cases for more iterations?**
+**How do I carry on unconverged cases for more iterations?**
 **Run → Unconverged**, then **Starts from → Each case's own last solution** and **Submit**. To give them more
 iterations, change *Iterations* on Aircraft → Solver first.
 
-**…rerun one case with a lower CFL or first order?**
+**How do I rerun one case with a lower CFL or first order?**
 Click its tile on **Run**, then **Rerun with changes…**. The change is for that run only; **Keep** afterwards writes
 it into the config. See *Run → Rerun with changes*.
 
-**…add an altitude or a Mach number?**
+**How do I add an altitude or a Mach number?**
 Add it to the list on **Sweep**, **Generate configs**, then on **Run** pick **Not run** and **Submit**. The cases
 that already ran keep their results.
 
-**…see where a case stands?**
+**How do I see where a case stands?**
 Click its tile on **Run** for its details, or open **Monitor** for its residuals.
 
-**…compare cases or export numbers?**
+**How do I compare cases or export numbers?**
 **Results**: plots and tables of the averaged coefficients, **Copy table** for a spreadsheet, **Export CSV**.
 
-**…look at the flow field?**
+**How do I look at the flow field?**
 **ParaView** in the top bar opens a case's files on the workstation. *Write ASCII from restart…* rebuilds them from
 the restart file.
 
-**…use AeroSuite from my own PC?**
+**How do I use AeroSuite from my own PC?**
 **Settings → Open from your PC → download the launcher**, copy it to your PC and double-click it.
 
-**…work without the browser?**
+**How do I work without the browser?**
 Every main step has a command: see *Command line*.
 
 ## Your study, step by step

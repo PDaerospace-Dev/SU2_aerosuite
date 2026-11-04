@@ -744,6 +744,8 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
 .as-guide-none { padding: 6px 10px; }
 .as-guide-link { width: 100%; justify-content: flex-start; padding: 5px 10px; border-radius: 6px; color: #57606a;
   font-size: 13px; }
+.as-guide-nav > * { flex-shrink: 0; }  /* a long title wraps to a taller link instead of being squeezed */
+.as-guide-link .q-btn__content { text-align: left; justify-content: flex-start; line-height: 1.35; }
 .as-guide-link.as-guide-current { background: var(--as-accent-tint); color: var(--as-accent-text); font-weight: 600; }
 .as-guide-page { flex: 1; min-width: 0; overflow-y: auto; padding: 20px 32px 32px; gap: 6px; }
 .as-guide-title { font-size: 20px; font-weight: 600; }
