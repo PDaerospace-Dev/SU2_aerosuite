@@ -121,25 +121,19 @@ def card(title: Optional[str] = None, subtitle: Optional[str] = None, *,
 
 
 _FOLDED: set[str] = set()  # cards the user folded (by key), kept while the server runs
-_OPENED: set[str] = set()  # cards folded at first that the user opened
 
 
-def fold_button(box: ui.element, key: str, *, folded: bool = False) -> ui.button:
+def fold_button(box: ui.element, key: str) -> ui.button:
     """A chevron for a card's title row: folds the card `box` down to that row and opens it again. Folded cards
-    stay folded when the page is drawn again; `folded`: the card starts folded."""
-    toggled = _OPENED if folded else _FOLDED
-
-    def is_folded() -> bool:
-        return (key in toggled) != folded
-
+    stay folded when the page is drawn again."""
     def apply() -> None:
-        folded_now = is_folded()
-        box.classes(**({"add": "as-card-folded"} if folded_now else {"remove": "as-card-folded"}))
-        button.props(f'icon={"expand_more" if folded_now else "expand_less"}')
-        button.props(f'title="{"Open" if folded_now else "Fold"} this card"')
+        folded = key in _FOLDED
+        box.classes(**({"add": "as-card-folded"} if folded else {"remove": "as-card-folded"}))
+        button.props(f'icon={"expand_more" if folded else "expand_less"}')
+        button.props(f'title="{"Open" if folded else "Fold"} this card"')
 
     def toggle() -> None:
-        (toggled.discard if key in toggled else toggled.add)(key)
+        (_FOLDED.discard if key in _FOLDED else _FOLDED.add)(key)
         apply()
 
     button = ui.button(icon="expand_less", color=None, on_click=toggle).props("flat round dense size=sm").mark(
