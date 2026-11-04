@@ -1,6 +1,6 @@
-"""Sweep, in two tabs under "Your choices" (what every case runs with, set here and on the other pages).
-Conditions: the Mach/alpha/beta (and, from altitude, altitude) lists, the case names, one restart rule for the sweep
-and what all this makes. Cases: every case (folded by Mach and altitude when there are many) with its restart; a case
+"""Sweep, in two tabs. Conditions: the Mach/alpha/beta (and, from altitude, altitude) lists, the case names, one
+restart rule for the sweep, what all this makes and, under it, "Your choices" (what every case runs with, set on the
+other pages). Cases: every case (folded by Mach and altitude when there are many) with its restart; a case
 can be set differently from the rule. Problems and Generate stay on top."""
 from pathlib import Path
 from typing import Callable, Optional
@@ -98,7 +98,6 @@ def register() -> None:
             with frame.actions:
                 holders["generate"] = generate_button(frame, render_problems)
             holders["problems"] = ui.column().classes("w-full gap-2")
-            holders["choices"] = ui.column().classes("w-full")
             with ui.row().classes("as-tabs w-full gap-1").mark("sweep-tabs"):
                 for key, label in TABS:
                     holders[f"tab-{key}"] = ui.label(label).classes("as-tab").mark(f"sweep-tab-{key}")
@@ -108,11 +107,13 @@ def register() -> None:
                     _sweep_fields(frame, after)
                     with card("Restarts"):
                         holders["made"] = ui.column().classes("w-full gap-2")
-                with card("What this makes"):
-                    holders["summary"] = ui.column().classes("w-full gap-2")
-                    holders["check-cases"] = secondary_button(
-                        "Check cases", icon="view_list", on_click=lambda: show("cases")).mark("check-cases")
-                    titled(holders["check-cases"], "Every case and how it restarts (the Cases tab)")
+                with ui.column().classes("gap-4 w-full"):
+                    with card("What this makes"):
+                        holders["summary"] = ui.column().classes("w-full gap-2")
+                        holders["check-cases"] = secondary_button(
+                            "Check cases", icon="view_list", on_click=lambda: show("cases")).mark("check-cases")
+                        titled(holders["check-cases"], "Every case and how it restarts (the Cases tab)")
+                    holders["choices"] = ui.column().classes("w-full")
             with card(flush=True) as pane:
                 holders["pane-cases"] = holders["cases"] = pane
             render_cases()

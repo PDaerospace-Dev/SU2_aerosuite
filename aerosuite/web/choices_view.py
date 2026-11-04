@@ -1,5 +1,5 @@
 """The Sweep page's "Your choices": what every case will run with, from the pages that set it (mesh, solver, scheme,
-CFL, iterations, freestream, reference, hand-set keys), in one place before Generate. Folded until opened.
+CFL, iterations, freestream, reference, hand-set keys), in one place before Generate.
 
 A choice is marked when the project changes it from the template, and flagged when it differs from what the cases
 last ran with (the configs in their run folders): a restart then continues with other settings. Folded, the card is
@@ -168,7 +168,7 @@ def _choices(frame: ProjectFrame) -> list[Choice]:
 
 
 def choices_card(frame: ProjectFrame) -> None:
-    """The card, folded at first to one line: a tile per choice (a click opens the page that sets it)."""
+    """The card: a tile per choice (a click opens the page that sets it); folded, one line."""
     choices = _choices(frame)
     own = sum(choice.own for choice in choices)
     since = sum(bool(choice.last_run) for choice in choices)
@@ -182,7 +182,7 @@ def choices_card(frame: ProjectFrame) -> None:
             with ui.row().classes("as-choice-key no-wrap"):
                 ui.element("span").classes("as-choice-own")
                 ui.label("changed from the template")
-            fold_button(box, "sweep-choices", folded=True)
+            fold_button(box, "sweep-choices")
         with ui.element("div").classes("as-choices"):
             for choice in choices:
                 _tile(choice, frame.session.directory)

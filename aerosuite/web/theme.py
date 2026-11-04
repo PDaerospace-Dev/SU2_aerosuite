@@ -638,7 +638,7 @@ a.as-step:hover { background: #f6f8fa; }
 .as-start-scratch { background: #eaeef2; color: #424a53; }
 .as-start-none { background: #ffebe9; color: #a40e26; }
 /* Sweep › Your choices: a tile per choice; folded, one line of the main values */
-.as-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; width: 100%; }
+.as-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; width: 100%; }
 .as-choice-item { border: 1px solid var(--as-hairline); border-radius: 8px; padding: 7px 10px; gap: 1px;
   text-decoration: none; color: inherit; min-width: 0; }
 a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-accent-tint); }
@@ -654,7 +654,7 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
   border: 1px solid #eed888; border-radius: 4px; padding: 0 6px; white-space: nowrap; }
 .as-choice-key { font-size: 12px; color: var(--as-muted); gap: 6px; align-items: center; flex: none; }
 .as-choices-card .as-card-head { flex-wrap: wrap; row-gap: 2px; }
-.as-choices-line { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-choices-line { display: none; min-width: 0; }
 .as-choices-card.as-card-folded .as-choices-line { display: block; flex: 1 1 0; }
 .as-choices-card.as-card-folded .as-card-subtitle, .as-choices-card.as-card-folded .as-choice-key,
 .as-choices-card.as-card-folded .q-space { display: none; }
