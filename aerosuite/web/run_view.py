@@ -145,8 +145,6 @@ def case_from_name(name: str) -> Optional[NamedCase]:
             altitude = float(match[1] + ("." + match[2] if match[2] else ""))
     return NamedCase(name, parsed.mach, parsed.alpha, parsed.beta or 0.0, altitude)
 
-COMPACT_FROM = 40  # more cases show as compact tiles
-
 
 @dataclass(frozen=True)
 class BoardSection:

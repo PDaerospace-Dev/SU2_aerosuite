@@ -42,7 +42,7 @@ from ..starts_view import start_choice, start_preview
 from ..jobs import WATCHER, JobView, job_nodes, job_progress
 from ..layout import ProjectFrame, open_session, project_url
 from ..notes import NoteField, changes_line, note_label
-from ..run_view import (COMPACT_FROM, TILE_WORDS, board_sections, case_conditions, case_from_name, clock_text,
+from ..run_view import (TILE_WORDS, board_sections, case_conditions, case_from_name, clock_text,
                         duration_text, earlier_groups, has_board, job_left, layout, state_sections, status_counts,
                         tile_text)
 from ..session import parse_int
@@ -158,7 +158,7 @@ class RunPage:
         self.start_problem: Optional[str] = None  # why the selected cases cannot start as chosen (nothing runs)
         self.opened: set[str] = set()  # failed cases whose "why it failed" box is open
         self.tab: Optional[str] = tab  # "board", "list", "earlier" or "history"; chosen at the first draw, then kept
-        self.compact: Optional[bool] = None  # small tiles; None: by the number of cases
+        self.compact = True  # small tiles; the toggle by the status bar shows large ones
         self.sections_open: dict[str, bool] = {}  # board and list sections the user opened or closed
         self.focus: Optional[str] = focus  # the case whose details the panel shows
         self.clock: Optional[tuple] = None  # (job started, cases finished, cases in all) while a job runs
@@ -375,7 +375,7 @@ class RunPage:
                         chip.props("disable")
 
     def _compact(self) -> bool:
-        return self.compact if self.compact is not None else len(self.project.cases) > COMPACT_FROM
+        return self.compact
 
     def _set_compact(self, value: bool) -> None:
         self.compact = value

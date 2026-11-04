@@ -676,14 +676,23 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
 .as-tile-word { font-size: 12.5px; font-weight: 600; }
 .as-tile-text { font-size: 11px; }
 .as-tile-word, .as-tile-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-.as-tile-done { background: #dafbe1; color: #116329; }
-.as-tile-unconverged { background: #fff8c5; color: #7a5200; }
-.as-tile-running { background: #b6e3ff; color: #033d8b; border: 2px solid #218bff; }
-.as-tile-pending { background: #eaeef2; color: #424a53; border: 1px dashed #8c959f; }
-.as-tile-failed { background: #ffcecb; color: #82071e; border: 2px solid #cf222e; font-weight: 600; }
-.as-tile-cancelled { background: #d0d7de; color: #424a53; }
-.as-tile-notrun { background: #fff; color: #57606a; border: 1px dashed #8c959f; }
-.as-tile:hover { filter: brightness(.97); }
+/* a board tile is white; its status is a coloured dot before the word (compact: before the small line), and only
+   running and failed tiles add a coloured edge, so a sweep of unconverged cases does not flood the board */
+.as-board .as-tile { background: #fff; color: #24292f; border: 1px solid #d8dee4; --as-tile-dot: #8c959f; }
+.as-board .as-tile-text { color: #57606a; }
+.as-tile-word::before, .as-board-compact .as-tile-text::before { content: ""; display: inline-block; flex: none;
+  width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--as-tile-dot); }
+.as-board-compact .as-tile-text::before { width: 7px; height: 7px; margin-right: 5px; vertical-align: 0; }
+.as-board .as-tile-done { --as-tile-dot: #1a7f37; }
+.as-board .as-tile-unconverged { --as-tile-dot: #d4a72c; }
+.as-board .as-tile-running { --as-tile-dot: #218bff; border: 1.5px solid #218bff; }
+.as-board .as-tile-failed { --as-tile-dot: #cf222e; border: 1.5px solid #cf222e; }
+.as-board .as-tile-pending, .as-board .as-tile-notrun { --as-tile-dot: transparent; border: 1px dashed #afb8c1; }
+.as-board .as-tile-pending .as-tile-word::before, .as-board-compact .as-tile-pending .as-tile-text::before,
+.as-board .as-tile-notrun .as-tile-word::before, .as-board-compact .as-tile-notrun .as-tile-text::before {
+  box-shadow: inset 0 0 0 1.5px #8c959f; }
+.as-board .as-tile-cancelled { color: #57606a; }
+.as-board .as-tile:hover { background: #f6f8fa; }
 .as-tile-selected { outline: 2.5px solid var(--as-accent); outline-offset: 1px; }
 .as-tile-selected::after { content: "✓"; position: absolute; top: 2px; right: 6px; color: var(--as-accent);
   font-weight: 700; font-size: 12px; }

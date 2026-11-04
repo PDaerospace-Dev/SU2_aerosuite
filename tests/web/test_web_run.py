@@ -391,6 +391,10 @@ async def test_an_altitude_head_names_only_its_failed_cases(user: User, ready_pr
     pills = [child.text for child in head.default_slot.children if "as-pill" in child.classes]
     assert pills == ["1 failed"]  # the other counts are in the bar only
     assert _text(user, "count-converged") == "1"
-    user.find(marker="run-density-compact").click()
-    await user.should_see(marker="run-density-compact")
-    assert "as-icon-toggle-on" in _element(user, "run-density-compact").classes
+    assert "as-icon-toggle-on" in _element(user, "run-density-compact").classes  # small tiles at first
+    tile = _element(user, f"tile-{names[0]}")
+    assert [child.text for child in tile.default_slot.children] == ["! failed"]  # the small line only
+    user.find(marker="run-density-large").click()
+    assert "as-icon-toggle-on" in _element(user, "run-density-large").classes
+    tile = _element(user, f"tile-{names[0]}")
+    assert [child.text for child in tile.default_slot.children] == ["Failed", "! failed"]
