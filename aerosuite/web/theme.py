@@ -637,6 +637,27 @@ a.as-step:hover { background: #f6f8fa; }
 .as-start-after, .as-start-running { background: #fff8c5; color: #7a5200; }
 .as-start-scratch { background: #eaeef2; color: #424a53; }
 .as-start-none { background: #ffebe9; color: #a40e26; }
+/* Sweep › Your choices: a tile per choice; folded, one line of the main values */
+.as-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; width: 100%; }
+.as-choice-item { border: 1px solid var(--as-hairline); border-radius: 8px; padding: 7px 10px; gap: 1px;
+  text-decoration: none; color: inherit; min-width: 0; }
+a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-accent-tint); }
+.as-choice-label { font-size: 10.5px; color: var(--as-muted); text-transform: uppercase; letter-spacing: .03em; }
+.as-choice-value { font-weight: 600; }
+.as-choice-value, .as-choice-detail, .as-choice-ran { max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.as-choice-detail { font-size: 12px; color: var(--as-muted); }
+.as-choice-own { width: 6px; height: 6px; border-radius: 50%; background: var(--as-accent); flex: none; }
+.as-choice-since { border-color: #eed888; background: #fff8c5; }
+.as-choice-ran { font-size: 12px; color: #7a5200; }
+.as-choices-since { flex: none; font-size: 11.5px; font-weight: 600; color: #7a5200; background: #fff8c5;
+  border: 1px solid #eed888; border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+.as-choice-key { font-size: 12px; color: var(--as-muted); gap: 6px; align-items: center; flex: none; }
+.as-choices-card .as-card-head { flex-wrap: wrap; row-gap: 2px; }
+.as-choices-line { display: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.as-choices-card.as-card-folded .as-choices-line { display: block; flex: 1 1 0; }
+.as-choices-card.as-card-folded .as-card-subtitle, .as-choices-card.as-card-folded .as-choice-key,
+.as-choices-card.as-card-folded .q-space { display: none; }
 .as-detail-row { padding: 4px 0; border-bottom: 1px solid var(--as-hairline); font-size: 12.5px; gap: 8px; }
 .as-section-head { cursor: pointer; padding-bottom: 8px; border-bottom: 1px solid #d8dee4; margin-bottom: 4px;
   flex-wrap: wrap; row-gap: 4px; }

@@ -1,6 +1,7 @@
-"""Sweep, in two tabs. Conditions: the Mach/alpha/beta (and, from altitude, altitude) lists, the case names, one
-restart rule for the sweep and what all this makes. Cases: every case (folded by Mach and altitude when there are
-many) with its restart; a case can be set differently from the rule. Problems and Generate stay on top."""
+"""Sweep, in two tabs under "Your choices" (what every case runs with, set here and on the other pages).
+Conditions: the Mach/alpha/beta (and, from altitude, altitude) lists, the case names, one restart rule for the sweep
+and what all this makes. Cases: every case (folded by Mach and altitude when there are many) with its restart; a case
+can be set differently from the rule. Problems and Generate stay on top."""
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -12,6 +13,7 @@ from ...engine.errors import AeroSuiteError, ProjectError
 from ...engine.models import Project
 from ...engine.naming import find_collisions, format_value
 from ..checks import generate_button, render_checks
+from ..choices_view import choices_card
 from ..fields import text_field
 from ..layout import ProjectFrame, open_session
 from ..naming_fields import base_name_field, naming_checkboxes
@@ -52,6 +54,9 @@ def register() -> None:
             holders["made"].clear()
             with holders["made"]:
                 restart_rule(frame, after)
+            holders["choices"].clear()
+            with holders["choices"]:
+                choices_card(frame)
             holders["summary"].clear()
             with holders["summary"]:
                 sweep_summary(frame)
@@ -93,6 +98,7 @@ def register() -> None:
             with frame.actions:
                 holders["generate"] = generate_button(frame, render_problems)
             holders["problems"] = ui.column().classes("w-full gap-2")
+            holders["choices"] = ui.column().classes("w-full")
             with ui.row().classes("as-tabs w-full gap-1").mark("sweep-tabs"):
                 for key, label in TABS:
                     holders[f"tab-{key}"] = ui.label(label).classes("as-tab").mark(f"sweep-tab-{key}")
