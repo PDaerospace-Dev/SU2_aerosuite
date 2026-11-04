@@ -733,8 +733,15 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
   border-bottom: 1px solid var(--as-hairline); }
 .as-guide-head-icon { color: var(--as-accent); }
 .as-guide-body { flex: 1; min-height: 0; flex-wrap: nowrap; gap: 0; align-items: stretch; }
-.as-guide-nav { width: 200px; flex: none; padding: 10px 8px; gap: 1px; overflow-y: auto; background: #f6f8fa;
-  border-right: 1px solid var(--as-hairline); }
+.as-guide-side { width: 210px; flex: none; gap: 0; background: #f6f8fa; border-right: 1px solid var(--as-hairline);
+  min-height: 0; flex-wrap: nowrap; }
+.as-guide-search { padding: 10px 8px 4px; }
+.as-guide-search .q-field__control { background: #fff; }
+.as-guide-nav { width: 100%; flex: 1; min-height: 0; padding: 4px 8px 10px; gap: 1px; overflow-y: auto;
+  flex-wrap: nowrap; }
+.as-guide-group { font-size: 10.5px; font-weight: 600; color: #8c959f; text-transform: uppercase;
+  letter-spacing: .04em; padding: 10px 10px 3px; }
+.as-guide-none { padding: 6px 10px; }
 .as-guide-link { width: 100%; justify-content: flex-start; padding: 5px 10px; border-radius: 6px; color: #57606a;
   font-size: 13px; }
 .as-guide-link.as-guide-current { background: var(--as-accent-tint); color: var(--as-accent-text); font-weight: 600; }

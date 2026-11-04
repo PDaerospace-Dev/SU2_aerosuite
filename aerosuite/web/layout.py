@@ -10,7 +10,7 @@ from nicegui import ui
 
 from ..engine.errors import AeroSuiteError
 from ..engine.jobs.store import active_lock
-from .guide import app_version, guide_sections, section_for
+from .guide import app_version, guide_groups, guide_sections, search_sections, section_for
 from .calc_panel import CalcPanel
 from .jobs import WATCHER, job_progress
 from .log_panel import LogPanel
@@ -149,7 +149,10 @@ def _help_button(page: str = "") -> None:
             ui.space()
             ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense").mark("guide-close")
         with ui.row().classes("as-guide-body w-full"):
-            nav = ui.column().classes("as-guide-nav").mark("guide-nav")
+            with ui.column().classes("as-guide-side"):
+                search = ui.input(placeholder="Search the guide").props("dense outlined clearable").classes(
+                    "as-guide-search w-full").mark("guide-search")
+                nav = ui.column().classes("as-guide-nav").mark("guide-nav")
             with ui.column().classes("as-guide-page") as page_area:
                 title = ui.label("").classes("as-guide-title").mark("guide-title")
                 guide = ui.markdown("").classes("as-guide-text w-full").mark("guide-text")
@@ -167,16 +170,39 @@ def _help_button(page: str = "") -> None:
                 link.classes(remove="as-guide-current")
         page_area.run_method("scrollTo", 0, 0)
 
+    def filter_links(query) -> None:
+        """Only the sections that mention every word typed; a group's name stays while one of its sections does."""
+        found = set(search_sections(sections, query or ""))
+        for i, link in enumerate(links):
+            link.set_visibility(i in found)
+        for heading, (start, end) in heads:
+            heading.set_visibility(any(i in found for i in range(start, end)))
+        none.set_visibility(not found)
+
     def show_guide() -> None:
         sections[:] = guide_sections()
+        starts = dict((index, name) for name, index in guide_groups())
         nav.clear()
         links.clear()
+        heads.clear()
         with nav:
+            bounds = sorted(starts) + [len(sections)]
             for i, (name, _) in enumerate(sections):
+                if i in starts:
+                    end = next(bound for bound in bounds if bound > i)
+                    heads.append((ui.label(starts[i]).classes("as-guide-group"), (i, end)))
                 links.append(ui.button(name, on_click=lambda i=i: show(i), color=None).props(
                     "flat dense no-caps align=left").classes("as-guide-link").mark(f"guide-link-{i}"))
+            nonlocal none
+            none = ui.label("No section mentions that").classes("as-muted as-guide-none").mark("guide-none")
+        search.value = ""
+        filter_links("")
         show(section_for(page, [name for name, _ in sections]))
         dialog.open()
+
+    heads: list = []
+    none = None
+    search.on_value_change(lambda e: filter_links(e.value))
 
     with ui.button(icon="help_outline", color=None).props("flat dense").classes(
             "as-topbar-icon as-round").mark("help"):
