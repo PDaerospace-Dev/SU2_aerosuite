@@ -6,10 +6,9 @@ AeroSuite is a web application for preparing, running and reviewing SU2 CFD stud
 - Runs on this machine or on a Slurm cluster
 - Live convergence monitoring
 - Results with plots, derived values.
-
-**Cluster:** Slurm nodes and your jobs management
-**Calculators:** (ISA atmosphere and y+)
-**ParaView:** Open your cases in Paraview
+- **Cluster:** Slurm nodes and your jobs management.
+- **Calculators:** (ISA atmosphere and y+).
+- **ParaView:** Open your cases in Paraview/write ASCII files
 
 It runs as a service on the workstation and opens in any browser; everything it does is also available as the `aerosuite` command.
 
