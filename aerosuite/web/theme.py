@@ -767,6 +767,47 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
   vertical-align: top; }
 .as-guide-text th { background: #f6f8fa; font-weight: 600; }
 .q-menu { border-radius: 8px; }
+
+/* Run matrix: a sheet's statuses as one bar, the workbook's head row, the Link form beside its summary */
+.as-mbar { display: flex; width: 100%; height: 10px; border-radius: 5px; overflow: hidden;
+  background: var(--as-hairline); }
+.as-mbar > span { height: 100%; }
+.as-mseg-converged { background: #1a7f37; }
+.as-mseg-not { background: #d4a72c; }
+.as-mseg-live { background: var(--as-accent); }
+.as-mseg-hold { background: #a8b1bb; }
+.as-mseg-none { background: var(--as-hairline); box-shadow: inset 0 0 0 1px #d0d7de; }
+.as-legend { gap: 16px; padding: 10px 14px; border-top: 1px solid var(--as-hairline); font-size: 12px;
+  color: #57606a; }
+.as-legend-item { gap: 6px; align-items: center; flex-wrap: nowrap; }
+.as-td-stack { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
+.as-matrix-table { min-width: 900px; }
+.as-workbook-head { padding: 12px 14px; gap: 14px; align-items: center; flex-wrap: wrap;
+  border-bottom: 1px solid var(--as-hairline); }
+.as-workbook-icon { font-size: 26px; color: #1a7f37; }
+.as-tile-attention { background: #fff8c5; border-color: #eed888; color: #7a5200; cursor: pointer; }
+.as-tile-attention .as-tile-label { color: #7a5200; }
+.as-tag-accent { background: var(--as-accent-tint); color: var(--as-accent-text); }
+.as-ok-text { color: #116329; }
+.as-log-line { gap: 12px; padding: 6px 0; border-top: 1px solid var(--as-hairline); flex-wrap: wrap; }
+.as-log-when { width: 96px; color: var(--as-muted); }
+.as-link-layout { gap: 14px; align-items: flex-start; flex-wrap: wrap; }
+.as-link-main { flex: 999 1 600px; min-width: 0; gap: 18px; }
+.as-link-side { flex: 1 1 300px; min-width: 0; gap: 14px; }
+.as-link-sheet { max-width: 360px; width: 100%; }
+.as-link-elevator { width: 90px; }
+.as-link-projects { border: 1px solid var(--as-hairline); border-radius: 8px; }
+.as-link-projects .as-table { min-width: 560px; }
+.as-link-footer { border-top: 1px solid var(--as-hairline); padding-top: 14px; }
+.as-link-numbers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
+.as-link-number { font-size: 20px; font-weight: 600; }
+.as-link-sweep-grid { display: grid; grid-template-columns: 90px minmax(0, 1fr); row-gap: 6px; width: 100%;
+  font-size: 12px; }
+.as-panel-pad { padding: 10px 14px; }
+.as-kept-head { gap: 10px; align-items: center; padding: 10px 14px; background: #fff8c5;
+  border-bottom: 1px solid #eed888; color: #7a5200; flex-wrap: wrap; }
+.as-preview-table { min-width: 860px; }
+.as-wrap { white-space: normal; overflow-wrap: anywhere; }
 """
 
 

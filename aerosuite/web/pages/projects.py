@@ -23,6 +23,8 @@ def register() -> None:
             with ui.row().classes("as-crumbs w-full"):
                 ui.label("Projects").classes("as-crumb-current")
                 ui.space()
+                secondary_button("Run matrix", on_click=lambda: ui.navigate.to("/tracker"), icon="table_view").mark(
+                    "projects-tracker")
                 secondary_button("Profiles", on_click=lambda: ui.navigate.to("/profiles"), icon="badge").mark(
                     "projects-profiles")
             with ui.element("div").classes("as-columns as-columns-projects"):

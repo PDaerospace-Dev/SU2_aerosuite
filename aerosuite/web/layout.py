@@ -320,6 +320,7 @@ class ProjectFrame:
                 with ui.menu().mark("project-menu") as menu:
                     ui.menu_item("All projects", on_click=lambda: ui.navigate.to("/")).mark("menu-all-projects")
                     ui.menu_item("Profiles", on_click=lambda: ui.navigate.to("/profiles")).mark("menu-profiles")
+                    ui.menu_item("Run matrix", on_click=lambda: ui.navigate.to("/tracker")).mark("menu-tracker")
                     here = Path(self.session.directory).resolve()
                     for directory in load_recent():
                         if directory.resolve() != here:
