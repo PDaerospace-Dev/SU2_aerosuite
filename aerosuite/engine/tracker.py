@@ -10,6 +10,7 @@ import html
 import os
 import re
 import shutil
+import threading
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -24,7 +25,8 @@ from .imported import read_name
 from .jobs.executors import runner_of
 from .jobs.runner import CaseState, JobRecord
 from .jobs.store import scan_jobs
-from .results import load_case_index
+from .restarts import RUNS_DIR
+from .results import HISTORY_FILE, check_convergence, load_case_index, read_history
 
 Key = tuple[float, float, float, float, float]  # Mach, altitude (km), AoA, elevator, beta (deg)
 
@@ -78,6 +80,8 @@ class CaseStatus:
     project: str  # the project folder's name
     job_id: str
     case: str
+    folder: str = ""  # the project folder
+    key: Optional[Key] = None  # the run it is for
 
 
 def _case_values(name: str, index: dict) -> Optional[tuple[float, float, float, float]]:
@@ -147,7 +151,7 @@ def collect_statuses(
                 continue
             mach, altitude, alpha, beta = values
             case_key = key(mach, altitude, alpha, elevator, beta)
-            entry = CaseStatus(STATUS_TEXT[state], project_dir.name, job.id, case)
+            entry = CaseStatus(STATUS_TEXT[state], project_dir.name, job.id, case, str(project_dir), case_key)
             if state in _NEVER_RAN:
                 fallback.setdefault(case_key, entry)
             else:
@@ -158,6 +162,26 @@ def collect_statuses(
         warnings.append(f"{project}: no Mach, altitude or AoA known for {len(names)} case(s), left out: "
                         f"{', '.join(names[:5])}{' ...' if len(names) > 5 else ''}")
     return statuses, warnings
+
+
+def job_counts(project_dir: Path, tags: Iterable[str] = (), skip_tags: Iterable[str] = ()) -> tuple[int, int]:
+    """How many of a project's jobs the tags choose, and how many it has."""
+    tags, skip_tags = list(tags), list(skip_tags)
+    jobs, _ = scan_jobs(Path(project_dir))
+    chosen = [job for job in jobs if (not tags or any(has_tag(job.note, t) for t in tags))
+              and not any(has_tag(job.note, t) for t in skip_tags)]
+    return len(chosen), len(jobs)
+
+
+def verdict_reason(folder: Path, case: str) -> str:
+    """Why AeroSuite's convergence check judged a case as it did, from its history now; "" when there is none."""
+    path = Path(folder) / RUNS_DIR / case / HISTORY_FILE
+    if not path.is_file():
+        return ""
+    try:
+        return check_convergence(read_history(path))[1]
+    except (OSError, ValueError, AeroSuiteError):
+        return ""
 
 
 # --- the sheet -------------------------------------------------------------------------------------------------------
@@ -175,16 +199,37 @@ class Matrix:
     sheet: str
     status_column: str  # its letter, e.g. "M"
     rows: list[MatrixRow]
+    levels: list[list[float]]  # the values entered per sweep parameter: Mach, altitude, AoA, elevator, beta
+
+
+_loaded: dict[tuple, object] = {}  # workbooks as last read, by (path, mtime, size): the web pages read one often
+_loaded_lock = threading.Lock()
 
 
 def _load(workbook: Path):
     from openpyxl import load_workbook
     from openpyxl.utils.exceptions import InvalidFileException
 
+    stat = workbook.stat()
+    stamp = (str(workbook.resolve()), stat.st_mtime_ns, stat.st_size)
+    with _loaded_lock:
+        if stamp in _loaded:
+            return _loaded[stamp]
     try:
-        return load_workbook(workbook)
+        wb = load_workbook(workbook)
     except (InvalidFileException, zipfile.BadZipFile, KeyError, ValueError) as exc:
         raise TrackerError(f"Cannot read {workbook} as an .xlsx workbook: {exc}") from exc
+    with _loaded_lock:
+        for old in [s for s in _loaded if s[0] == stamp[0]]:
+            del _loaded[old]
+        while len(_loaded) >= 4:
+            del _loaded[next(iter(_loaded))]
+        _loaded[stamp] = wb
+    return wb
+
+
+def sheet_names(workbook: Path) -> list[str]:
+    return list(_load(Path(workbook)).sheetnames)
 
 
 def _text(value) -> str:
@@ -255,7 +300,7 @@ def read_matrix(workbook: Path, sheet: str) -> Matrix:
         indices.reverse()
         values = [level[index] if level else 0.0 for level, index in zip(levels, indices)]
         rows.append(MatrixRow(row, f"RUN-{i + 1:04d}", key(*values), _text(ws.cell(row, status_column).value)))
-    return Matrix(sheet, get_column_letter(status_column), rows)
+    return Matrix(sheet, get_column_letter(status_column), rows, levels)
 
 
 @dataclass(frozen=True)
@@ -294,6 +339,19 @@ def plan_changes(matrix: Matrix, statuses: dict[Key, CaseStatus], overwrite: boo
     in_matrix = {row.key for row in matrix.rows}
     outside = [entry for case_key, entry in statuses.items() if case_key not in in_matrix]
     return Plan(changes, unchanged, kept, outside)
+
+
+_SWEEP_NAMES = ("Mach", "altitude", "AoA", "elevator", "sideslip")
+
+
+def outside_reason(matrix: Matrix, case_key: Key) -> str:
+    """Why no row of the matrix is for a case: the first of its values the sheet's sweep does not have."""
+    from .naming import format_value
+
+    for name, value, level in zip(_SWEEP_NAMES, case_key, matrix.levels):
+        if round(value, 6) not in {round(v, 6) for v in (level or [0.0])}:
+            return f"{name} {format_value(value)} is not in the sheet's sweep"
+    return "the sheet's run matrix stops before its row"
 
 
 # --- writing ---------------------------------------------------------------------------------------------------------

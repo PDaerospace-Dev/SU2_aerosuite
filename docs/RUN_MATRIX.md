@@ -1,8 +1,34 @@
 # Keeping a run-matrix workbook up to date
 
-`aerosuite tracker sync` fills in the **Status** column of a CFD run-matrix sheet (the *CFD Simulation Run Matrix*
-template: Mach × altitude × AoA × elevator × sideslip, Run ID / Status / Notes from row 5) from the projects' job
-records. It saves you from copying Running / Converged / Not Converged into the sheet by hand.
+AeroSuite (the **Run matrix** page, or `aerosuite tracker sync`) fills in the **Status** column of a CFD run-matrix
+sheet (the *CFD Simulation Run Matrix* template: Mach × altitude × AoA × elevator × sideslip, Run ID / Status / Notes
+from row 5) from the projects' job records. It saves you from copying Running / Converged / Not Converged into the
+sheet by hand.
+
+## In the web UI
+
+Open **Run matrix** from the Projects page (or the project menu in the top bar).
+
+- **Run matrix** (`/tracker`) lists the linked sheets, grouped by workbook. Each row shows a bar of the statuses the
+  sheet has now, how many statuses are waiting to be written, and how many of your verdicts the jobs disagree with.
+  **Write** writes the waiting statuses. **Download** fetches the workbook. **Write automatically** turns automatic
+  writing on or off for every sheet of that workbook.
+- **Link a sheet** (`/tracker/link`) takes the workbook path and the sheet. It confirms the run matrix it found,
+  lists the projects beside the workbook and your recent projects with their elevator deflection (read from the
+  folder name, editable), and has the tag filters, the choice for disagreeing verdicts and automatic writing. The side
+  panel counts what would be written as you change things. **Save and preview** opens the preview.
+- **Preview** (`/tracker/preview?link=…`) has three tabs: **To write**, **Your verdicts kept** (with the convergence
+  check's reason, and **Use the job's** per row or for all) and **Not in the sheet** (with the sweep value the sheet
+  lacks). **Write N statuses** writes the changes plus the job verdicts you chose.
+
+Links and the log of writes are kept in `$AEROSUITE_HOME/tracker.json`, so they are shared by everyone using this
+server. With **Write automatically** on, the server checks every 20 s whether a linked project's job records (or the
+workbook, or Excel's lock file) changed, and writes what is new. The first check after a link is saved, or after the
+server starts, only takes note of where things stand, so nothing is written before you have seen the preview. A write
+skipped because the workbook was open in Excel is tried again once Excel closes it. The web UI reads the job records
+as they are, because the server's own pollers keep them current.
+
+## From the command line
 
 ```bash
 X=/data/cases/midhun/x07
