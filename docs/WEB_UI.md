@@ -46,38 +46,38 @@ If AeroSuite does not answer at all, it is not running on the workstation: see *
   directly. `?tab=solver` opens a tab on Aircraft, `?tab=board|list|history&case=<name>` on Run.
 
 ### Frequently Asked Questions (FAQ)
-**How do I restart cases that failed?**
-On **Run**, click **Failed** above the board, choose **Starts from → Each case's own last solution**, open *What
+#### Q1. How do I restart cases that failed?
+**A.** On **Run**, click **Failed** above the board, choose **Starts from → Each case's own last solution**, open *What
 each starts from* to check, then **Submit** (or **Add N cases** while a job runs). A failed case that started from a
 solution starts from that same solution again (*kept*).
 
-**How do I carry on unconverged cases for more iterations?**
-**Run → Unconverged**, then **Starts from → Each case's own last solution** and **Submit**. To give them more
+#### Q2. How do I carry on unconverged cases for more iterations?
+**A.** **Run → Unconverged**, then **Starts from → Each case's own last solution** and **Submit**. To give them more
 iterations, change *Iterations* on Aircraft → Solver first.
 
-**How do I rerun one case with a lower CFL or first order?**
-Click its tile on **Run**, then **Rerun with changes…**. The change is for that run only; **Keep** afterwards writes
+#### Q3. How do I rerun one case with a lower CFL or first order?
+**A.** Click its tile on **Run**, then **Rerun with changes…**. The change is for that run only; **Keep** afterwards writes
 it into the config. See *Run → Rerun with changes*.
 
-**How do I add an altitude or a Mach number?**
-Add it to the list on **Sweep**, **Generate configs**, then on **Run** pick **Not run** and **Submit**. The cases
+#### Q4. How do I add an altitude or a Mach number?
+**A.** Add it to the list on **Sweep**, **Generate configs**, then on **Run** pick **Not run** and **Submit**. The cases
 that already ran keep their results.
 
-**How do I see where a case stands?**
-Click its tile on **Run** for its details, or open **Monitor** for its residuals.
+#### Q5. How do I see where a case stands?
+**A.** Click its tile on **Run** for its details, or open **Monitor** for its residuals.
 
-**How do I compare cases or export numbers?**
-**Results**: plots and tables of the averaged coefficients, **Copy table** for a spreadsheet, **Export CSV**.
+#### Q6. How do I compare cases or export numbers?
+**A.** **Results**: plots and tables of the averaged coefficients, **Copy table** for a spreadsheet, **Export CSV**.
 
-**How do I look at the flow field?**
-**ParaView** in the top bar opens a case's files on the workstation. *Write ASCII from restart…* rebuilds them from
+#### Q7. How do I look at the flow field?
+**A.** **ParaView** in the top bar opens a case's files on the workstation. *Write ASCII from restart…* rebuilds them from
 the restart file.
 
-**How do I use AeroSuite from my own PC?**
-**Settings → Open from your PC → download the launcher**, copy it to your PC and double-click it.
+#### Q8. How do I use AeroSuite from my own PC?
+**A.** **Settings → Open from your PC → download the launcher**, copy it to your PC and double-click it.
 
-**How do I work without the browser?**
-Every main step has a command: see *Command line*.
+#### Q9. How do I work without the browser?
+**A.** Every main step has a command: see *Command line*.
 
 ## Your study, step by step
 
