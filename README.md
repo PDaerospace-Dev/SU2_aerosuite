@@ -69,8 +69,7 @@ docs/                        WEB_UI.md (the in-app guide), CLUSTER.md (Slurm), R
 ```
 
 ## Installation
-AeroSuite runs on **Python 3.12** in its own uv environment. The system Python (3.7.6 on the workstation) is not
-touched; the sweep script keeps running under it, because that is the Python that can import SU2. `SU2_RUN` must be
+AeroSuite runs on **Python 3.12** in its own uv environment. The SU2 can have its own python environment, the sweep script keeps running under it, because that is the Python that can import SU2. `SU2_RUN` must be
 set in the shell that starts a run, and the sweep script is launched under the Python named by
 `AEROSUITE_SWEEP_PYTHON` (default: the first `python3` on `PATH` outside AeroSuite's own environment). Set it when
 SU2 lives under a different interpreter:
