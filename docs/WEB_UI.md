@@ -53,7 +53,7 @@ solution starts from that same solution again (*kept*).
 
 #### Q2. How do I carry on unconverged cases for more iterations?
 **A.** **Run → Unconverged**, then **Starts from → Each case's own last solution** and **Submit**. To give them more
-iterations, change *Iterations* on Aircraft → Solver first.
+iterations, change *Iterations (max)* on Aircraft → Convergence first.
 
 #### Q3. How do I rerun one case with a lower CFL or first order?
 **A.** Click its tile on **Run**, then **Rerun with changes…**. The change is for that run only; **Keep** afterwards writes
@@ -127,9 +127,22 @@ and what it runs at.
   - *Set by hand*: one temperature and Reynolds number for every case.
   - *From altitude*: give a Reynolds length, and each case gets the standard-atmosphere (ISA) temperature and
     pressure of its altitude (0–100 km) and its own Reynolds number.
-- **Solver**: convective scheme, MUSCL (second order), turbulence model, iterations, CFL and *Adaptive CFL* (its four
+- **Solver**: convective scheme, MUSCL (second order), turbulence model, CFL and *Adaptive CFL* (its four
   numbers: factor down, factor up, min and max). The template's value shows until you change one; *Use the
   template's* goes back.
+- **Convergence**: *Iterations (max)*, and when SU2 stops a case before that (*Stop early when*):
+  - *As in the template*: the template's `CONV_*` lines, or SU2's default (RMS_DENSITY down to -8).
+  - *The residual drops*: a residual (`CONV_FIELD`) down to a level (`CONV_RESIDUAL_MINVAL`, log10).
+  - *The forces settle*: the chosen coefficients (CL, CD, CMy) each change on average by less than the
+    *Tolerance* per iteration over the *Window* (`CONV_CAUCHY_EPS`, `CONV_CAUCHY_ELEMS`). It starts at a window of
+    100 and 1e-5: at most 0.1% over the window, which is AeroSuite's own limit, so a case SU2 stops early comes out
+    Converged. Raise *Iterations (max)* so the slow cases get there.
+
+  Both check from *Check from iteration* (`CONV_STARTITER`). `CONV_*` lines in Extra options replace these; *Move
+  them here* takes them over. **AeroSuite's verdict** is its own check: CL, CD and CMy each vary by at most 0.1% of
+  their mean over the last 10% of iterations, or, near zero, by less than an absolute amount (CL and CMy 1e-4, CD
+  1e-5). A run keeps the verdict it got when it ended; *Judge finished runs again* applies the check as it is now
+  (also `aerosuite rejudge DIR`).
 - **Boundaries**: the mesh's markers and the `MARKER_` lines. Type a value to write the line into every config, leave
   it empty for the template's line, or untick it to remove the line.
 - **Reference**: reference length and area, moment origin.
@@ -407,6 +420,7 @@ aerosuite summarize /data/me/wing --last 200
 | `cancel DIR [JOB]` | Stop the running job (`--case NAME` on Slurm stops just that case) |
 | `resubmit DIR [CASES]` | Submit again the cases that ended NODE_FAIL or OUT_OF_MEMORY (`--partition`, `--ntasks`) |
 | `summarize DIR` | Average each case's history into `results/summary.csv` and print it (`--last N`, `--columns CL,CD`) |
+| `rejudge DIR` | Judge the finished runs again with the convergence check as it is now, and record the verdicts that change (`--dry-run`) |
 | `import SOURCE DIR` | Make a read-only study from existing SU2 runs |
 | `settings` | Print the server-wide settings |
 | `settings set KEY VALUE` | Change one, e.g. `backend slurm`, `check_with_su2 false`, `slurm.partitions.node2.default_ntasks 48` |

@@ -157,3 +157,18 @@ def test_cfl_adapt_param_is_written_as_su2_writes_it(text, written):
 def test_cfl_adapt_param_refuses_what_su2_cannot_use(text, problem):
     with pytest.raises(ValueError, match=problem):
         parse_cfl_adapt_param(text)
+
+
+@pytest.mark.parametrize("text, written", [("lift drag", "( LIFT, DRAG )"), ("(RMS_DENSITY)", "RMS_DENSITY"),
+                                           ("( LIFT, MOMENT_Y )", "( LIFT, MOMENT_Y )")])
+def test_conv_field_is_written_as_su2_reads_it(text, written):
+    from aerosuite.engine.editing import parse_conv_field
+    assert parse_conv_field(text) == written
+
+
+@pytest.mark.parametrize("text, problem", [("", "needs a field"), ("CLX", "CLX is not a residual"),
+                                           ("RMS_DENSITY, LIFT", "mixes residuals and coefficients")])
+def test_conv_field_refuses(text, problem):
+    from aerosuite.engine.editing import parse_conv_field
+    with pytest.raises(ValueError, match=problem):
+        parse_conv_field(text)

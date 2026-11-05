@@ -303,6 +303,27 @@ def resubmit(
 
 @app.command()
 @engine_errors
+def rejudge(
+    directory: ProjectDir,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="List what would change; leave the job records alone")]
+    = False,
+) -> None:
+    """Judge the project's finished runs again with AeroSuite's convergence check as it is now, and record the
+    verdicts that change (a job keeps the verdict it gave when each case ended)."""
+    from ..engine.jobs.rejudge import rejudge as rejudge_runs
+
+    project_dir = Path(directory)
+    engine_project.open_project(project_dir)  # fails clearly if this is not a project
+    changed = rejudge_runs(project_dir, write=not dry_run)
+    for item in changed:
+        typer.echo(f"{item.case} (job {item.job_id}): {item.old.value} -> {item.new.value}  [{item.reason}]")
+    verb = "would change" if dry_run else "changed"
+    typer.echo(f"{len(changed)} verdict{'' if len(changed) == 1 else 's'} {verb}." if changed
+               else "Every finished run already has the verdict the check gives now.")
+
+
+@app.command()
+@engine_errors
 def summarize(
     directory: ProjectDir,
     last: Annotated[Optional[int], typer.Option(

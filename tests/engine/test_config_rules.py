@@ -45,6 +45,26 @@ def test_an_adaptive_cfl_whose_minimum_is_above_the_start_is_a_warning(ready_pro
         "CFL_ADAPT_PARAM's minimum CFL 25 is above CFL_NUMBER 1: the CFL jumps to 25 at the first adaptation"]
 
 
+def test_forces_that_cannot_settle_before_iter_are_a_warning(ready_project):
+    project_dir, project = ready_project
+    project.settings.numerics.conv_field = "( LIFT, DRAG )"
+    project.settings.numerics.conv_startiter = 200
+    project.settings.numerics.iter = 250
+    assert _messages(project_dir, project, "warning") == [
+        "ITER 250 is not above CONV_STARTITER 200 + CONV_CAUCHY_ELEMS 100: SU2 can never stop before ITER on LIFT, "
+        "DRAG"]
+    project.settings.numerics.iter = 3000
+    assert _messages(project_dir, project, "warning") == []
+
+
+def test_residuals_mixed_with_coefficients_are_a_warning(ready_project):
+    project_dir, project = ready_project
+    _with(project_dir, "CONV_FIELD= RMS_DENSITY, LIFT", "ITER= 5000")
+    assert _messages(project_dir, project, "warning") == [
+        "CONV_FIELD has residuals and coefficients: SU2 stops early only when the residual also reaches "
+        "CONV_RESIDUAL_MINVAL"]
+
+
 def test_an_aircraft_study_warns_of_unit_reference_values_and_no_coefficients_in_the_history(ready_project):
     project_dir, project = ready_project
     project.profile = "x07"

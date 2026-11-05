@@ -18,6 +18,7 @@ from ...engine.profiles import load_profile
 from ...engine.project import follow_template
 from ...engine.reference import RefOption, keys_in
 from ..aircraft_boundaries import boundaries_tab
+from ..aircraft_convergence import convergence_tab
 from ..aircraft_flight import flight_tab
 from ..aircraft_form import extra_tab, reference_tab, solver_tab
 from ..checks import generate_button
@@ -33,8 +34,8 @@ from ..template_editor import carry_unsaved
 from ..ui_kit import banner, card, hint, sci, stat
 from .sweep import restart_rule
 
-TABS = [("flight", "Flight & air"), ("solver", "Solver"), ("boundaries", "Boundaries"), ("reference", "Reference"),
-        ("start", "Start"), ("extra", "Extra options")]
+TABS = [("flight", "Flight & air"), ("solver", "Solver"), ("convergence", "Convergence"), ("boundaries", "Boundaries"),
+        ("reference", "Reference"), ("start", "Start"), ("extra", "Extra options")]
 RULE_WORDS = {"none": "from scratch", "previous": "from the previous case", "custom": "from a folder"}
 
 
@@ -119,7 +120,7 @@ def _build(frame: ProjectFrame, state: dict, redraw: Callable[[], None]) -> None
 
     def layers_saved() -> None:
         """A form line edited in the config: the form's fields show the new values (the config keeps its place)."""
-        for name in ("flight", "solver", "boundaries", "reference-tab", "extra"):
+        for name in ("flight", "solver", "convergence", "boundaries", "reference-tab", "extra"):
             holders[name]()
         after()
 
@@ -164,6 +165,8 @@ def _tabs(frame: ProjectFrame, state: dict, hints: dict[str, str], holders: dict
             holders["flight"] = flight_tab(frame, hints, after)
         with ui.tab_panel("solver").classes("gap-3"):
             holders["solver"] = solver_tab(frame, hints, after)
+        with ui.tab_panel("convergence").classes("gap-3"):
+            holders["convergence"] = convergence_tab(frame, hints, after)
         with ui.tab_panel("boundaries").classes("gap-3"):
             holders["boundaries"] = boundaries_tab(frame, hints, after)
         with ui.tab_panel("reference").classes("gap-3"):

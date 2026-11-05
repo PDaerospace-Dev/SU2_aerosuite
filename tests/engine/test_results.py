@@ -168,6 +168,20 @@ def test_check_convergence_near_zero_mean(tmp_path):
     assert check_convergence(df) == (True, "Converged")
 
 
+def test_a_coefficient_near_zero_is_judged_by_its_absolute_wobble(tmp_path):
+    """α = 0 of a symmetric wing: CL about 0.002 wobbling by 5e-5 is steady; by 5e-4 it is not."""
+    def judge(wobble):
+        rows = [f"{i}, {0.002 + wobble * (-1) ** i:.6e}, 0.02, -0.1\n" for i in range(50)]
+        path = tmp_path / f"{wobble}.csv"
+        path.write_text('"Inner_Iter", "CL", "CD", "CMy"\n' + "".join(rows))
+        return check_convergence(read_history(path))
+
+    ok, message = judge(5e-5)
+    assert ok and message.startswith("Converged (near zero: CL std")
+    ok, message = judge(5e-4)
+    assert not ok and message.startswith("CL not converged")
+
+
 def test_history_buffer_accumulates_and_starts_over(tmp_path, history_writer):
     from aerosuite.engine.results import HistoryBuffer
 

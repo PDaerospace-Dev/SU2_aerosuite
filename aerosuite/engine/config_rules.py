@@ -48,6 +48,30 @@ def _items(value: str) -> list[str]:
     return [part.strip() for part in value.strip().strip("()").split(",") if part.strip()]
 
 
+def _stopping_problems(options: dict[str, str]) -> list["Problem"]:
+    """When SU2 stops: coefficients that settle can only stop it after CONV_STARTITER + CONV_CAUCHY_ELEMS iterations,
+    and a residual mixed in makes it wait for that too."""
+    from .editing import COEFFICIENT_FIELDS, RESIDUAL_FIELDS, conv_fields
+    from .preflight import Problem
+
+    fields = conv_fields(options.get("CONV_FIELD", ""))
+    coefficients = [field for field in fields if field in COEFFICIENT_FIELDS]
+    if not coefficients:
+        return []
+    problems = []
+    if any(field in RESIDUAL_FIELDS for field in fields):
+        problems.append(Problem("warning", "CONV_FIELD has residuals and coefficients: SU2 stops early only when "
+                                           "the residual also reaches CONV_RESIDUAL_MINVAL"))
+    start = _number(options.get("CONV_STARTITER", "5")) or 0
+    window = _number(options.get("CONV_CAUCHY_ELEMS", "100")) or 0
+    limit = _number(options.get("ITER", ""))
+    if limit is not None and limit <= start + window:
+        problems.append(Problem("warning", f"ITER {limit:g} is not above CONV_STARTITER {start:g} + "
+                                           f"CONV_CAUCHY_ELEMS {window:g}: SU2 can never stop before ITER on "
+                                           f"{', '.join(coefficients)}"))
+    return problems
+
+
 def _number(text: str) -> Optional[float]:
     try:
         return float(text)
@@ -85,6 +109,8 @@ def config_problems(project_dir: Path, project: Project) -> list["Problem"]:
         if len(params) >= 3 and params[2] is not None and cfl is not None and params[2] > cfl:
             problems.append(Problem("warning", f"CFL_ADAPT_PARAM's minimum CFL {params[2]:g} is above CFL_NUMBER "
                                                f"{cfl:g}: the CFL jumps to {params[2]:g} at the first adaptation"))
+
+    problems += _stopping_problems(options)
 
     if project.profile:
         for key in ("REF_AREA", "REF_LENGTH"):

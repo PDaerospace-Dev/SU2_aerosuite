@@ -35,6 +35,7 @@ def test_the_template_values_stand_until_the_project_changes_them():
     assert choices["scheme"].value == "ROE · 2nd order" and not choices["scheme"].own
     assert choices["cfl"].value == "1.0 · adaptive" and choices["cfl"].detail == "adapt ( 0.5, 1.05, 1.0, 50 )"
     assert choices["iterations"].value == "800 per case"
+    assert choices["iterations"].detail == "or when RMS_DENSITY reaches -8"
     assert [choice.key for choice in project_choices(project, TEMPLATE)] == [
         "mesh", "solver", "scheme", "cfl", "iterations", "freestream", "reference", "hand-set"]
     assert choices["hand-set"].value == "none"
@@ -67,3 +68,12 @@ def test_the_last_run_is_read_from_each_case_folder(tmp_path):
 def test_the_folded_line():
     assert folded_line(project_choices(_project(), TEMPLATE)) == (
         "RANS · SST · ROE · 2nd order · CFL 1.0 · adaptive · 800 iterations · Set by hand")
+
+
+def test_the_iterations_tile_says_when_the_forces_stop_su2():
+    project = _project()
+    numerics = project.settings.numerics
+    numerics.iter, numerics.conv_field, numerics.conv_cauchy_eps = 3000, "( LIFT, DRAG )", 1e-5
+    choices = _by_key(project_choices(project, TEMPLATE))
+    assert choices["iterations"].value == "3000 per case" and choices["iterations"].own
+    assert choices["iterations"].detail == "or when CL, CD settle (1e-05 over 100 iterations)"

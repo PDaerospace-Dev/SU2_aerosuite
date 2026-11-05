@@ -94,6 +94,11 @@ def settings_parameters(settings: Settings) -> dict[str, Optional[str]]:
         "ITER": None if num.iter is None else str(num.iter),
         "CONV_NUM_METHOD_FLOW": num.conv_method,
         "MUSCL_FLOW": num.muscl,
+        "CONV_FIELD": num.conv_field,
+        "CONV_RESIDUAL_MINVAL": _number(num.conv_residual_minval),
+        "CONV_CAUCHY_ELEMS": None if num.conv_cauchy_elems is None else str(num.conv_cauchy_elems),
+        "CONV_CAUCHY_EPS": None if num.conv_cauchy_eps is None else f"{num.conv_cauchy_eps:g}",
+        "CONV_STARTITER": None if num.conv_startiter is None else str(num.conv_startiter),
     }
     params: dict[str, Optional[str]] = {k: v for k, v in candidates.items() if v is not None}
     params.update(settings.markers)

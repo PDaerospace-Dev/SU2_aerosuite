@@ -79,6 +79,69 @@ async def test_cfl_adaptation_is_set_with_the_cfl(user: User, ready_project):
     await user.should_not_see(marker="cfl-adapt-box")
 
 
+async def test_convergence_stops_when_the_forces_settle(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    await user.open(project_url("aircraft", project_dir) + "&tab=convergence")
+    await user.should_see(marker="conv-template")  # as in the template
+    user.find(marker="numerics-iter").clear().type("3000").trigger("blur")
+    with user:
+        _element(user, "conv-mode").set_value("forces")
+    numerics = open_project(project_dir).settings.numerics
+    assert (numerics.iter, numerics.conv_field, numerics.conv_cauchy_elems, numerics.conv_cauchy_eps,
+            numerics.conv_startiter) == (3000, "( LIFT, DRAG )", 100, 1e-5, 200)
+    await user.should_see(marker="conv-forces-hint")
+    user.find(marker="conv-force-CMy").click()
+    assert open_project(project_dir).settings.numerics.conv_field == "( LIFT, DRAG, MOMENT_Y )"
+    user.find(marker="conv-eps").clear().type("2e-5").trigger("blur")
+    assert open_project(project_dir).settings.numerics.conv_cauchy_eps == 2e-5
+    whole = _preview(user)
+    for line in ("ITER= 3000", "CONV_FIELD= ( LIFT, DRAG, MOMENT_Y )", "CONV_CAUCHY_ELEMS= 100",
+                 "CONV_CAUCHY_EPS= 2e-05", "CONV_STARTITER= 200"):
+        assert line in whole
+    with user:
+        _element(user, "conv-mode").set_value("residual")
+    numerics = open_project(project_dir).settings.numerics
+    assert (numerics.conv_field, numerics.conv_cauchy_elems, numerics.conv_startiter) == ("RMS_DENSITY", None, 200)
+    with user:
+        _element(user, "conv-mode").set_value("template")
+    assert open_project(project_dir).settings.numerics.conv_field is None
+
+
+async def test_convergence_takes_its_lines_from_extra_options(user: User, ready_project):
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    project = open_project(project_dir)
+    project.settings.overrides.update({"CONV_FIELD": "LIFT", "CONV_CAUCHY_EPS": "1e-6"})
+    save_project(project_dir, project)
+    await user.open(project_url("aircraft", project_dir) + "&tab=convergence")
+    await user.should_see(marker="conv-overrides")
+    user.find(marker="conv-take-overrides").click()
+    settings = open_project(project_dir).settings
+    assert (settings.numerics.conv_field, settings.numerics.conv_cauchy_eps) == ("LIFT", 1e-6)
+    assert "CONV_FIELD" not in settings.overrides
+    await user.should_not_see(marker="conv-overrides")
+
+
+async def test_finished_runs_are_judged_again(user: User, ready_project, history_writer):
+    from datetime import datetime
+
+    from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
+    from aerosuite.engine.jobs.store import load_job, save_job
+
+    project_dir, _ = ready_project
+    _with_x07(project_dir)
+    history_writer(project_dir / "runs" / "a0", [0.002 + 5e-5 * (-1) ** i for i in range(50)])
+    save_job(project_dir, JobRecord(id="j", backend="local", cases=["a0"], log_path="jobs/j.log",
+                                    state=JobState.DONE, created=datetime(2026, 11, 1),
+                                    case_status={"a0": CaseState.UNCONVERGED}))
+    await user.open(project_url("aircraft", project_dir) + "&tab=convergence")
+    user.find(marker="conv-rejudge").click()
+    await user.should_see("1 verdict changed", marker="conv-rejudged")
+    await user.should_see("a0: Not converged → Converged")
+    assert load_job(project_dir, "j").case_status["a0"] is CaseState.CONVERGED
+
+
 async def test_dropdowns(user: User, ready_project):
     project_dir, _ = ready_project
     _with_x07(project_dir, turb_model="SA_NEG")
@@ -169,8 +232,8 @@ async def test_the_form_is_in_tabs_under_the_case_strip(user: User, ready_projec
     tabs = _element(user, "form-tabs")
     assert tabs.value == "flight"
     assert [_element(user, f"form-tab-{key}").props["label"] for key in
-            ("flight", "solver", "boundaries", "reference", "start", "extra")] == [
-        "Flight & air", "Solver", "Boundaries", "Reference", "Restarts", "Extra options"]  # the sweep is on
+            ("flight", "solver", "convergence", "boundaries", "reference", "start", "extra")] == [
+        "Flight & air", "Solver", "Convergence", "Boundaries", "Reference", "Restarts", "Extra options"]  # sweep on
     assert "as-field" in _element(user, "numerics-conv_method").classes
     assert _element(user, "case-name-text").text == "3 cases"
     assert _element(user, "boundaries-mesh").text == "Mesh markers: farfield, wall"

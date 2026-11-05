@@ -97,10 +97,23 @@ TILE_KEYS = {
     "solver": ("SOLVER", "KIND_TURB_MODEL"),
     "scheme": ("CONV_NUM_METHOD_FLOW", "MUSCL_FLOW"),
     "cfl": ("CFL_NUMBER", "CFL_ADAPT", "CFL_ADAPT_PARAM"),
-    "iterations": ("ITER",),
+    "iterations": ("ITER", "CONV_FIELD", "CONV_RESIDUAL_MINVAL", "CONV_CAUCHY_ELEMS", "CONV_CAUCHY_EPS",
+                   "CONV_STARTITER"),
     "reference": ("REF_LENGTH", "REF_AREA", "REF_ORIGIN_MOMENT_X", "REF_ORIGIN_MOMENT_Y", "REF_ORIGIN_MOMENT_Z"),
 }
 COMPARED = tuple(key for keys in TILE_KEYS.values() for key in keys) + ("REYNOLDS_LENGTH",)
+
+
+def _stopping(options: Mapping[str, str]) -> str:
+    """When SU2 stops before ITER, in words (its defaults where the config says nothing)."""
+    from ..engine.editing import COEFFICIENT_FIELDS, conv_fields
+
+    fields = conv_fields(options.get("CONV_FIELD") or "RMS_DENSITY")
+    if all(field in COEFFICIENT_FIELDS for field in fields):
+        names = ", ".join(COEFFICIENT_FIELDS[field] for field in fields)
+        return (f"or when {names} settle ({options.get('CONV_CAUCHY_EPS') or '1e-10'} over "
+                f"{options.get('CONV_CAUCHY_ELEMS') or '100'} iterations)")
+    return f"or when {', '.join(fields)} reaches {options.get('CONV_RESIDUAL_MINVAL') or '-8'}"
 
 
 def project_choices(project: Project, template: str, last: Optional[Mapping[str, set[str]]] = None) -> list[Choice]:
@@ -137,7 +150,7 @@ def project_choices(project: Project, template: str, last: Optional[Mapping[str,
              f"MUSCL_FLOW= {get('MUSCL_FLOW', 'NO')}"),
         tile("cfl", "CFL", f"{get('CFL_NUMBER')} · {'adaptive' if adaptive else 'fixed'}",
              f"adapt {get('CFL_ADAPT_PARAM')}" if adaptive else ""),
-        tile("iterations", "Iterations", f"{get('ITER')} per case"),
+        tile("iterations", "Iterations", f"{get('ITER')} per case", _stopping(now)),
         Choice("freestream", "Freestream", "From altitude (ISA)" if altitude else "Set by hand", freestream_detail,
                "aircraft", altitude or _changed(("REYNOLDS_NUMBER", "FREESTREAM_TEMPERATURE", "REYNOLDS_LENGTH"),
                                                 params, tmpl),

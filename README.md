@@ -106,6 +106,7 @@ aerosuite status ./study --watch
 aerosuite cancel ./study
 aerosuite import ./old-runs ./old-study   # read existing SU2 case folders into a read-only study
 aerosuite summarize ./study    # the Results page's parameters, derived and characteristic values → results/*.csv
+aerosuite rejudge ./study      # judge finished runs again with the convergence check as it is now (--dry-run)
 ```
 
 `aerosuite <command> --help` lists every option. Set `run.sweep_python` (`aerosuite set ./study --sweep-python /path/to/python3`) if the Python that imports SU2 is not the first `python3` on your PATH.
