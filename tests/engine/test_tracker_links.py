@@ -1,4 +1,6 @@
 """Linked run-matrix sheets: saving them, what each would write, writing it and the log."""
+from datetime import datetime
+
 import pytest
 from openpyxl import load_workbook
 from test_tracker import add_job, make_workbook
@@ -6,7 +8,8 @@ from test_tracker import add_job, make_workbook
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.tracker_links import (Link, LinkedProject, candidate_projects, create_sheet, find_link,
-                                            load_tracker, remove_link, report, save_link, set_auto, write_link)
+                                            link_stamp, load_tracker, remove_link, report, save_link, set_auto,
+                                            write_link)
 
 
 def _link(tmp_path, **changes):
@@ -60,6 +63,51 @@ def test_a_failed_write_is_logged(tmp_path):
     with pytest.raises(TrackerError, match="open in Excel"):
         write_link(link, trigger="auto")
     assert "open in Excel" in load_tracker().log[0].error
+
+
+def test_closing_libreoffice_changes_the_stamp(tmp_path):
+    link = _link(tmp_path)
+    lock = tmp_path / ".~lock.m.xlsx#"
+    lock.write_bytes(b"")
+    with pytest.raises(TrackerError, match="open in LibreOffice"):
+        write_link(link, trigger="auto")
+    stamp = link_stamp(link)
+    lock.unlink()
+    assert link_stamp(link) != stamp  # the watcher tries the write again
+    assert write_link(link, trigger="auto") == 1
+
+
+def _every_run(tmp_path, completed=None, last=CaseState.CONVERGED):
+    """A sheet with a "Completed on" detail, and jobs with a verdict for each of its 8 runs."""
+    book = make_workbook(tmp_path / "m.xlsx", completed=completed)
+    cases = {f"M{m}_0km_a{a}": CaseState.CONVERGED for m in ("0p3", "0p6") for a in (0, 5)}
+    add_job(tmp_path / "wing_del0", "j", cases, finished=datetime(2026, 11, 3, 18))
+    add_job(tmp_path / "wing_del20m", "k", cases | {"M0p6_0km_a5": last}, finished=datetime(2026, 11, 4, 9))
+    return Link(workbook=str(book), sheet="Study",
+                projects=[LinkedProject(path=str(tmp_path / "wing_del0"), elevator=0),
+                          LinkedProject(path=str(tmp_path / "wing_del20m"), elevator=-20)])
+
+
+def test_completed_on_is_the_day_the_last_job_ended(tmp_path):
+    link = _every_run(tmp_path, last=CaseState.UNCONVERGED)
+    assert report(link).completed_on == datetime(2026, 11, 4).date()
+    assert write_link(link, trigger="auto") == 8
+    assert load_workbook(link.workbook)["Study"]["D11"].value == datetime(2026, 11, 4)
+    assert load_tracker().log[0].completed_on == datetime(2026, 11, 4).date()
+    assert report(link).completed_on is None  # filled in: it stays as it is
+
+
+def test_completed_on_waits_for_every_verdict(tmp_path):
+    link = _every_run(tmp_path, last=CaseState.RUNNING)
+    write_link(link)
+    assert load_workbook(link.workbook)["Study"]["D11"].value is None
+
+
+def test_a_completion_date_entered_by_hand_stays(tmp_path):
+    link = _every_run(tmp_path, completed=datetime(2026, 11, 2))
+    assert report(link).completed_on is None
+    write_link(link)
+    assert load_workbook(link.workbook)["Study"]["D11"].value == datetime(2026, 11, 2)
 
 
 def test_nothing_to_write_automatically_is_not_logged(tmp_path):

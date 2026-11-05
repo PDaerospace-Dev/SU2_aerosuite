@@ -85,6 +85,7 @@ class CaseStatus:
     case: str
     folder: str = ""  # the project folder
     key: Optional[Key] = None  # the run it is for
+    finished: Optional[datetime] = None  # when its job ended
 
 
 def _case_values(name: str, index: dict) -> Optional[tuple[float, float, float, float]]:
@@ -154,7 +155,8 @@ def collect_statuses(
                 continue
             mach, altitude, alpha, beta = values
             case_key = key(mach, altitude, alpha, elevator, beta)
-            entry = CaseStatus(STATUS_TEXT[state], project_dir.name, job.id, case, str(project_dir), case_key)
+            entry = CaseStatus(STATUS_TEXT[state], project_dir.name, job.id, case, str(project_dir), case_key,
+                               job.finished)
             if state in _NEVER_RAN:
                 fallback.setdefault(case_key, entry)
             else:
@@ -203,6 +205,7 @@ class Matrix:
     status_column: str  # its letter, e.g. "M"
     rows: list[MatrixRow]
     levels: list[list[float]]  # the values entered per sweep parameter: Mach, altitude, AoA, elevator, beta
+    completed_on: str = ""  # the cell beside "Completed on", e.g. "D11", while it is blank
 
 
 _loaded: dict[tuple, object] = {}  # workbooks as last read, by (path, mtime, size): the web pages read one often
@@ -295,6 +298,16 @@ def _run_columns(ws) -> tuple[int, int, int]:
     return run_column, status_column, first_row
 
 
+def _completed_cell(ws, workbook: Path) -> str:
+    """The value cell (column D) of the "Completed on" detail above the sweep table, when it is blank; else ""."""
+    for row in range(1, _sweep_row(ws, workbook)):
+        if _text(ws.cell(row, 1).value).lower().startswith("completed"):
+            value = ws.cell(row, 4).value
+            blank = value is None or (isinstance(value, str) and not value.strip())
+            return ws.cell(row, 4).coordinate if blank else ""
+    return ""
+
+
 def read_matrix(workbook: Path, sheet: str) -> Matrix:
     """The sheet's run matrix, laid out as its formulas lay it out: Mach slowest, then altitude, AoA, elevator, beta."""
     from openpyxl.utils import get_column_letter
@@ -317,7 +330,7 @@ def read_matrix(workbook: Path, sheet: str) -> Matrix:
         indices.reverse()
         values = [level[index] if level else 0.0 for level, index in zip(levels, indices)]
         rows.append(MatrixRow(row, f"RUN-{i + 1:04d}", key(*values), _text(ws.cell(row, status_column).value)))
-    return Matrix(sheet, get_column_letter(status_column), rows, levels)
+    return Matrix(sheet, get_column_letter(status_column), rows, levels, _completed_cell(ws, workbook))
 
 
 @dataclass(frozen=True)
@@ -371,15 +384,31 @@ def outside_reason(matrix: Matrix, case_key: Key) -> str:
     return "the sheet's run matrix stops before its row"
 
 
+def completion_date(matrix: Matrix, plan: Plan, statuses: dict[Key, CaseStatus]) -> Optional[date]:
+    """What "Completed on" becomes with the plan written: the day the last of the runs' jobs ended, once every run
+    has a verdict (Converged, Not Converged, Diverged, Failed). None while one has not, or when the cell is not
+    blank: a date entered by hand stays."""
+    if not matrix.completed_on or not matrix.rows:
+        return None
+    status = {row.row: row.status for row in matrix.rows} | {change.row.row: change.status for change in plan.changes}
+    if any(text not in VERDICTS for text in status.values()):
+        return None
+    ended = [entry.finished for row in matrix.rows if (entry := statuses.get(row.key)) and entry.finished]
+    return max(ended).date() if ended else date.today()
+
+
 # --- writing ---------------------------------------------------------------------------------------------------------
 
-def _excel_lock(workbook: Path) -> Optional[Path]:
-    """Excel's owner file next to a workbook it has open (~$name; Excel drops two characters of a long name)."""
-    for name in ("~$" + workbook.name, "~$" + workbook.name[2:]):
-        path = workbook.with_name(name)
-        if path.exists():
-            return path
-    return None
+def lock_files(workbook: Path) -> list[tuple[str, Path]]:
+    """(application, lock file) for each office program that marks the workbook open beside it: Excel's owner file
+    (~$name; Excel drops two characters of a long name) and LibreOffice's .~lock.name#."""
+    return [("Excel", workbook.with_name("~$" + workbook.name)), ("Excel", workbook.with_name("~$" + workbook.name[2:])),
+            ("LibreOffice", workbook.with_name(f".~lock.{workbook.name}#"))]
+
+
+def _office_lock(workbook: Path) -> Optional[tuple[str, Path]]:
+    """The application that has the workbook open, and its lock file; None when no lock file is there."""
+    return next(((app, path) for app, path in lock_files(workbook) if path.exists()), None)
 
 
 def _sheet_part(archive: zipfile.ZipFile, sheet: str) -> str:
@@ -494,9 +523,9 @@ def _rewrite(workbook: Path, edit: Callable[[zipfile.ZipFile], dict[str, Union[s
     other entry copied byte for byte. The previous file is kept as <name>.bak.xlsx (still a workbook Excel opens), which
     is returned. `again` ends the message when Excel has it open."""
     workbook = Path(workbook)
-    lock = _excel_lock(workbook)
+    lock = _office_lock(workbook)
     if lock is not None:
-        raise TrackerError(f"{workbook.name} is open in Excel ({lock.name} exists); close it and {again}")
+        raise TrackerError(f"{workbook.name} is open in {lock[0]} ({lock[1].name} exists); close it and {again}")
     backup = workbook.with_name(f"{workbook.stem}.bak{workbook.suffix}")
     tmp = workbook.with_name(f".{workbook.name}.tmp")
     try:
@@ -522,11 +551,13 @@ def _rewrite(workbook: Path, edit: Callable[[zipfile.ZipFile], dict[str, Union[s
     return backup
 
 
-def write_statuses(workbook: Path, sheet: str, column: str, values: dict[int, str]) -> Path:
-    """Set Status cells ({row: text}) in place, keeping every other byte of the workbook. Returns the backup."""
+def write_statuses(workbook: Path, sheet: str, column: str, values: dict[int, str],
+                   also: Optional[dict[str, CellValue]] = None) -> Path:
+    """Set Status cells ({row: text}), and the cells `also` names ({"D11": value}), in place, keeping every other byte
+    of the workbook. Returns the backup."""
     def edit(archive: zipfile.ZipFile) -> dict[str, str]:
         part = _sheet_part(archive, sheet)
-        cells = {f"{column}{row}": text for row, text in values.items()}
+        cells = {f"{column}{row}": text for row, text in values.items()} | (also or {})
         return {part: _set_cells(archive.read(part).decode("utf-8"), cells),
                 "xl/workbook.xml": _recalculate_on_open(archive.read("xl/workbook.xml").decode("utf-8"))}
 

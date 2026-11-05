@@ -8,8 +8,9 @@ import typer
 from ..engine import project as engine_project
 from ..engine.errors import TrackerError
 from ..engine.naming import format_value
-from ..engine.tracker import (collect_statuses, detail_value, elevator_of, parse_values, plan_changes, project_levels,
-                              read_matrix, read_template, sheet_name_problem, template_sheets, write_statuses)
+from ..engine.tracker import (collect_statuses, completion_date, detail_value, elevator_of, parse_values, plan_changes,
+                              project_levels, read_matrix, read_template, sheet_name_problem, template_sheets,
+                              write_statuses)
 from ..engine.tracker_links import Link, LinkedProject, create_sheet
 from .app import app, engine_errors
 
@@ -69,6 +70,7 @@ def sync(
     for warning in warnings:
         typer.echo(f"Warning: {warning}", err=True)
     plan = plan_changes(matrix, statuses, overwrite=overwrite)
+    completed = completion_date(matrix, plan, statuses)
     for change in plan.changes:
         typer.echo(_line(change, "->"))
     if dry_run:
@@ -83,13 +85,16 @@ def sync(
         names = ", ".join(f"{entry.project}/{entry.case}" for entry in plan.outside[:5])
         typer.echo(f"Warning: {len(plan.outside)} case(s) are not in the sheet's run matrix: "
                    f"{names}{' ...' if len(plan.outside) > 5 else ''}", err=True)
+    if completed:
+        typer.echo(f"Every run has a verdict: Completed on ({matrix.completed_on}) is set to {completed:%Y-%m-%d}.")
     if dry_run:
         typer.echo("Dry run: the workbook was not changed.")
         return
-    if not plan.changes:
+    if not plan.changes and not completed:
         return
     backup = write_statuses(workbook, sheet, matrix.status_column,
-                            {change.row.row: change.status for change in plan.changes})
+                            {change.row.row: change.status for change in plan.changes},
+                            {matrix.completed_on: completed} if completed else None)
     typer.echo(f"Saved {workbook} (the previous version is {backup.name})")
 
 
