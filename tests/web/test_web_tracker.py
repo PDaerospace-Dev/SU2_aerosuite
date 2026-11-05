@@ -123,6 +123,23 @@ async def test_the_preview_fills_in_completed_on(user: User, tmp_path):
     assert load_workbook(book)["Study"]["D11"].value == datetime(2026, 11, 4)
 
 
+async def test_coverage_shows_the_sheet_in_three_views(user: User, matrix):
+    book, folder = matrix
+    link = _link(book, folder)
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}-coverage")
+    user.find(marker=f"tracker-sheet-{link.id}-coverage").click()
+    await user.should_see(marker="coverage-panels")
+    assert "1 converged" in _element(user, "coverage-progress").text
+    _element(user, "coverage-view").set_value("table")
+    await user.should_see(marker="coverage-table")
+    _element(user, "coverage-view").set_value("pivot")
+    await user.should_see(marker="coverage-pivot")
+    user.find(marker="coverage-box-0-0.3").trigger("click")  # AoA 0 (a row), Mach 0.3 (a column)
+    await user.should_see(marker="coverage-detail-runs")
+    assert "AoA 0° · Mach 0.3" in _element(user, "coverage-detail-title").text
+
+
 async def test_linking_a_sheet(user: User, matrix, eventually):
     book, folder = matrix
     await user.open("/tracker/link")

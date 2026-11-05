@@ -26,6 +26,18 @@ Open **Run matrix** from the Projects page (or the project menu in the top bar).
 - **Preview** (`/tracker/preview?link=…`) has three tabs: **To write**, **Your verdicts kept** (with the convergence
   check's reason, and **Use the job's** per row or for all) and **Not in the sheet** (with the sweep value the sheet
   lacks). **Write N statuses** writes the changes plus the job verdicts you chose.
+- **Coverage** (`/tracker/coverage?link=…`, the **Coverage** button on a sheet's row or the preview) colours every
+  run by its Status, so gaps and problem areas show at a glance. A ring marks a run with a status waiting to be
+  written. Choose the view at the top right:
+  - **Panels**: one small grid per altitude and elevator deflection, AoA down and Mach across, with the converged
+    count under each.
+  - **Table**: one altitude at a time (a switch), AoA down and Mach across, each Mach split by elevator, with the
+    converged share per row and per Mach.
+  - **Pivot**: any two swept parameters as rows and columns. Each box gathers the runs that share that pair of
+    values, as a bar and a converged count; this suits a large sheet.
+
+  Click a run (or a pivot box) to list it below the view. The chips at the top switch to another linked sheet in
+  the same view.
 
 Links and the log of writes are kept in `$AEROSUITE_HOME/tracker.json`, so they are shared by everyone using this
 server. With **Write automatically** on, the server checks every 20 s whether a linked project's job records (or the
