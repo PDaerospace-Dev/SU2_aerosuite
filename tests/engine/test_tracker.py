@@ -168,3 +168,12 @@ def test_a_workbook_open_in_excel_is_left_alone(tmp_path):
     with pytest.raises(TrackerError, match="open in Excel"):
         write_statuses(path, "Study", "M", {5: "Converged"})
     assert path.read_bytes() == before
+
+
+def test_a_workbook_open_in_libreoffice_is_left_alone(tmp_path):
+    path = make_workbook(tmp_path / "m.xlsx")
+    (tmp_path / ".~lock.m.xlsx#").write_bytes(b"")
+    before = path.read_bytes()
+    with pytest.raises(TrackerError, match="open in LibreOffice"):
+        write_statuses(path, "Study", "M", {5: "Converged"})
+    assert path.read_bytes() == before

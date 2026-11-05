@@ -88,8 +88,8 @@ characters, none of `: \ / ? * [ ]`, and not one the workbook has.
 - **Everything else in the file.** Only the Status cells change. Notes, formulas, formatting, the dropdown, text
   boxes, add-ins and the SharePoint properties are copied byte for byte. Excel recalculates the scorecard when it
   opens the file.
-- **A workbook open in Excel.** If Excel's `~$` lock file sits next to the workbook, the sync stops and asks you to
-  close it.
+- **A workbook open in Excel or LibreOffice.** If Excel's `~$` lock file or LibreOffice's `.~lock.<name>#` file sits
+  next to the workbook, the sync stops and asks you to close it. Automatic writes try again once it is closed.
 
 Each save keeps the previous file as `<name>.bak.xlsx` next to the workbook.
 

@@ -6,7 +6,8 @@ from test_tracker import add_job, make_workbook
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.tracker_links import (Link, LinkedProject, candidate_projects, create_sheet, find_link,
-                                            load_tracker, remove_link, report, save_link, set_auto, write_link)
+                                            link_stamp, load_tracker, remove_link, report, save_link, set_auto,
+                                            write_link)
 
 
 def _link(tmp_path, **changes):
@@ -60,6 +61,18 @@ def test_a_failed_write_is_logged(tmp_path):
     with pytest.raises(TrackerError, match="open in Excel"):
         write_link(link, trigger="auto")
     assert "open in Excel" in load_tracker().log[0].error
+
+
+def test_closing_libreoffice_changes_the_stamp(tmp_path):
+    link = _link(tmp_path)
+    lock = tmp_path / ".~lock.m.xlsx#"
+    lock.write_bytes(b"")
+    with pytest.raises(TrackerError, match="open in LibreOffice"):
+        write_link(link, trigger="auto")
+    stamp = link_stamp(link)
+    lock.unlink()
+    assert link_stamp(link) != stamp  # the watcher tries the write again
+    assert write_link(link, trigger="auto") == 1
 
 
 def test_nothing_to_write_automatically_is_not_logged(tmp_path):

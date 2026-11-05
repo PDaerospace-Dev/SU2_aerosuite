@@ -373,13 +373,16 @@ def outside_reason(matrix: Matrix, case_key: Key) -> str:
 
 # --- writing ---------------------------------------------------------------------------------------------------------
 
-def _excel_lock(workbook: Path) -> Optional[Path]:
-    """Excel's owner file next to a workbook it has open (~$name; Excel drops two characters of a long name)."""
-    for name in ("~$" + workbook.name, "~$" + workbook.name[2:]):
-        path = workbook.with_name(name)
-        if path.exists():
-            return path
-    return None
+def lock_files(workbook: Path) -> list[tuple[str, Path]]:
+    """(application, lock file) for each office program that marks the workbook open beside it: Excel's owner file
+    (~$name; Excel drops two characters of a long name) and LibreOffice's .~lock.name#."""
+    return [("Excel", workbook.with_name("~$" + workbook.name)), ("Excel", workbook.with_name("~$" + workbook.name[2:])),
+            ("LibreOffice", workbook.with_name(f".~lock.{workbook.name}#"))]
+
+
+def _office_lock(workbook: Path) -> Optional[tuple[str, Path]]:
+    """The application that has the workbook open, and its lock file; None when no lock file is there."""
+    return next(((app, path) for app, path in lock_files(workbook) if path.exists()), None)
 
 
 def _sheet_part(archive: zipfile.ZipFile, sheet: str) -> str:
@@ -494,9 +497,9 @@ def _rewrite(workbook: Path, edit: Callable[[zipfile.ZipFile], dict[str, Union[s
     other entry copied byte for byte. The previous file is kept as <name>.bak.xlsx (still a workbook Excel opens), which
     is returned. `again` ends the message when Excel has it open."""
     workbook = Path(workbook)
-    lock = _excel_lock(workbook)
+    lock = _office_lock(workbook)
     if lock is not None:
-        raise TrackerError(f"{workbook.name} is open in Excel ({lock.name} exists); close it and {again}")
+        raise TrackerError(f"{workbook.name} is open in {lock[0]} ({lock[1].name} exists); close it and {again}")
     backup = workbook.with_name(f"{workbook.stem}.bak{workbook.suffix}")
     tmp = workbook.with_name(f".{workbook.name}.tmp")
     try:

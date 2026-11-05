@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field, ValidationError
 from .errors import AeroSuiteError, TrackerError
 from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
-from .tracker import (CellValue, Change, Matrix, Plan, collect_statuses, job_counts, new_sheet, plan_changes,
-                      read_matrix, verdict_reason, write_statuses)
+from .tracker import (CellValue, Change, Matrix, Plan, collect_statuses, job_counts, lock_files, new_sheet,
+                      plan_changes, read_matrix, verdict_reason, write_statuses)
 
 LOG_LENGTH = 50
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
@@ -220,10 +220,11 @@ def create_sheet(link: Link, template: str, details: dict[int, CellValue], level
 
 def link_stamp(link: Link) -> tuple:
     """What changes when the link may have something new to write: its projects' job records, the workbook, and
-    Excel's lock file beside it (so a write skipped while it was open is tried again once it is closed)."""
+    Excel's or LibreOffice's lock file beside it (so a write skipped while it was open is tried again once it is
+    closed)."""
     workbook = Path(link.workbook)
     parts: list = []
-    for path in (workbook, workbook.with_name("~$" + workbook.name)):
+    for path in (workbook, *(path for _, path in lock_files(workbook))):
         try:
             stat = path.stat()
             parts.append((str(path), stat.st_mtime_ns, stat.st_size))
