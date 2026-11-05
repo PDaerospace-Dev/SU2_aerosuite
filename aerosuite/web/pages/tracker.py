@@ -21,6 +21,7 @@ from ...engine.tracker_links import (Link, LinkedProject, LinkReport, candidate_
                                      last_write, load_tracker, remove_link, report, save_link, set_auto, write_link)
 from ..layout import header
 from ..picker import pick_path
+from .tracker_coverage import Coverage, coverage_url, sheet_chips
 from ..ui_kit import (banner, card, chip_button, danger_button, field, flat_button, hint, html_table, html_td, html_th,
                       ok_line, path_field, primary_button, secondary_button, summary_tile, table, td, td_box, th,
                       titled, warning_group)
@@ -141,6 +142,18 @@ def register() -> None:
         with ui.column().classes("as-page w-full").mark("tracker-new-page"):
             _crumbs(("Run matrix", "/tracker"), ("New sheet from template", ""))
             NewSheetForm()
+
+    @ui.page("/tracker/coverage")
+    def coverage_page(link: str = "", view: str = "") -> None:
+        header("tracker")
+        found = find_link(link)
+        with ui.column().classes("as-page w-full").mark("tracker-coverage-page"):
+            _crumbs(("Run matrix", "/tracker"), (f"{found.sheet} · coverage" if found else "Coverage", ""))
+            if found is None:
+                banner("error", "This link no longer exists.").mark("tracker-missing")
+                return
+            sheet_chips(found, view)
+            Coverage(found, view)
 
     @ui.page("/tracker/preview")
     def preview_page(link: str = "") -> None:
@@ -276,6 +289,8 @@ class Overview:
                 if item.plan.kept:
                     ui.label(f"{len(item.plan.kept)} verdicts kept").classes("as-hint as-hint-warning")
         with td_box():
+            secondary_button("Coverage", lambda: ui.navigate.to(coverage_url(link.id)), icon="grid_view").mark(
+                f"{mark}-coverage")
             secondary_button("Preview", lambda: ui.navigate.to(preview_url(link.id))).mark(f"{mark}-preview")
             write = primary_button("Write", lambda: self._write(link)).mark(f"{mark}-write")
             write.set_enabled(bool(item.plan and item.plan.changes))
@@ -616,6 +631,8 @@ class Preview:
                 workbook = Path(self.link.workbook)
                 hint(f"Only the Status cells (and a blank Completed on) change. The previous file is kept as "
                      f"{workbook.stem}.bak{workbook.suffix}.").classes("grow")
+                flat_button("Coverage", lambda: ui.navigate.to(coverage_url(self.link.id)), icon="grid_view").mark(
+                    "preview-coverage")
                 flat_button("Change the link", lambda: ui.navigate.to(edit_url(self.link.id))).mark("preview-edit")
                 secondary_button("Back", lambda: ui.navigate.to("/tracker")).mark("preview-back")
                 self.write_button = primary_button("", self._write).mark("preview-write")
