@@ -9,10 +9,14 @@ sheet by hand.
 
 Open **Run matrix** from the Projects page (or the project menu in the top bar).
 
-- **Run matrix** (`/tracker`) lists the linked sheets, grouped by workbook. Each row shows a bar of the statuses the
-  sheet has now, how many statuses are waiting to be written, and how many of your verdicts the jobs disagree with.
-  **Write** writes the waiting statuses. **Download** fetches the workbook. **Write automatically** turns automatic
-  writing on or off for every sheet of that workbook.
+- **Run matrix** (`/tracker`) lists the linked sheets in two tabs, **Ongoing** and **Completed**, grouped by
+  workbook. A sheet is completed once every run has a verdict (Converged, Not Converged, Diverged, Failed), or when
+  you mark it so. Each row shows a bar of the statuses the sheet has now, how many statuses are waiting to be
+  written, and how many of your verdicts the jobs disagree with. **Write** writes the waiting statuses. The row's
+  **⋮** menu has **Mark as completed** (or **Move to ongoing**), **Coverage**, **Change the link** and **Remove from
+  the run matrix** (the workbook stays as it is). **Download** fetches the workbook. **Write automatically** turns
+  automatic writing on or off for every sheet of that workbook. **Recent writes**, at the bottom, opens with its
+  chevron.
 - **Link a sheet** (`/tracker/link`) takes the workbook path and the sheet. It confirms the run matrix it found,
   lists the projects beside the workbook and your recent projects with their elevator deflection (read from the
   folder name, editable), and has the tag filters, the choice for disagreeing verdicts and automatic writing. The side
@@ -26,7 +30,8 @@ Open **Run matrix** from the Projects page (or the project menu in the top bar).
 - **Preview** (`/tracker/preview?link=…`) has three tabs: **To write**, **Your verdicts kept** (with the convergence
   check's reason, and **Use the job's** per row or for all) and **Not in the sheet** (with the sweep value the sheet
   lacks). **Write N statuses** writes the changes plus the job verdicts you chose.
-- **Coverage** (`/tracker/coverage?link=…`, the **Coverage** button on a sheet's row or the preview) colours every
+- **Coverage** (`/tracker/coverage?link=…`, the **Coverage** button at the top, which opens the first ongoing sheet,
+  a sheet's **⋮** menu, or the preview) colours every
   run by its Status, so gaps and problem areas show at a glance. A ring marks a run with a status waiting to be
   written. Choose the view at the top right:
   - **Panels**: one small grid per altitude and elevator deflection, AoA down and Mach across, with the converged

@@ -18,13 +18,14 @@ from ...engine.naming import format_value
 from ...engine.tracker import (Template, detail_value, elevator_of, outside_reason, parse_values, project_levels,
                                read_template, sheet_name_problem, sheet_names, template_sheets)
 from ...engine.tracker_links import (Link, LinkedProject, LinkReport, candidate_projects, create_sheet, find_link,
-                                     last_write, load_tracker, remove_link, report, save_link, set_auto, write_link)
+                                     last_write, load_tracker, remove_link, report, save_link, set_auto,
+                                     set_completed, write_link)
 from ..layout import header
 from ..picker import pick_path
 from .tracker_coverage import Coverage, coverage_url, sheet_chips
 from ..ui_kit import (banner, card, chip_button, danger_button, field, flat_button, hint, html_table, html_td, html_th,
-                      ok_line, path_field, primary_button, secondary_button, summary_tile, table, td, td_box, th,
-                      titled, warning_group)
+                      fold_at_start, ok_line, path_field, primary_button, secondary_button, summary_tile, table, td,
+                      td_box, th, titled, warning_group)
 
 ROWS_AT_MOST = 300  # rows a preview table draws
 # the sheet's Status values -> pill tone, and the bar segment they count in
@@ -36,6 +37,8 @@ SEGMENTS = [("converged", "Converged", ("Converged",)), ("not", "Not converged /
 AXES = ["Mach", "altitudes", "AoA", "elevator", "sideslip"]
 SWEEP_FIELDS = [("Mach", ""), ("Altitude", "km"), ("AoA", "deg"), ("Elevator δe", "deg"), ("Sideslip β", "deg")]
 NEW_URL = "/tracker/new"
+GROUPS = {"ongoing": "Ongoing", "completed": "Completed"}
+fold_at_start("tracker-log")  # Recent writes: one click away
 
 
 def preview_url(link_id: str) -> str:
@@ -120,6 +123,8 @@ def register() -> None:
         with ui.column().classes("as-page w-full").mark("tracker-page"):
             with ui.row().classes("w-full items-center no-wrap"):
                 _crumbs(("Run matrix", ""))
+                secondary_button("Coverage", lambda: ui.navigate.to(coverage_url("")), icon="grid_view").mark(
+                    "tracker-coverage")
                 secondary_button("New sheet from template", lambda: ui.navigate.to(NEW_URL), icon="note_add").mark(
                     "tracker-new")
                 primary_button("Link a sheet", lambda: ui.navigate.to(edit_url()), icon="add").mark("tracker-add")
@@ -146,7 +151,9 @@ def register() -> None:
     @ui.page("/tracker/coverage")
     def coverage_page(link: str = "", view: str = "") -> None:
         header("tracker")
-        found = find_link(link)
+        links = load_tracker().links
+        ongoing = [item for item in links if item.completed is not True]
+        found = find_link(link) if link else next(iter(ongoing or links), None)
         with ui.column().classes("as-page w-full").mark("tracker-coverage-page"):
             _crumbs(("Run matrix", "/tracker"), (f"{found.sheet} · coverage" if found else "Coverage", ""))
             if found is None:
@@ -181,6 +188,7 @@ def _log_text(entry) -> str:
 class Overview:
     def __init__(self, holder: ui.column) -> None:
         self.holder = holder
+        self.group = "ongoing"
         with holder:
             hint("Reading the workbooks…").mark("tracker-loading")
         ui.timer(0, self.load, once=True)
@@ -208,11 +216,26 @@ class Overview:
                                      icon="note_add").mark("tracker-new-empty")
             return
         self._tiles(reports)
-        workbooks: dict[str, list[LinkReport]] = {}
-        for item in reports:
-            workbooks.setdefault(item.link.workbook, []).append(item)
-        for workbook, items in workbooks.items():
-            self._workbook(workbook, items, data.log)
+        grouped = {"ongoing": [item for item in reports if not item.done],
+                   "completed": [item for item in reports if item.done]}
+        if not grouped[self.group]:
+            self.group = next((key for key in GROUPS if grouped[key]), "ongoing")
+        with ui.tabs(value=self.group, on_change=lambda e: setattr(self, "group", e.value)).props(
+                "dense no-caps align=left inline-label").classes("as-tabs w-full").mark("tracker-groups") as tabs:
+            for key, label in GROUPS.items():
+                with ui.tab(key, label).mark(f"tracker-group-{key}"):
+                    ui.label(str(len(grouped[key]))).classes("as-tab-count").mark(f"tracker-group-{key}-count")
+        with ui.tab_panels(tabs, value=self.group).classes("as-tab-panels w-full"):
+            for key in GROUPS:
+                with ui.tab_panel(key).classes("gap-4 p-0"):
+                    if not grouped[key]:
+                        hint("No completed sheets yet: a sheet moves here once every run has a verdict, or when "
+                             "you mark it completed." if key == "completed" else "Every sheet is completed.")
+                    workbooks: dict[str, list[LinkReport]] = {}
+                    for item in grouped[key]:
+                        workbooks.setdefault(item.link.workbook, []).append(item)
+                    for workbook, items in workbooks.items():
+                        self._workbook(workbook, items, data.log)
         self._log(data.log)
 
     def _tiles(self, reports: list[LinkReport]) -> None:
@@ -264,7 +287,10 @@ class Overview:
         mark = f"tracker-sheet-{link.id}"
         with stack_cell():
             ui.label(link.sheet).classes("as-strong").mark(mark)
-            hint(f"{len(item.matrix.rows)} runs" if item.matrix else "")
+            runs = f"{len(item.matrix.rows)} runs" if item.matrix else ""
+            if item.done:
+                runs += " · " + ("marked completed" if link.completed else "every run has a verdict")
+            hint(runs).mark(f"{mark}-runs")
         with stack_cell():
             elevators = ", ".join(format_value(p.elevator) for p in link.projects)
             ui.label(f"{len(link.projects)} project{'' if len(link.projects) == 1 else 's'}")
@@ -289,24 +315,56 @@ class Overview:
                 if item.plan.kept:
                     ui.label(f"{len(item.plan.kept)} verdicts kept").classes("as-hint as-hint-warning")
         with td_box():
-            secondary_button("Coverage", lambda: ui.navigate.to(coverage_url(link.id)), icon="grid_view").mark(
-                f"{mark}-coverage")
             secondary_button("Preview", lambda: ui.navigate.to(preview_url(link.id))).mark(f"{mark}-preview")
             write = primary_button("Write", lambda: self._write(link)).mark(f"{mark}-write")
             write.set_enabled(bool(item.plan and item.plan.changes))
-            ui.button(icon="edit", color=None, on_click=lambda: ui.navigate.to(edit_url(link.id))).props(
-                'flat round dense aria-label="Change this link"').tooltip("Change this link").mark(f"{mark}-edit")
+            with ui.button(icon="more_vert", color=None).props(
+                    'flat round dense aria-label="More for this sheet"').tooltip("More").mark(f"{mark}-more"):
+                with ui.menu():
+                    if item.done:
+                        ui.menu_item("Move to ongoing", lambda: self._set_completed(link, False)).mark(
+                            f"{mark}-ongoing")
+                    else:
+                        ui.menu_item("Mark as completed", lambda: self._set_completed(link, True)).mark(
+                            f"{mark}-complete")
+                    ui.menu_item("Coverage", lambda: ui.navigate.to(coverage_url(link.id))).mark(f"{mark}-coverage")
+                    ui.menu_item("Change the link", lambda: ui.navigate.to(edit_url(link.id))).mark(f"{mark}-edit")
+                    ui.separator()
+                    ui.menu_item("Remove from the run matrix", lambda: self._confirm_remove(link)).classes(
+                        "as-error-text").mark(f"{mark}-remove")
 
     def _log(self, log) -> None:
         if not log:
             return
-        with card("Recent writes") as box:
+        with card("Recent writes", fold="tracker-log") as box:
             box.mark("tracker-log")
             for entry in log[:8]:
                 with ui.row().classes("as-log-line w-full"):
                     ui.label(when_text(entry.at)).classes("as-log-when" + (" as-error-text" if entry.error else ""))
                     ui.label(f"{entry.sheet} · " + _log_text(entry)).classes("grow min-w-0")
                     hint("automatically" if entry.trigger == "auto" else "by hand")
+
+    async def _set_completed(self, link: Link, completed: bool) -> None:
+        set_completed(link.id, completed)
+        ui.notify(f"{link.sheet} is {'completed' if completed else 'ongoing'}")
+        self.group = "completed" if completed else "ongoing"
+        await self.load()
+
+    def _confirm_remove(self, link: Link) -> None:
+        with ui.dialog() as dialog, ui.card().classes("w-[28rem] max-w-full gap-3").mark("tracker-remove-dialog"):
+            ui.label(f"Remove {link.sheet} from the run matrix?").classes("as-dialog-title")
+            hint("AeroSuite stops writing its Status. The workbook and the sheet stay as they are; you can link it "
+                 "again later.")
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Cancel", dialog.close).mark("tracker-remove-cancel")
+                danger_button("Remove", lambda: self._remove(link, dialog)).mark("tracker-remove-confirm")
+        dialog.open()
+
+    async def _remove(self, link: Link, dialog) -> None:
+        dialog.close()
+        remove_link(link.id)
+        ui.notify(f"{link.sheet} is no longer in the run matrix; the workbook is unchanged")
+        await self.load()
 
     def _set_auto(self, ids: list[str], value: bool) -> None:
         set_auto(ids, value)

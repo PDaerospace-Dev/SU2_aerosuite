@@ -76,6 +76,7 @@ async def test_the_overview_shows_and_writes_a_sheet(user: User, matrix):
     assert _element(user, "tracker-runs").text == "4"
     user.find(marker=f"tracker-sheet-{link.id}-write").click()
     await user.should_see(marker="tracker-log")
+    assert "as-card-folded" in _element(user, "tracker-log").classes  # Recent writes starts folded
     ws = load_workbook(book)["Study"]
     assert (ws["M5"].value, ws["M6"].value) == ("Converged", "Converged")  # the hand verdict stays
     assert load_tracker().log[0].written == 1
@@ -127,9 +128,9 @@ async def test_coverage_shows_the_sheet_in_three_views(user: User, matrix):
     book, folder = matrix
     link = _link(book, folder)
     await user.open("/tracker")
-    await user.should_see(marker=f"tracker-sheet-{link.id}-coverage")
-    user.find(marker=f"tracker-sheet-{link.id}-coverage").click()
+    user.find(marker="tracker-coverage").click()  # one button: the first ongoing sheet
     await user.should_see(marker="coverage-panels")
+    assert "as-chip-on" in _element(user, f"coverage-sheet-{link.id}").classes
     assert "1 converged" in _element(user, "coverage-progress").text
     _element(user, "coverage-view").set_value("table")
     await user.should_see(marker="coverage-table")
@@ -138,6 +139,45 @@ async def test_coverage_shows_the_sheet_in_three_views(user: User, matrix):
     user.find(marker="coverage-box-0-0.3").trigger("click")  # AoA 0 (a row), Mach 0.3 (a column)
     await user.should_see(marker="coverage-detail-runs")
     assert "AoA 0° · Mach 0.3" in _element(user, "coverage-detail-title").text
+
+
+async def test_sheets_are_ongoing_or_completed(user: User, matrix):
+    book, folder = matrix
+    link = _link(book, folder)
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}")
+    assert (_element(user, "tracker-group-ongoing-count").text, _element(user, "tracker-group-completed-count").text) \
+        == ("1", "0")
+    user.find(marker=f"tracker-sheet-{link.id}-complete").click()
+    await user.should_see(marker=f"tracker-sheet-{link.id}-ongoing")
+    assert find_link(link.id).completed is True
+    assert _element(user, "tracker-group-completed-count").text == "1"
+    assert _element(user, f"tracker-sheet-{link.id}-runs").text == "4 runs · marked completed"
+    user.find(marker=f"tracker-sheet-{link.id}-ongoing").click()
+    await user.should_see(marker=f"tracker-sheet-{link.id}-complete")
+    assert find_link(link.id).completed is False
+
+
+async def test_a_sheet_with_a_verdict_on_every_run_is_completed(user: User, tmp_path):
+    book = _workbook(tmp_path / "matrix.xlsx", {5: "Converged", 6: "Not Converged", 7: "Converged", 8: "Failed"})
+    link = _link(book, tmp_path / "wing_del0")
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}")
+    assert _element(user, "tracker-groups").value == "completed"  # nothing ongoing
+    assert _element(user, f"tracker-sheet-{link.id}-runs").text == "4 runs · every run has a verdict"
+
+
+async def test_removing_a_sheet_from_its_row(user: User, matrix):
+    book, folder = matrix
+    link = _link(book, folder)
+    before = book.read_bytes()
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}")
+    user.find(marker=f"tracker-sheet-{link.id}-remove").click()
+    await user.should_see(marker="tracker-remove-dialog")
+    user.find(marker="tracker-remove-confirm").click()
+    await user.should_see(marker="tracker-empty")
+    assert find_link(link.id) is None and book.read_bytes() == before
 
 
 async def test_linking_a_sheet(user: User, matrix, eventually):

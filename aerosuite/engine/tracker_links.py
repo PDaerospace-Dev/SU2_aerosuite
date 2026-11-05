@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field, ValidationError
 from .errors import AeroSuiteError, TrackerError
 from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
-from .tracker import (CellValue, Change, Matrix, Plan, collect_statuses, completion_date, job_counts, lock_files,
-                      new_sheet, plan_changes, read_matrix, verdict_reason, write_statuses)
+from .tracker import (VERDICTS, CellValue, Change, Matrix, Plan, collect_statuses, completion_date, job_counts,
+                      lock_files, new_sheet, plan_changes, read_matrix, verdict_reason, write_statuses)
 
 LOG_LENGTH = 50
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
@@ -38,6 +38,7 @@ class Link(BaseModel):
     skip_tags: list[str] = Field(default_factory=list)  # never jobs with one of these
     overwrite: bool = False  # a job's verdict replaces one entered by hand
     auto: bool = True  # written as cases start and finish
+    completed: Optional[bool] = None  # None: done once every run has a verdict; True / False: set by hand
 
 
 class LogEntry(BaseModel):
@@ -97,6 +98,16 @@ def remove_link(link_id: str) -> None:
         _save(data)
 
 
+def set_completed(link_id: str, completed: Optional[bool]) -> None:
+    """Mark a linked sheet completed or ongoing by hand (None: by its runs again)."""
+    with _lock:
+        data = load_tracker()
+        for link in data.links:
+            if link.id == link_id:
+                link.completed = completed
+        _save(data)
+
+
 def set_auto(link_ids: Iterable[str], auto: bool) -> None:
     ids = set(link_ids)
     with _lock:
@@ -144,6 +155,13 @@ class LinkReport:
     def sheet_counts(self) -> Counter:
         """The sheet's Status values as they are now ("" for blank)."""
         return Counter(row.status for row in self.matrix.rows) if self.matrix else Counter()
+
+    @property
+    def done(self) -> bool:
+        """Completed: marked so by hand, or (unless marked ongoing) every run has a verdict."""
+        if self.link.completed is not None:
+            return self.link.completed
+        return bool(self.matrix and self.matrix.rows) and all(row.status in VERDICTS for row in self.matrix.rows)
 
     @property
     def no_job(self) -> int:
