@@ -798,6 +798,8 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
 .as-link-elevator { width: 90px; }
 .as-link-projects { border: 1px solid var(--as-hairline); border-radius: 8px; }
 .as-link-projects .as-table { min-width: 560px; }
+.as-new-sweep { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.as-new-details { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
 .as-link-footer { border-top: 1px solid var(--as-hairline); padding-top: 14px; }
 .as-link-numbers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
 .as-link-number { font-size: 20px; font-weight: 600; }

@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field, ValidationError
 from .errors import AeroSuiteError, TrackerError
 from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
-from .tracker import (Change, Matrix, Plan, collect_statuses, job_counts, plan_changes, read_matrix, verdict_reason,
-                      write_statuses)
+from .tracker import (CellValue, Change, Matrix, Plan, collect_statuses, job_counts, new_sheet, plan_changes,
+                      read_matrix, verdict_reason, write_statuses)
 
 LOG_LENGTH = 50
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
@@ -46,7 +46,7 @@ class LogEntry(BaseModel):
     workbook: str
     sheet: str
     written: int = 0
-    trigger: str = "manual"  # "manual" (the Write button), "auto"
+    trigger: str = "manual"  # "manual" (the Write button), "auto", "new-sheet" (the sheet was made from a template)
     error: str = ""
 
 
@@ -205,6 +205,17 @@ def write_link(link: Link, accepted: Iterable[Change] = (), trigger: str = "manu
     if entry.written or trigger == "manual":
         log_write(entry)
     return entry.written
+
+
+def create_sheet(link: Link, template: str, details: dict[int, CellValue], levels: list[list[float]],
+                 keep: bool = True) -> Path:
+    """Add `link.sheet` to `link.workbook` as a copy of sheet `template` (see tracker.new_sheet) and log it; with
+    `keep`, save the link too, so its Status follows the projects' jobs. Returns the backup."""
+    backup = new_sheet(Path(link.workbook), template, link.sheet, details, levels)
+    log_write(LogEntry(link=link.id if keep else "", workbook=link.workbook, sheet=link.sheet, trigger="new-sheet"))
+    if keep:
+        save_link(link)
+    return backup
 
 
 def link_stamp(link: Link) -> tuple:

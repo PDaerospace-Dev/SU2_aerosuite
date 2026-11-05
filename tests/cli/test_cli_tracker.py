@@ -96,3 +96,46 @@ def test_hand_verdicts_are_listed_on_a_dry_run_and_replaced_with_overwrite(tmp_p
     result = runner.invoke(app, ["tracker", "sync", str(book), "Study", str(del0), "--overwrite"])
     assert result.exit_code == 0, result.output
     assert load_workbook(book)["Study"]["M5"].value == "Not Converged"
+
+
+def _with_template(path):
+    """The workbook with a template sheet to copy: a case name in D4, rows for 10 runs, the sweep table empty."""
+    _workbook(path)
+    wb = load_workbook(path)
+    ws = wb.create_sheet("Case Template_v1")
+    ws["A4"], ws["D4"] = "Case Name", "Baseline"
+    ws["A9"] = "Notes"
+    ws["G3"], ws["M3"] = "Run ID [Auto]", "Status"
+    for row in range(5, 15):
+        ws.cell(row, 7, '=IF(ROW()-4>$D$14,"","RUN-"&TEXT(ROW()-4,"0000"))')
+    for column, header in enumerate(["Mach", "Altitude (km)", "AoA (deg)", "Elevator Def (deg)", "Sideslip Beta"], 1):
+        ws.cell(23, column, header)
+    wb.save(path)
+    return path
+
+
+def test_new_sheet_copies_the_template_with_the_projects_sweep(tmp_path):
+    book = _with_template(tmp_path / "matrix.xlsx")
+    del0 = _project(tmp_path / "wing_del0", {"M2p0_25km_a0": CaseState.CONVERGED, "M3p0_25km_a0": CaseState.FAILED})
+    dry = runner.invoke(app, ["tracker", "new-sheet", str(book), "Supersonic", str(del0), "--dry-run"])
+    assert dry.exit_code == 0, dry.output
+    assert "Mach: 2, 3" in dry.output and "a copy of Case Template_v1, 2 runs (it has rows for 10)" in dry.output
+    assert "Supersonic" not in load_workbook(book).sheetnames
+    result = runner.invoke(app, ["tracker", "new-sheet", str(book), "Supersonic", str(del0), "--aoa", "0, 5",
+                                 "--detail", "notes=first order", "--detail", "case=Supersonic sweep"])
+    assert result.exit_code == 0, result.output
+    assert "4 runs" in result.output and "Linked" in result.output
+    ws = load_workbook(book)["Supersonic"]
+    assert (ws["D4"].value, ws["D9"].value, ws["A25"].value, ws["C26"].value) == (
+        "Supersonic sweep", "first order", 2, 5)
+    synced = runner.invoke(app, ["tracker", "sync", str(book), "Supersonic", str(del0)])
+    assert "2 run(s) to change" in synced.output
+
+
+def test_new_sheet_refuses_a_taken_name_or_an_unknown_detail(tmp_path):
+    book = _with_template(tmp_path / "matrix.xlsx")
+    del0 = _project(tmp_path / "wing_del0", {"M2p0_25km_a0": CaseState.CONVERGED})
+    result = runner.invoke(app, ["tracker", "new-sheet", str(book), "study", str(del0)])
+    assert result.exit_code == 1 and "already has a sheet named Study" in result.output
+    result = runner.invoke(app, ["tracker", "new-sheet", str(book), "New", str(del0), "--detail", "mesh=fine"])
+    assert result.exit_code == 1 and "'mesh' matches 0 of Case Template_v1's details: Case Name, Notes" in result.output

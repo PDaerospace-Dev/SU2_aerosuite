@@ -1,4 +1,5 @@
-"""`aerosuite tracker`: keep a run-matrix workbook's Status column in step with the projects' jobs."""
+"""`aerosuite tracker`: keep a run-matrix workbook's Status column in step with the projects' jobs, and add a sheet to
+it from its template."""
 from pathlib import Path
 from typing import Annotated, List, Optional
 
@@ -7,7 +8,9 @@ import typer
 from ..engine import project as engine_project
 from ..engine.errors import TrackerError
 from ..engine.naming import format_value
-from ..engine.tracker import collect_statuses, elevator_of, plan_changes, read_matrix, write_statuses
+from ..engine.tracker import (collect_statuses, detail_value, elevator_of, parse_values, plan_changes, project_levels,
+                              read_matrix, read_template, sheet_name_problem, template_sheets, write_statuses)
+from ..engine.tracker_links import Link, LinkedProject, create_sheet
 from .app import app, engine_errors
 
 tracker_app = typer.Typer(help="Keep a run-matrix workbook (.xlsx) in step with the projects' jobs.",
@@ -88,3 +91,77 @@ def sync(
     backup = write_statuses(workbook, sheet, matrix.status_column,
                             {change.row.row: change.status for change in plan.changes})
     typer.echo(f"Saved {workbook} (the previous version is {backup.name})")
+
+
+_AXES = ("Mach", "altitude (km)", "AoA (deg)", "elevator (deg)", "sideslip (deg)")
+
+
+@tracker_app.command("new-sheet")
+@engine_errors
+def new_sheet_command(
+    workbook: Annotated[Path, typer.Argument(help="The run-matrix workbook (.xlsx)")],
+    name: Annotated[str, typer.Argument(help="The new sheet's name, e.g. X07-80E_transonic_1st")],
+    projects: Annotated[List[str], typer.Argument(
+        help="Project folders whose cases the sheet tracks, one per elevator deflection, read from the name (del0, "
+             "del20p, del30m) unless given as FOLDER=DEGREES")],
+    template: Annotated[Optional[str], typer.Option(
+        "--template", help="The sheet to copy (default: the last visible sheet named ...template...)")] = None,
+    mach: Annotated[Optional[str], typer.Option("--mach", help="Mach numbers, e.g. 0.3,0.6,0.9 (default: the "
+                                                                "projects' cases)")] = None,
+    altitude: Annotated[Optional[str], typer.Option("--altitude", help="Altitudes in km")] = None,
+    aoa: Annotated[Optional[str], typer.Option("--aoa", help="Angles of attack in degrees")] = None,
+    elevator: Annotated[Optional[str], typer.Option("--elevator", help="Elevator deflections in degrees (default: "
+                                                                       "the projects')")] = None,
+    beta: Annotated[Optional[str], typer.Option("--beta", help="Sideslip angles in degrees")] = None,
+    detail: Annotated[Optional[List[str]], typer.Option(
+        "--detail", help="A case detail as LABEL=VALUE, e.g. 'Notes=2nd order runs' (the label's start is enough; "
+                         "repeatable). Others keep the template's.")] = None,
+    tag: Annotated[Optional[List[str]], typer.Option(
+        "--tag", help="The link counts only jobs whose note has this #tag (repeatable)")] = None,
+    skip_tag: Annotated[Optional[List[str]], typer.Option(
+        "--skip-tag", help="The link leaves out jobs whose note has this #tag (repeatable)")] = None,
+    link: Annotated[bool, typer.Option(
+        "--link/--no-link", help="Link the new sheet to the projects, so the web UI writes its Status")] = True,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Show the sheet it would make; leave the workbook "
+                                                            "alone")] = False,
+) -> None:
+    """Add a sheet to the workbook, a copy of its template sheet with the case details and the sweep filled in. The
+    sweep comes from the projects' cases unless given; the formulas then lay out the run matrix as usual."""
+    problem = sheet_name_problem(workbook, name)
+    if problem:
+        raise TrackerError(problem)
+    pairs = [_project(text) for text in projects]
+    if template is None:
+        found = template_sheets(workbook)
+        if not found:
+            raise TrackerError(f"{workbook.name} has no sheet named ...template...; give one with --template")
+        template = found[0]
+    layout = read_template(workbook, template)
+    levels = project_levels(pairs)
+    for i, given in enumerate((mach, altitude, aoa, elevator, beta)):
+        if given is not None:
+            levels[i] = parse_values(given, f"--{('mach', 'altitude', 'aoa', 'elevator', 'beta')[i]}")
+    details = {}
+    for text in detail or []:
+        label, sep, value = text.partition("=")
+        if not sep:
+            raise TrackerError(f"--detail {text!r}: give it as LABEL=VALUE")
+        matches = [d for d in layout.details if d.label.lower().startswith(label.strip().lower())]
+        if len(matches) != 1:
+            labels = ", ".join(d.label for d in layout.details)
+            raise TrackerError(f"--detail {label!r} matches {len(matches)} of {template}'s details: {labels}")
+        details[matches[0].row] = detail_value(matches[0], value)
+    runs = 1
+    for axis, values in zip(_AXES, levels):
+        typer.echo(f"{axis}: {', '.join(format_value(v) for v in values) or '(none)'}")
+        runs *= max(1, len(values))
+    typer.echo(f"{name}: a copy of {template}, {runs} runs (it has rows for {layout.runs}).")
+    if dry_run:
+        typer.echo("Dry run: the workbook was not changed.")
+        return
+    new_link = Link(workbook=str(workbook.resolve()), sheet=name, tags=tag or [], skip_tags=skip_tag or [],
+                    projects=[LinkedProject(path=str(folder.resolve()), elevator=value) for folder, value in pairs])
+    backup = create_sheet(new_link, template, details, levels, keep=link)
+    typer.echo(f"Saved {workbook} (the previous version is {backup.name})")
+    if link:
+        typer.echo("Linked: the web UI's Run matrix page writes its Status as the cases run.")
