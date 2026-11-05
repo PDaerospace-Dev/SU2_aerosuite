@@ -306,7 +306,11 @@ def main():
         
         # Apply restart file if available and RESTART_SOL is YES
         if use_restart_file and config.get('RESTART_SOL', 'NO').upper() == 'YES':
-            config.SOLUTION_FILENAME = use_restart_file
+            # Relative when shorter: SU2 aborts on a solution path over 99 characters
+            try:
+                config.SOLUTION_FILENAME = min((use_restart_file, os.path.relpath(use_restart_file)), key=len)
+            except ValueError:  # Windows: on another drive
+                config.SOLUTION_FILENAME = use_restart_file
         elif use_restart_file and config.get('RESTART_SOL', 'NO').upper() != 'YES':
             print(f"NOTE: Restart file specified but RESTART_SOL is not YES in {cfg_file}")
             print("      To enable restart, set RESTART_SOL = YES in the config file\n")

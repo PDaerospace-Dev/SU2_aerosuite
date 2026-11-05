@@ -39,7 +39,8 @@ def test_only_a_loopback_browser_is_local():
 async def test_without_flow_files_the_menu_says_so(user: User, ready_project, opened):
     project_dir, _ = ready_project
     await user.open(project_url("setup", project_dir))
-    assert _element(user, "paraview").text == "ParaView"
+    assert _element(user, "paraview").props["title"] == "ParaView"  # its name on hover, when the window is narrow
+    await user.should_see("ParaView")
     _element(user, "paraview-menu").open()
     await user.should_see(marker="paraview-none")
     await user.should_not_see(marker="paraview-all")

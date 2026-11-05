@@ -21,7 +21,9 @@ from ..engine.jobs.local import RUNS_DIR, LocalRunner
 from ..engine.jobs.overview import CaseOverview, case_overview
 from ..engine.jobs.runner import FINAL_CASE_STATES, CaseState, JobRecord
 from ..engine.models import Project
+from ..engine.jobs.store import load_job
 from ..engine.results import HISTORY_FILE, HistoryBuffer
+from ..engine.tags import note_changed
 from .cluster_view import where_text
 from .slurm_watch import WATCH, SlurmWatch
 
@@ -167,16 +169,28 @@ class JobWatcher:
     def submit(self, project_dir: Path, project: Project, cases: Sequence[str],
                continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None,
                changes: Optional[Mapping[str, Mapping[str, str]]] = None,
-               starts: Optional[Mapping[str, Optional[str]]] = None) -> JobRecord:
+               starts: Optional[Mapping[str, Optional[str]]] = None, note: str = "") -> JobRecord:
         directory = Path(project_dir).resolve()
+        note = " ".join(note.split())  # one line
         if backend_of(project) == "slurm":
             job = self.slurm_runner.submit(directory, project, cases=list(cases),
                                            continue_cases=list(continue_cases), options=options, changes=changes,
-                                           starts=starts)
+                                           starts=starts, note=note)
             self.slurm_watch.track(directory, job.id)
-            return job
-        return self.runner.submit(directory, project, cases=list(cases), continue_cases=list(continue_cases),
-                                  changes=changes, starts=starts)
+        else:
+            job = self.runner.submit(directory, project, cases=list(cases), continue_cases=list(continue_cases),
+                                     changes=changes, starts=starts, note=note)
+        note_changed(directory, "", job.note)
+        return job
+
+    def annotate(self, project_dir: Path, job_id: str, note: Optional[str] = None, outcome: Optional[str] = None,
+                 append: bool = False) -> JobRecord:
+        """Set a job's note and/or outcome (`append`: add `note` to it), under the lock its runner saves the record
+        under (so a running job and another note edit are safe), and move the tag index."""
+        directory = Path(project_dir).resolve()
+        before, saved = self.runner_of(load_job(directory, job_id)).annotate(directory, job_id, note, outcome, append)
+        note_changed(directory, before, saved.note)
+        return saved
 
     def add_cases(self, project_dir: Path, project: Project, job_id: str, cases: Sequence[str],
                   continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None,

@@ -17,11 +17,12 @@ from ...engine.jobs.store import load_job
 from ...engine.project import open_project
 from ...engine.settings import SettingsError, load_settings, save_settings
 from ..cluster_view import (JOB_KINDS, JobGroup, NodeJob, cluster_status, expected_ends, filter_jobs, glance,
-                            job_groups, job_state_text, job_studies, moved, node_groups, node_jobs, ordered_nodes,
+                            job_groups, job_nodes_text, job_state_text, job_studies, moved, node_groups, node_jobs, ordered_nodes,
                             partition_nodes, queue_starts, queue_text, sort_jobs, started_at, submitted_text,
                             when_text)
 from ..jobs import WATCHER
 from ..layout import header, project_url
+from ..notes import edit_note, note_label
 from ..resubmit_dialog import resubmit_case
 from ..run_view import about_text, duration_text
 from .. import slurm_watch
@@ -150,7 +151,8 @@ class ClusterPage:
             tuple((tile.key, tile.label, tile.alert) for tile in tiles),
             tuple(key for key, _when in ends),
             tuple((g.key, g.study, g.study_name, g.job_id, g.state, bool(g.total), g.started is not None,
-                   g.ended is None, g.active, tuple(row.slurm_id for row in g.rows)) for g in groups),
+                   g.ended is None, g.active, tuple(row.slurm_id for row in g.rows), g.nodes, g.note, g.outcome)
+                  for g in groups),
         )
 
     def poll(self) -> None:
@@ -339,10 +341,10 @@ class ClusterPage:
         self._text(tip, read(lambda n: f"{n.memory} (Linux keeps its file cache out of free memory)"))
         ring, label, _caption, tip = _dial(
             node.load_share, node.load if node.load == "—" else f"{float(node.load):.0f}", "Load",
-            f"node-{name}-load", f"Load {node.load} on {node.total} CPUs")
+            f"node-{name}-load", _load_tip(node))
         self._value(ring, read(lambda n: n.load_share))
         self._text(label, load_text)
-        self._text(tip, read(lambda n: f"Load {n.load} on {n.total} CPUs"))
+        self._text(tip, read(_load_tip))
 
     def _node_jobs(self, node: str, jobs: tuple, bad: bool) -> None:
         """Running: a line per study job with cases running here (cases finished / in all and a bar, as on its Run
@@ -438,7 +440,7 @@ class ClusterPage:
         (header row for extra controls, whether the body is shown)."""
         opened = key not in _COLLAPSED
         with ui.column().classes("as-card as-card-flush w-full gap-0").mark(mark):
-            with ui.row().classes("items-center w-full no-wrap gap-2 pr-3") as head:
+            with ui.row().classes("as-section-bar items-center w-full gap-2 pr-3") as head:  # controls wrap under
                 with ui.button(on_click=lambda: self._toggle(key), color=None).props(
                         f'flat no-caps align=left aria-expanded={"true" if opened else "false"}').classes(
                         "as-section-toggle grow").mark(f"{mark}-toggle"):
@@ -491,7 +493,8 @@ class ClusterPage:
                       "minmax(10rem, auto)"]
             if grouped:  # the group's line names the study; the cases keep their own times
                 headings, widths = headings[2:], widths[2:]
-            with table(" ".join(widths)).classes("as-table-compact w-full"):
+            with ui.element("div").classes("as-table-scroll w-full"), \
+                    table(" ".join(widths)).classes("as-table-compact w-full"):  # scrolls across in a narrow window
                 for heading in headings:
                     self._heading(heading)
                 if grouped:
@@ -529,7 +532,7 @@ class ClusterPage:
             if group.state:
                 ui.label(group.state).classes(f"as-job-group-state as-job-group-{group.state.lower()}")
             if group.job_id:
-                ui.label(f"job {group.job_id}").classes("as-mono as-muted")
+                self._group_where(group)
             key = group.key
 
             def read(function: Callable):
@@ -563,6 +566,64 @@ class ClusterPage:
             if not opened:
                 ui.label(f"{len(group.rows)} case{'' if len(group.rows) == 1 else 's'} folded").classes(
                     "as-muted as-small").mark(f"group-{group.key}-folded")
+            if group.job_id and group.note:  # last on the line, right after "cases folded"
+                self._note_pop(group)
+
+    def _group_where(self, group: JobGroup) -> None:
+        """The nodes the job ran on after a small server icon. The job id is in the note popover (the note icon ends
+        the line), or in a tooltip on the nodes when there is no note."""
+        key = group.key
+        with ui.row().classes("as-group-node items-center no-wrap gap-1").on("click.stop", lambda: None):
+            ui.icon("dns").classes("as-group-icon")
+            nodes = ui.label(job_nodes_text(group.nodes)).classes("as-mono as-muted").mark(f"group-{key}-nodes")
+            if not group.note:
+                nodes.tooltip(f"Job {group.job_id}")
+
+    def _note_pop(self, group: JobGroup) -> None:
+        """The note icon: hover shows the note, its outcome, the job id and when the job was saved with an Edit
+        link; a click keeps it open."""
+        key = group.key
+        icon = ui.icon("sticky_note_2").classes("as-group-icon cursor-pointer").mark(f"group-{key}-note")
+        state = {"pinned": False, "inside": False}
+        with icon:
+            menu = ui.menu().props("no-parent-event no-focus anchor=\"bottom left\" self=\"top left\"")
+        with menu, ui.column().classes("as-note-pop").mark(f"group-{key}-popover"):
+            note_label(group.note).mark(f"group-{key}-note-text")
+            if group.outcome:
+                ui.label(f"Outcome: {group.outcome}").mark(f"group-{key}-outcome")
+            saved = "" if group.created is None else f" · saved {when_text(group.created)}"
+            ui.label(f"Job {group.job_id}{saved}").classes("as-muted").mark(f"group-{key}-job-id")
+            if group.study is not None:
+                ui.label("Edit").classes("as-link").on("click", lambda: self._edit_note(group, menu)).mark(
+                    f"group-{key}-edit")
+
+        def leave() -> None:
+            if not state["pinned"] and not state["inside"]:
+                menu.close()
+
+        def hover(inside: bool) -> None:
+            state["inside"] = inside
+            if not inside:
+                ui.timer(0.3, leave, once=True)
+
+        icon.on("mouseenter", lambda: (hover(True), menu.open()), [])
+        icon.on("mouseleave", lambda: hover(False), [])
+        menu.on("mouseenter", lambda: hover(True), [])
+        menu.on("mouseleave", lambda: hover(False), [])
+        icon.on("click.stop", lambda: (state.update(pinned=True), menu.open()), [])
+        menu.on("hide", lambda: state.update(pinned=False, inside=False))
+
+    async def _edit_note(self, group: JobGroup, menu) -> None:
+        menu.close()
+        self.dialogs_open += 1
+        try:
+            with self.dialog_host:
+                saved = await edit_note(group.study, group.job_id, group.note, group.outcome)
+        finally:
+            self.dialogs_open -= 1
+        if saved:
+            self.shown = None
+            self.poll()
 
     def _fold_group(self, key: str, opened: bool) -> None:
         _GROUP_OPEN[key] = opened
@@ -729,6 +790,11 @@ def _state_tone(node) -> str:
     if node.bad:
         return "bad"
     return {"Full": "full", "Partly used": "part", "Free": "free"}.get(node.words, "other")
+
+
+def _load_tip(node) -> str:
+    threads = f" ({node.total * node.threads} threads)" if node.threads > 1 else ""
+    return f"Load {node.load} on {node.total} cores{threads}"
 
 
 def _dial(value: float, text: str, caption: str, mark: str, tip: Optional[str] = None) -> tuple:

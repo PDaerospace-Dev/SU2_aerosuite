@@ -41,6 +41,22 @@ def load_job(project_dir: Path, job_id: str) -> JobRecord:
         raise JobError(f"Cannot read job record {path}: {exc}") from exc
 
 
+def annotate_job(project_dir: Path, job_id: str, note: Optional[str] = None, outcome: Optional[str] = None,
+                 append: bool = False) -> tuple[str, JobRecord]:
+    """Set a job's note and/or outcome (None leaves it) on the record as it is on disk now; `append` adds `note` to
+    the note there (" · " between). Returns the note it had, and the record. Runners call this under their lock
+    (annotate), so a running job's record is not overwritten by its own poller or another note edit."""
+    job = load_job(project_dir, job_id)
+    before = job.note
+    if note is not None:
+        note = note.strip()
+        job.note = (f"{before} · {note}" if before and note else before or note) if append else note
+    if outcome is not None:
+        job.outcome = outcome.strip()
+    save_job(project_dir, job)
+    return before, job
+
+
 def list_jobs(project_dir: Path) -> list[JobRecord]:
     """All jobs of a project, newest first."""
     jobs_dir = Path(project_dir) / JOBS_DIR

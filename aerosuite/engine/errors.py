@@ -23,3 +23,7 @@ class JobError(AeroSuiteError):
 
 class ServiceError(AeroSuiteError):
     """The always-on web UI service could not be installed, started or stopped."""
+
+
+class TrackerError(AeroSuiteError):
+    """A run-matrix workbook could not be read or updated."""

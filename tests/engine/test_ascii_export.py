@@ -95,3 +95,16 @@ def test_a_case_still_running_is_refused(slurm_study):
     (project_dir / "runs" / A0 / "restart_flow.dat").write_text("solution")
     with pytest.raises(JobError, match="pending in job .*once it has ended"):
         write_ascii(project_dir, project, A0, AppSettings())
+
+
+def test_su2_sol_reads_the_restart_by_its_short_name(ready_project, monkeypatch):
+    """SU2 aborts on a solution path over 99 characters; SU2_SOL runs in the case folder, so its name is enough."""
+    project_dir, project = ready_project
+    case = project.cases[0].name
+    folder = project_dir / "runs" / case
+    folder.mkdir(parents=True)
+    (folder / f"{case}.cfg").write_text(CFG)
+    (folder / "restart_flow.dat").write_text("solution")
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
+    write_ascii(project_dir, project, case, AppSettings())
+    assert "SOLUTION_FILENAME= restart_flow\n" in (folder / ASCII_CFG).read_text()

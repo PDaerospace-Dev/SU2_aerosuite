@@ -10,7 +10,7 @@ from nicegui import ui
 
 from ..engine.errors import AeroSuiteError
 from ..engine.jobs.store import active_lock
-from .guide import app_version, guide_sections, section_for
+from .guide import app_version, guide_groups, guide_sections, search_sections, section_for
 from .calc_panel import CalcPanel
 from .jobs import WATCHER, job_progress
 from .log_panel import LogPanel
@@ -49,8 +49,9 @@ def calculators_url(directory=None, calc: Optional[str] = None) -> str:
 def _calculators_button(frame=None) -> None:
     """The top bar's Calculators button: it opens the calculators over the page, from the right."""
     panel = CalcPanel(frame)
-    ui.button("Calculators", icon="calculate", color=None, on_click=panel.toggle).props(
-        "flat dense no-caps").classes("as-topbar-icon as-topbar-labelled").mark("calculators")
+    with titled(ui.button(icon="calculate", color=None, on_click=panel.toggle).props(
+            "flat dense no-caps").classes("as-topbar-icon as-topbar-labelled"), "Calculators").mark("calculators"):
+        ui.label("Calculators").classes("as-topbar-label")
 
 
 def initials(name: str) -> str:
@@ -92,7 +93,7 @@ def _cluster_button() -> None:
     with ui.button(color=None, on_click=lambda: ui.navigate.to(target)).props("flat dense no-caps").classes(
             "as-topbar-icon as-topbar-labelled").mark("cluster"):
         dot = ui.element("span").classes("as-cluster-dot as-dot-grey").mark("cluster-dot")
-        ui.label("Cluster")
+        ui.label("Cluster").classes("as-topbar-label")
         count = ui.label("").classes("as-cluster-count").mark("cluster-count")
     watch.show_cluster()
     ui.context.client.on_delete(watch.hide_cluster)  # not on_disconnect: a brief socket drop reconnects
@@ -122,6 +123,15 @@ def _refresh_button() -> None:
         "as-topbar-icon as-round").mark("refresh"), "Refresh: show what is on disk now")
 
 
+def _tracker_step() -> None:
+    """Run matrix (run-matrix workbooks whose Status follows the projects' jobs) at the bottom of a project's sidebar,
+    above Settings: like Settings, it is not one of the project's steps."""
+    with ui.link(target="/tracker").classes("as-step row").mark("sidebar-tracker"):
+        ui.icon("table_view", size="20px")
+        ui.label("Run matrix").classes("as-step-name")
+        ui.tooltip("Run matrix").classes("as-step-tip")
+
+
 def _settings_step() -> None:
     """Settings (server-wide: backend, Slurm) at the bottom of a project's sidebar, under its steps."""
     with ui.link(target="/settings").classes("as-step row").mark("settings"):
@@ -148,7 +158,10 @@ def _help_button(page: str = "") -> None:
             ui.space()
             ui.button(icon="close", on_click=dialog.close, color=None).props("flat round dense").mark("guide-close")
         with ui.row().classes("as-guide-body w-full"):
-            nav = ui.column().classes("as-guide-nav").mark("guide-nav")
+            with ui.column().classes("as-guide-side"):
+                search = ui.input(placeholder="Search the guide").props("dense outlined clearable").classes(
+                    "as-guide-search w-full").mark("guide-search")
+                nav = ui.column().classes("as-guide-nav").mark("guide-nav")
             with ui.column().classes("as-guide-page") as page_area:
                 title = ui.label("").classes("as-guide-title").mark("guide-title")
                 guide = ui.markdown("").classes("as-guide-text w-full").mark("guide-text")
@@ -166,16 +179,39 @@ def _help_button(page: str = "") -> None:
                 link.classes(remove="as-guide-current")
         page_area.run_method("scrollTo", 0, 0)
 
+    def filter_links(query) -> None:
+        """Only the sections that mention every word typed; a group's name stays while one of its sections does."""
+        found = set(search_sections(sections, query or ""))
+        for i, link in enumerate(links):
+            link.set_visibility(i in found)
+        for heading, (start, end) in heads:
+            heading.set_visibility(any(i in found for i in range(start, end)))
+        none.set_visibility(not found)
+
     def show_guide() -> None:
         sections[:] = guide_sections()
+        starts = dict((index, name) for name, index in guide_groups())
         nav.clear()
         links.clear()
+        heads.clear()
         with nav:
+            bounds = sorted(starts) + [len(sections)]
             for i, (name, _) in enumerate(sections):
+                if i in starts:
+                    end = next(bound for bound in bounds if bound > i)
+                    heads.append((ui.label(starts[i]).classes("as-guide-group"), (i, end)))
                 links.append(ui.button(name, on_click=lambda i=i: show(i), color=None).props(
                     "flat dense no-caps align=left").classes("as-guide-link").mark(f"guide-link-{i}"))
+            nonlocal none
+            none = ui.label("No section mentions that").classes("as-muted as-guide-none").mark("guide-none")
+        search.value = ""
+        filter_links("")
         show(section_for(page, [name for name, _ in sections]))
         dialog.open()
+
+    heads: list = []
+    none = None
+    search.on_value_change(lambda e: filter_links(e.value))
 
     with ui.button(icon="help_outline", color=None).props("flat dense").classes(
             "as-topbar-icon as-round").mark("help"):
@@ -245,6 +281,7 @@ class ProjectFrame:
             with ui.column().classes("as-sidebar").mark("sidebar"):
                 self._steps = ui.column().classes("as-steps w-full")
                 with ui.column().classes("as-sidebar-foot w-full"):
+                    _tracker_step()
                     _settings_step()
             with ui.column().classes("as-main"):
                 with ui.row().classes("as-crumbs w-full"):

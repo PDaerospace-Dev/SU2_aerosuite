@@ -2,34 +2,21 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from ..engine.errors import AeroSuiteError
+from ..engine.home import load_recent, recent_file
 from ..engine.jobs.store import scan_jobs
-from ..engine.project import PROJECT_FILE, open_project
+from ..engine.project import open_project
 from .jobs import JobNodes, job_nodes
 from .status import project_kind
 
 MAX_RECENT = 15
 
 
-def store_path() -> Path:
-    home = os.environ.get("AEROSUITE_HOME")
-    return (Path(home) if home else Path.home() / ".aerosuite") / "recent.json"
-
-
-def load_recent() -> list[Path]:
-    """Recent project folders that still contain a project."""
-    try:
-        data = json.loads(store_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return []
-    if not isinstance(data, list):
-        return []
-    return [Path(item) for item in data if isinstance(item, str) and (Path(item) / PROJECT_FILE).is_file()]
+store_path = recent_file  # tests and callers know it by this name
 
 
 def add_recent(directory: Path) -> None:

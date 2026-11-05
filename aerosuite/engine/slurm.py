@@ -135,7 +135,7 @@ def parse_seff(text: str) -> SeffStats:
 
 
 SQUEUE_FORMAT = "%i|%T|%N|%M|%R|%u|%j|%Z"  # every user's jobs: id, state, node, time, reason, user, name, folder
-SINFO_NODES_FORMAT = "%N|%P|%t|%C|%m|%e|%O|%E"  # per node: partition, state, CPUs, memory, free, load, reason
+SINFO_NODES_FORMAT = "%N|%P|%t|%C|%m|%e|%O|%z|%E"  # per node: partition, state, CPUs, memory, free, load, S:C:T, reason
 RECENT_DAYS = 7
 RECENT_FIELDS = "JobID,JobName,State,ExitCode,Elapsed,NodeList,Partition,Submit,Start,End,WorkDir"
 
@@ -204,10 +204,19 @@ class NodeRow:
     free_mb: Optional[int]
     load: Optional[float]
     reason: str  # why it is drained or down; "" when sinfo says "none"
+    threads: int = 1  # hardware threads per core (the CPUs Slurm counts are threads when this is above 1)
 
     @property
     def bad(self) -> bool:
         return self.state.rstrip("*~#!%$@^-").startswith(BAD_NODE_STATES)
+
+    @property
+    def cores(self) -> int:
+        return self.total // self.threads
+
+    @property
+    def cores_allocated(self) -> int:
+        return -(-self.allocated // self.threads)  # a core is taken when any of its threads is
 
 
 def _int(text: str) -> Optional[int]:
@@ -224,10 +233,19 @@ def _float(text: str) -> Optional[float]:
         return None
 
 
+_SOCKETS_CORES_THREADS = re.compile(r"^\d+:\d+:\d+$")
+
+
 def parse_sinfo_nodes(text: str) -> list[NodeRow]:
     rows = []
     for line in text.splitlines():
-        parts = [part.strip() for part in line.strip().split("|", 7)]
+        parts = [part.strip() for part in line.strip().split("|", 8)]
+        threads = 1
+        if len(parts) == 9 and _SOCKETS_CORES_THREADS.match(parts[7]):
+            threads = max(1, int(parts[7].rsplit(":", 1)[1]))
+            del parts[7]
+        elif len(parts) == 9:  # a "|" in the reason of a line without the S:C:T field
+            parts[7:] = ["|".join(parts[7:])]
         if len(parts) != 8 or not parts[0]:
             continue
         node, partition, state, cpus, memory, free, load, reason = parts
@@ -237,7 +255,7 @@ def parse_sinfo_nodes(text: str) -> list[NodeRow]:
         allocated, idle, other, total = counts
         rows.append(NodeRow(node, partition.rstrip("*"), partition.endswith("*"), state, allocated, idle, other,
                             total, _int(memory), _int(free), _float(load),
-                            "" if reason.lower() == "none" else reason))
+                            "" if reason.lower() == "none" else reason, threads))
     return rows
 
 

@@ -14,7 +14,6 @@ slurm-<id>.out. A failed squeue never changes a state. The web applies the serve
 """
 from __future__ import annotations
 
-import functools
 import json
 import os
 import re
@@ -29,7 +28,7 @@ from typing import Iterable, Mapping, Optional, Sequence
 from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE, apply_parameters
 from ..errors import JobError
 from ..models import Project
-from ..restarts import DEFAULT_RESTART_NAME, RUNS_DIR
+from ..restarts import DEFAULT_RESTART_NAME, RUNS_DIR, su2_solution_path
 from ..results import HISTORY_FILE, check_convergence, read_history
 from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
@@ -38,9 +37,9 @@ from ..attempts import archive_before_rerun, keep_aside, settle_attempts
 from .diagnose import diagnose
 from .rerun import describe
 from .plan import _batches, _referenced_case, drop_kept, prepare_job, prune_restarts
-from .runner import (FINAL_CASE_STATES, CaseState, JobRecord, JobState, SlurmCase, new_job_id, sweep_environment,
-                     unfinished)
-from .store import JOBS_DIR, active_lock, clear_lock, load_job, save_job, write_lock
+from .runner import (FINAL_CASE_STATES, CaseState, JobRecord, JobState, SlurmCase, new_job_id, serialized,
+                     sweep_environment, unfinished)
+from .store import JOBS_DIR, active_lock, annotate_job, clear_lock, load_job, save_job, write_lock
 
 JOB_SCRIPT = "su2_job.sh"
 STATS_FILE = "slurm_stats.json"
@@ -217,15 +216,7 @@ def case_stats(project_dir: Path, case: str) -> Optional[dict]:
     return data if isinstance(data, dict) else None
 
 
-def _serialized(method):
-    """Job records change under one lock: the web's poller thread and a Cancel must not undo each other."""
-
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        with self._lock:
-            return method(self, *args, **kwargs)
-
-    return wrapper
+_serialized = serialized
 
 
 class SlurmRunner:
@@ -240,7 +231,8 @@ class SlurmRunner:
     @_serialized
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
                continue_cases: Iterable[str] = (), options: Optional[SlurmOptions] = None,
-               changes: Optional[Mapping[str, Mapping[str, str]]] = None, starts: Optional[Mapping[str, Optional[str]]] = None) -> JobRecord:
+               changes: Optional[Mapping[str, Mapping[str, str]]] = None,
+               starts: Optional[Mapping[str, Optional[str]]] = None, note: str = "") -> JobRecord:
         project_dir = Path(project_dir).resolve()
         if active_lock(project_dir):
             raise JobError("A job is already running for this project")
@@ -263,7 +255,7 @@ class SlurmRunner:
                                      "time_limit": options.time_limit, "exclusive": options.exclusive,
                                      "account": options.account},
                         changes={name: dict(c) for name, c in (changes or {}).items() if name in names and c},
-                        attempts=archived)
+                        attempts=archived, note=note.strip())
         save_job(project_dir, job)  # active (QUEUED): the lock below counts as held from here on
         try:
             write_lock(project_dir, job_id, -1, 0.0, backend=self.backend)
@@ -307,7 +299,7 @@ class SlurmRunner:
             folder.mkdir(parents=True, exist_ok=True)
             text = (configs / f"{name}.cfg").read_text(encoding="utf-8")
             if solution is not None:
-                text = apply_parameters(text, {"SOLUTION_FILENAME": solution, **({"RESTART_SOL": "YES"} if restart
+                text = apply_parameters(text, {"SOLUTION_FILENAME": su2_solution_path(solution, folder), **({"RESTART_SOL": "YES"} if restart
                                                                                    else {})})
             (folder / f"{name}.cfg").write_text(text, encoding="utf-8", newline="\n")
         except OSError as exc:
@@ -322,7 +314,8 @@ class SlurmRunner:
         if depends_on:
             source = project_dir / RUNS_DIR / depends_on
             own = _SOLUTION_RE.search(_read(folder / f"{name}.cfg"))
-            solution = own.group(1) if own else str(source / _restart_name(_read(source / f"{depends_on}.cfg")))
+            solution = os.path.normpath(folder / own.group(1)) if own else \
+                str(source / _restart_name(_read(source / f"{depends_on}.cfg")))
             restart_from = (depends_on, str(source), solution)
         script = job_script(project.name, name, f"{name}.cfg", options, slurm, job.id, after, note, restart_from)
         try:
@@ -364,7 +357,7 @@ class SlurmRunner:
         cfg = folder / f"{name}.cfg"
         text = _read(cfg)
         if not waits and own and re.search(r"^\s*RESTART_SOL\s*=\s*YES", text, re.MULTILINE | re.IGNORECASE):
-            solution = own.group(1)
+            solution = os.path.normpath(folder / own.group(1))  # relative to the case folder, where SU2 runs
             if not any(Path(solution + suffix).is_file() for suffix in ("", ".dat", ".csv")):
                 cfg.write_text(apply_parameters(text, {"RESTART_SOL": "NO"}), encoding="utf-8", newline="\n")
                 self._log(project_dir, job, f"{name} starts from scratch: its solution {solution} is not there")
@@ -502,6 +495,12 @@ class SlurmRunner:
                 job.failure_tail[name] = f"Not submitted.\n{message}"
         self._log(project_dir, job, f"Submit failed: {message}")
         self._end(project_dir, job, JobState.FAILED)
+
+    @_serialized
+    def annotate(self, project_dir: Path, job_id: str, note: Optional[str] = None, outcome: Optional[str] = None,
+                 append: bool = False) -> tuple[str, JobRecord]:
+        """Set the job's note and/or outcome (see annotate_job); under the lock the poller saves the record under."""
+        return annotate_job(Path(project_dir).resolve(), job_id, note, outcome, append)
 
     # -- refresh ----------------------------------------------------------------------------------------------
 

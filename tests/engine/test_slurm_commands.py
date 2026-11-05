@@ -210,7 +210,7 @@ def test_squeue_asks_for_every_user_with_name_and_folder():
 
 
 def test_sinfo_nodes_from_hpc1():
-    assert sinfo_nodes_args() == ["sinfo", "-h", "-N", "-o", "%N|%P|%t|%C|%m|%e|%O|%E"]
+    assert sinfo_nodes_args() == ["sinfo", "-h", "-N", "-o", "%N|%P|%t|%C|%m|%e|%O|%z|%E"]
     nodes = parse_sinfo_nodes(SINFO_N)
     assert [(n.node, n.partition, n.default, n.state) for n in nodes] == [
         ("hpc1", "node1", True, "idle"), ("hpc2", "node2", False, "drain")]

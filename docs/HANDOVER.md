@@ -77,7 +77,10 @@ Specs and plans per phase: `docs/superpowers/specs/`, `docs/superpowers/plans/`;
   sweeps (Mach, α, β, altitude) and naming, restarts, profiles, ISA / y+, job running (`jobs/`: LocalRunner
   through `sweep_wrapper.py`, job records `jobs/<id>.json`, logs, per-job configs), results (`results.py`,
   `study_results.py`, `formula.py`, `packages.py`) and imported runs (`imported.py`).
-- `aerosuite/cli/`: `aerosuite new/show/set/edit/generate/run/status/cancel/summarize/serve/import`.
+- `aerosuite/cli/`: `aerosuite new/show/set/edit/generate/run/status/cancel/summarize/serve/import`, and
+  `aerosuite tracker sync` (a run-matrix workbook's Status column from the jobs, `engine/tracker.py`; the web
+  Run matrix page `web/pages/tracker.py`, links in `engine/tracker_links.py`, auto-writes `web/tracker_watch.py`;
+  docs/RUN_MATRIX.md).
 - `aerosuite/web/`: the NiceGUI web UI. Pages: Projects (open, **Import SU2 runs**, new), Profiles, Setup, CFG setup
   (general cases) or Aircraft (aircraft studies), Sweep, Run, Monitor, **Results**, Calculators (also a panel
   from the right). A log panel opens from the bottom of project pages. Look in `theme.py`, building blocks in
