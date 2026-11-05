@@ -5,8 +5,8 @@ from test_tracker import add_job, make_workbook
 
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
-from aerosuite.engine.tracker_links import (Link, LinkedProject, candidate_projects, find_link, load_tracker,
-                                            remove_link, report, save_link, set_auto, write_link)
+from aerosuite.engine.tracker_links import (Link, LinkedProject, candidate_projects, create_sheet, find_link,
+                                            load_tracker, remove_link, report, save_link, set_auto, write_link)
 
 
 def _link(tmp_path, **changes):
@@ -79,3 +79,18 @@ def test_candidates_are_the_projects_beside_the_workbook(tmp_path):
     (tmp_path / "not_a_project").mkdir()
     found = candidate_projects(str(tmp_path / "m.xlsx"), extra=[str(tmp_path / "elsewhere")])
     assert [path.name for path in found] == ["a_del20p", "b_del0", "elsewhere"]
+
+
+def test_a_new_sheet_is_linked_and_logged(tmp_path):
+    from test_tracker_template import TEMPLATE, make_template
+
+    book = make_template(tmp_path / "m.xlsx")
+    add_job(tmp_path / "wing_del0", "j", {"M0p3_0km_a0": CaseState.CONVERGED})
+    link = Link(workbook=str(book), sheet="New", projects=[LinkedProject(path=str(tmp_path / "wing_del0"), elevator=0)])
+    create_sheet(link, TEMPLATE, {9: "made by a test"}, [[0.3, 0.6], [0.0], [0.0], [0.0], [0.0]])
+    assert find_link(link.id) == link
+    assert (load_tracker().log[0].trigger, load_tracker().log[0].sheet) == ("new-sheet", "New")
+    assert [(c.row.row, c.status) for c in report(link).plan.changes] == [(5, "Converged")]
+    create_sheet(link.model_copy(update={"id": "other", "sheet": "Unlinked"}), TEMPLATE, {}, [[0.3], [], [], [], []],
+                 keep=False)
+    assert [saved.sheet for saved in load_tracker().links] == ["New"]

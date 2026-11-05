@@ -17,6 +17,12 @@ Open **Run matrix** from the Projects page (or the project menu in the top bar).
   lists the projects beside the workbook and your recent projects with their elevator deflection (read from the
   folder name, editable), and has the tag filters, the choice for disagreeing verdicts and automatic writing. The side
   panel counts what would be written as you change things. **Save and preview** opens the preview.
+- **New sheet from template** (`/tracker/new`) adds a sheet for a new case to the workbook, copied from its template
+  sheet (by default the last visible sheet whose name has "template", e.g. *Case Template_v1*). Tick the projects
+  whose cases it tracks and the sweep fills itself from their cases (`configs/cases.json`, the cases their jobs ran,
+  their run folders) and deflections; change any list. The case details are the template's column D (Case Name, mesh,
+  S_ref, …; a start date defaults to today). **Create sheet** adds it as the workbook's last sheet, links it to the
+  projects and opens its preview.
 - **Preview** (`/tracker/preview?link=…`) has three tabs: **To write**, **Your verdicts kept** (with the convergence
   check's reason, and **Use the job's** per row or for all) and **Not in the sheet** (with the sweep value the sheet
   lacks). **Write N statuses** writes the changes plus the job verdicts you chose.
@@ -40,6 +46,14 @@ aerosuite tracker sync $BOOK X07-80E_subsonic_1st   $X/subsonic_del*   --skip-ta
 aerosuite tracker sync $BOOK X07-80E_subsonic_2nd   $X/subsonic_del*   --tag 2nd_order
 ```
 
+A new sheet from the template, linked to the projects (the sweep from their cases unless given; `--detail` sets a
+case detail by the start of its label):
+
+```bash
+aerosuite tracker new-sheet $BOOK X07-80E_transonic_1st $X/subsonic_del* --mach 0.9,1.1 --skip-tag 2nd_order \
+    --detail "Case Name=Transonic sweep" --detail "Notes=1st order" --dry-run
+```
+
 - **Projects**: give one project folder per elevator deflection. The deflection comes from the folder name
   (`del0` → 0, `del20p` → +20, `del30m` / `del_60m` → −30 / −60). If a name doesn't carry it, write it as
   `FOLDER=DEGREES`, e.g. `$X/baseline=-30`.
@@ -54,6 +68,15 @@ aerosuite tracker sync $BOOK X07-80E_subsonic_2nd   $X/subsonic_del*   --tag 2nd
 - **Statuses**: CONVERGED → Converged, UNCONVERGED → Not Converged, FAILED → Failed, RUNNING → Running,
   PENDING → Pending, CANCELLED / BLOCKED → Hold. A running job's state is refreshed first, as `aerosuite status`
   does.
+
+## A new sheet from the template
+
+The template sheet is copied inside the file, as Excel's *Move or Copy… › Create a copy* would: its formulas, Status
+dropdown, colours, merged cells and its text box come along. The copy gets the case details and the sweep values
+(at most 100 per parameter, and no more runs than the template has rows for), and an empty Status column. The other
+sheets and every other part of the file are left byte for byte, as for a write; the workbook is refused while open in
+Excel, and the previous file is kept as `<name>.bak.xlsx`. The new sheet's name must suit Excel: at most 31
+characters, none of `: \ / ? * [ ]`, and not one the workbook has.
 
 ## What it leaves alone
 

@@ -1,5 +1,6 @@
-"""The Run matrix pages: linked sheets, linking one, previewing and writing; and the automatic writer."""
-from datetime import datetime, timedelta
+"""The Run matrix pages: linked sheets, linking one, previewing and writing, a new sheet from the template; and the
+automatic writer."""
+from datetime import date, datetime, timedelta
 
 import pytest
 from nicegui.testing import User
@@ -169,3 +170,48 @@ async def test_the_writer_leaves_links_that_do_not_write_automatically(matrix):
     await watch.check_once()
     _job(folder, "j2", {"M0p6_0km_a0": CaseState.CONVERGED})
     assert await watch.check_once() == 0
+
+
+def _with_template(book):
+    """The matrix workbook plus a template sheet: a case name and a start date to give, rows for 10 runs."""
+    wb = load_workbook(book)
+    ws = wb.create_sheet("Case Template_v1")
+    ws["A4"], ws["D4"] = "Case Name", "Baseline"
+    ws["A10"], ws["D10"] = "Start Date", datetime(2026, 1, 1)
+    ws["G3"], ws["M3"] = "Run ID [Auto]", "Status"
+    for row in range(5, 15):
+        ws.cell(row, 7, RUN_ID)
+    for column, header in enumerate(["Mach", "Altitude (km)", "AoA (deg)", "Elevator Def (deg)", "Sideslip Beta"], 1):
+        ws.cell(23, column, header)
+    wb.save(book)
+    return book
+
+
+async def test_a_new_sheet_from_the_template(user: User, matrix, eventually):
+    book, folder = matrix
+    _with_template(book)
+    _link(book, folder)  # the form starts from the last linked workbook
+    await user.open("/tracker")
+    user.find(marker="tracker-new").click()
+    await user.should_see(marker="tracker-new-page")
+    await eventually(lambda: _element(user, "new-template").value == "Case Template_v1")
+    await user.should_see(marker="new-detail-4")
+    assert _element(user, "new-detail-4").value == "Baseline"
+    assert _element(user, "new-detail-10").value == date.today().isoformat()  # a start date: today
+    with user:
+        _element(user, "new-project-wing_del0-on").set_value(True)
+    await eventually(lambda: _element(user, "new-sweep-aoa").value == "0, 5")
+    assert (_element(user, "new-sweep-mach").value, _element(user, "new-sweep-elevator").value) == ("0.3", "0")
+    with user:
+        _element(user, "new-name").set_value("study")
+    await eventually(lambda: _element(user, "new-runs").text == "2")
+    await user.should_see("The workbook already has a sheet named Study.")
+    with user:
+        _element(user, "new-name").set_value("Subsonic")
+        _element(user, "new-detail-4").set_value("Subsonic sweep")
+    user.find(marker="new-create").click()
+    await user.should_see(marker="tracker-preview-page")
+    ws = load_workbook(book)["Subsonic"]
+    assert (ws["D4"].value, ws["A25"].value, ws["C26"].value) == ("Subsonic sweep", 0.3, 5)
+    link = load_tracker().links[-1]
+    assert (link.sheet, [p.elevator for p in link.projects]) == ("Subsonic", [0.0])
