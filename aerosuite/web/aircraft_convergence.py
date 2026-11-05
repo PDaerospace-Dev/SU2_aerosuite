@@ -12,7 +12,6 @@ from ..engine.config_rules import _options
 from ..engine.editing import COEFFICIENT_FIELDS, RESIDUAL_FIELDS, conv_fields, parse_conv_field
 from ..engine.errors import AeroSuiteError, ProjectError
 from ..engine.models import Numerics, Project
-from ..engine.naming import format_value
 from ..engine.results import CONVERGENCE_THRESHOLD
 from .aircraft_form import number_field
 from .fields import text_field
@@ -81,14 +80,6 @@ def take_overrides(project: Project) -> None:
             del overrides[key]
 
 
-def written_lines(numerics: Numerics) -> list[str]:
-    from ..engine.cfg import settings_parameters
-    from ..engine.models import Settings
-
-    params = settings_parameters(Settings(numerics=numerics))
-    return [f"{key}= {params[key]}" for key in ("ITER", *KEYS) if key in params]
-
-
 def convergence_tab(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
     """Returns its redraw."""
     box = ui.column().classes("w-full gap-3")
@@ -116,15 +107,12 @@ def convergence_tab(frame: ProjectFrame, hints: dict[str, str], after: Callable[
         except AeroSuiteError:
             template = {}
         with box:
-            hint("SU2 stops a case after the most iterations below, or earlier once what you choose here is met. "
-                 "AeroSuite's verdict (Converged / Not Converged) is its own check: CL, CD and CMy steady over "
-                 f"the last 10% of iterations, within {CONVERGENCE_THRESHOLD:.1%} of their mean.")
             moved = [key for key in KEYS if key in settings.overrides]
             if moved:
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
-                    banner("warning", f"Extra options set {', '.join(moved)}, which replace{'s' if len(moved) == 1 else ''}"
-                                      " what you choose here.").classes("grow").mark("conv-overrides")
-                    secondary_button("Move them here", lambda: press(take_overrides)).mark("conv-take-overrides")
+                    banner("warning", f"Extra options also set {', '.join(moved)}, and win.").classes("grow").mark(
+                        "conv-overrides")
+                    secondary_button("Move here", lambda: press(take_overrides)).mark("conv-take-overrides")
             with ui.element("div").classes("as-grid-3"):
                 with ui.column().classes("gap-1"):
                     number_field(frame, hints, "Iterations (max)", "numerics", "iter", "int", after)
@@ -137,9 +125,6 @@ def convergence_tab(frame: ProjectFrame, hints: dict[str, str], after: Callable[
                 _residual(numerics, template, save, press)
             else:
                 _forces(numerics, save, press)
-            if mode != "template":
-                lines = written_lines(numerics)
-                hint("writes " + " · ".join(lines)).classes("as-mono").mark("conv-lines")
             _verdicts(frame)
 
     render()
@@ -152,9 +137,11 @@ def _verdicts(frame: ProjectFrame) -> None:
 
     ui.label("AeroSuite's verdict").classes("as-subhead")
     floors = ", ".join(f"{column} {value:g}" for column, value in COEFFICIENT_TOLERANCES.items())
-    hint(f"Converged when CL, CD and CMy each vary by at most {CONVERGENCE_THRESHOLD:.1%} of their mean over the "
-         f"last 10% of iterations, or, for a coefficient near zero, by less than {floors}. A run keeps the verdict "
-         "it got when it ended; judge the finished runs again after the check changed.")
+    with ui.row().classes("items-center gap-1"):
+        hint(f"Converged: CL, CD and CMy within {CONVERGENCE_THRESHOLD:.1%} over the last 10% of iterations.")
+        ui.icon("info_outline").classes("as-help-icon").tooltip(
+            f"Or, near zero, varying by less than {floors}. A run keeps the verdict it got when it ended; "
+            "judging again applies the check as it is now.")
     result = ui.column().classes("w-full gap-1")
 
     async def again() -> None:
@@ -166,12 +153,11 @@ def _verdicts(frame: ProjectFrame) -> None:
         result.clear()
         with result:
             if not changed:
-                hint("Every finished run already has the verdict the check gives now.").mark("conv-rejudged")
+                hint("No verdict changed.").mark("conv-rejudged")
                 return
-            hint(f"{len(changed)} verdict{'' if len(changed) == 1 else 's'} changed; the Run page and linked run "
-                 "matrices follow.").mark("conv-rejudged")
+            hint(f"{len(changed)} verdict{'' if len(changed) == 1 else 's'} changed:").mark("conv-rejudged")
             for item in changed[:20]:
-                hint(f"{item.case}: {_WORDS[item.old]} → {_WORDS[item.new]} ({item.reason})").classes("as-mono")
+                hint(f"{item.case}: {_WORDS[item.old]} → {_WORDS[item.new]}").classes("as-mono")
 
     button = secondary_button("Judge finished runs again", again, icon="rule").mark("conv-rejudge")
 
@@ -179,14 +165,14 @@ def _verdicts(frame: ProjectFrame) -> None:
 def _template_line(template: dict[str, str]) -> None:
     field = template.get("CONV_FIELD")
     if not field:
-        text = "The template does not say: SU2 stops early when RMS_DENSITY is down to -8 (its default)."
+        text = "Template: none, so SU2's default (RMS_DENSITY down to -8)"
     elif all(f in COEFFICIENT_FIELDS for f in conv_fields(field)):
-        text = (f"The template stops when {_coefficients(field)} settle (CONV_CAUCHY_EPS "
+        text = (f"Template: {_coefficients(field)} settle, "
                 f"{template.get('CONV_CAUCHY_EPS', SU2_DEFAULTS['CONV_CAUCHY_EPS'])} over "
-                f"{template.get('CONV_CAUCHY_ELEMS', SU2_DEFAULTS['CONV_CAUCHY_ELEMS'])} iterations).")
+                f"{template.get('CONV_CAUCHY_ELEMS', SU2_DEFAULTS['CONV_CAUCHY_ELEMS'])} iterations")
     else:
-        text = (f"The template stops when {field} is down to "
-                f"{template.get('CONV_RESIDUAL_MINVAL', SU2_DEFAULTS['CONV_RESIDUAL_MINVAL'])}.")
+        text = (f"Template: {field} down to "
+                f"{template.get('CONV_RESIDUAL_MINVAL', SU2_DEFAULTS['CONV_RESIDUAL_MINVAL'])}")
     hint(text).mark("conv-template")
 
 
@@ -217,8 +203,6 @@ def _residual(numerics: Numerics, template: dict[str, str], save, press) -> None
                         template.get("CONV_STARTITER", "5 (SU2's default)"), "conv-startiter",
                         lambda n, t: setattr(n, "conv_startiter", parse_optional_int(t, "Check from")), save,
                         as_int=True)
-    hint("The residual is log10 of its RMS: -8 means it fell to 1e-8. Your forces can still be moving when it gets "
-         "there, and most RANS runs never reach -8.")
 
 
 def _forces(numerics: Numerics, save, press) -> None:
@@ -247,8 +231,7 @@ def _forces(numerics: Numerics, save, press) -> None:
                         as_int=True)
     window, eps = numerics.conv_cauchy_elems or 100, numerics.conv_cauchy_eps or 1e-5
     drift = window * eps
-    verdict = ("about what AeroSuite calls Converged" if drift <= 2 * CONVERGENCE_THRESHOLD
-               else "looser than AeroSuite's check: a case SU2 stops may still come out Not Converged")
-    hint(f"SU2 stops once each coefficient changes on average by less than {format_value(eps)} per iteration over "
-         f"the last {window}: at most {drift:.2%} over the window, {verdict}. Raise Iterations (max) so the slow "
-         "cases get there; the fast ones stop early.").mark("conv-forces-hint")
+    text = f"Stops when each drifts less than {drift:.2%} over {window} iterations"
+    if drift > 2 * CONVERGENCE_THRESHOLD:
+        text += f": looser than AeroSuite's {CONVERGENCE_THRESHOLD:.1%}"
+    hint(text).mark("conv-forces-hint")

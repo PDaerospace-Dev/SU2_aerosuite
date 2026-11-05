@@ -139,7 +139,7 @@ and what it runs at.
     Converged. Raise *Iterations (max)* so the slow cases get there.
 
   Both check from *Check from iteration* (`CONV_STARTITER`). `CONV_*` lines in Extra options replace these; *Move
-  them here* takes them over. **AeroSuite's verdict** is its own check: CL, CD and CMy each vary by at most 0.1% of
+  here* takes them over. **AeroSuite's verdict** is its own check: CL, CD and CMy each vary by at most 0.1% of
   their mean over the last 10% of iterations, or, near zero, by less than an absolute amount (CL and CMy 1e-4, CD
   1e-5). A run keeps the verdict it got when it ended; *Judge finished runs again* applies the check as it is now
   (also `aerosuite rejudge DIR`).
