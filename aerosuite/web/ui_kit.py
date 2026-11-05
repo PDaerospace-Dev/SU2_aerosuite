@@ -123,6 +123,11 @@ def card(title: Optional[str] = None, subtitle: Optional[str] = None, *,
 _FOLDED: set[str] = set()  # cards the user folded (by key), kept while the server runs
 
 
+def fold_at_start(*keys: str) -> None:
+    """Cards (by fold key) that start folded, until someone opens them."""
+    _FOLDED.update(keys)
+
+
 def fold_button(box: ui.element, key: str) -> ui.button:
     """A chevron for a card's title row: folds the card `box` down to that row and opens it again. Folded cards
     stay folded when the page is drawn again."""

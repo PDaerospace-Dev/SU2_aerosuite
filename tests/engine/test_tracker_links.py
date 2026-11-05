@@ -9,7 +9,7 @@ from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.tracker_links import (Link, LinkedProject, candidate_projects, create_sheet, find_link,
                                             link_stamp, load_tracker, remove_link, report, save_link, set_auto,
-                                            write_link)
+                                            set_completed, write_link)
 
 
 def _link(tmp_path, **changes):
@@ -142,3 +142,16 @@ def test_a_new_sheet_is_linked_and_logged(tmp_path):
     create_sheet(link.model_copy(update={"id": "other", "sheet": "Unlinked"}), TEMPLATE, {}, [[0.3], [], [], [], []],
                  keep=False)
     assert [saved.sheet for saved in load_tracker().links] == ["New"]
+
+
+def test_a_sheet_is_completed_by_its_runs_or_by_hand(tmp_path):
+    link = save_link(_link(tmp_path))
+    assert not report(link).done  # runs without a verdict
+    set_completed(link.id, True)
+    assert report(find_link(link.id)).done
+    set_completed(link.id, None)
+    every = make_workbook(tmp_path / "all.xlsx", statuses={row: "Converged" for row in range(5, 13)})
+    whole = save_link(Link(workbook=str(every), sheet="Study"))
+    assert report(whole).done
+    set_completed(whole.id, False)
+    assert not report(find_link(whole.id)).done
