@@ -85,6 +85,7 @@ class CaseStatus:
     case: str
     folder: str = ""  # the project folder
     key: Optional[Key] = None  # the run it is for
+    finished: Optional[datetime] = None  # when its job ended
 
 
 def _case_values(name: str, index: dict) -> Optional[tuple[float, float, float, float]]:
@@ -154,7 +155,8 @@ def collect_statuses(
                 continue
             mach, altitude, alpha, beta = values
             case_key = key(mach, altitude, alpha, elevator, beta)
-            entry = CaseStatus(STATUS_TEXT[state], project_dir.name, job.id, case, str(project_dir), case_key)
+            entry = CaseStatus(STATUS_TEXT[state], project_dir.name, job.id, case, str(project_dir), case_key,
+                               job.finished)
             if state in _NEVER_RAN:
                 fallback.setdefault(case_key, entry)
             else:
@@ -203,6 +205,7 @@ class Matrix:
     status_column: str  # its letter, e.g. "M"
     rows: list[MatrixRow]
     levels: list[list[float]]  # the values entered per sweep parameter: Mach, altitude, AoA, elevator, beta
+    completed_on: str = ""  # the cell beside "Completed on", e.g. "D11", while it is blank
 
 
 _loaded: dict[tuple, object] = {}  # workbooks as last read, by (path, mtime, size): the web pages read one often
@@ -295,6 +298,16 @@ def _run_columns(ws) -> tuple[int, int, int]:
     return run_column, status_column, first_row
 
 
+def _completed_cell(ws, workbook: Path) -> str:
+    """The value cell (column D) of the "Completed on" detail above the sweep table, when it is blank; else ""."""
+    for row in range(1, _sweep_row(ws, workbook)):
+        if _text(ws.cell(row, 1).value).lower().startswith("completed"):
+            value = ws.cell(row, 4).value
+            blank = value is None or (isinstance(value, str) and not value.strip())
+            return ws.cell(row, 4).coordinate if blank else ""
+    return ""
+
+
 def read_matrix(workbook: Path, sheet: str) -> Matrix:
     """The sheet's run matrix, laid out as its formulas lay it out: Mach slowest, then altitude, AoA, elevator, beta."""
     from openpyxl.utils import get_column_letter
@@ -317,7 +330,7 @@ def read_matrix(workbook: Path, sheet: str) -> Matrix:
         indices.reverse()
         values = [level[index] if level else 0.0 for level, index in zip(levels, indices)]
         rows.append(MatrixRow(row, f"RUN-{i + 1:04d}", key(*values), _text(ws.cell(row, status_column).value)))
-    return Matrix(sheet, get_column_letter(status_column), rows, levels)
+    return Matrix(sheet, get_column_letter(status_column), rows, levels, _completed_cell(ws, workbook))
 
 
 @dataclass(frozen=True)
@@ -369,6 +382,19 @@ def outside_reason(matrix: Matrix, case_key: Key) -> str:
         if round(value, 6) not in {round(v, 6) for v in (level or [0.0])}:
             return f"{name} {format_value(value)} is not in the sheet's sweep"
     return "the sheet's run matrix stops before its row"
+
+
+def completion_date(matrix: Matrix, plan: Plan, statuses: dict[Key, CaseStatus]) -> Optional[date]:
+    """What "Completed on" becomes with the plan written: the day the last of the runs' jobs ended, once every run
+    has a verdict (Converged, Not Converged, Diverged, Failed). None while one has not, or when the cell is not
+    blank: a date entered by hand stays."""
+    if not matrix.completed_on or not matrix.rows:
+        return None
+    status = {row.row: row.status for row in matrix.rows} | {change.row.row: change.status for change in plan.changes}
+    if any(text not in VERDICTS for text in status.values()):
+        return None
+    ended = [entry.finished for row in matrix.rows if (entry := statuses.get(row.key)) and entry.finished]
+    return max(ended).date() if ended else date.today()
 
 
 # --- writing ---------------------------------------------------------------------------------------------------------
@@ -525,11 +551,13 @@ def _rewrite(workbook: Path, edit: Callable[[zipfile.ZipFile], dict[str, Union[s
     return backup
 
 
-def write_statuses(workbook: Path, sheet: str, column: str, values: dict[int, str]) -> Path:
-    """Set Status cells ({row: text}) in place, keeping every other byte of the workbook. Returns the backup."""
+def write_statuses(workbook: Path, sheet: str, column: str, values: dict[int, str],
+                   also: Optional[dict[str, CellValue]] = None) -> Path:
+    """Set Status cells ({row: text}), and the cells `also` names ({"D11": value}), in place, keeping every other byte
+    of the workbook. Returns the backup."""
     def edit(archive: zipfile.ZipFile) -> dict[str, str]:
         part = _sheet_part(archive, sheet)
-        cells = {f"{column}{row}": text for row, text in values.items()}
+        cells = {f"{column}{row}": text for row, text in values.items()} | (also or {})
         return {part: _set_cells(archive.read(part).decode("utf-8"), cells),
                 "xl/workbook.xml": _recalculate_on_open(archive.read("xl/workbook.xml").decode("utf-8"))}
 

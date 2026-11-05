@@ -159,7 +159,8 @@ def _log_text(entry) -> str:
         return f"not written: {entry.error}"
     if entry.trigger == "new-sheet":
         return "added from the template"
-    return f"{entry.written} status{'' if entry.written == 1 else 'es'} written"
+    text = f"{entry.written} status{'' if entry.written == 1 else 'es'} written"
+    return text + (f", completed on {entry.completed_on:%Y-%m-%d}" if entry.completed_on else "")
 
 
 # --- the linked sheets ---------------------------------------------------------------------------------------------
@@ -608,9 +609,12 @@ class Preview:
                         self._kept()
                     with ui.tab_panel("outside"):
                         self._outside()
+            if self.result.completed_on:
+                ok_line(f"Every run has a verdict: Completed on ({self.result.matrix.completed_on}) will be set to "
+                        f"{self.result.completed_on:%Y-%m-%d}, the day the last job ended.").mark("preview-completed")
             with ui.row().classes("w-full items-center gap-2"):
                 workbook = Path(self.link.workbook)
-                hint(f"Only the Status cells change. The previous file is kept as "
+                hint(f"Only the Status cells (and a blank Completed on) change. The previous file is kept as "
                      f"{workbook.stem}.bak{workbook.suffix}.").classes("grow")
                 flat_button("Change the link", lambda: ui.navigate.to(edit_url(self.link.id))).mark("preview-edit")
                 secondary_button("Back", lambda: ui.navigate.to("/tracker")).mark("preview-back")
@@ -712,8 +716,10 @@ class Preview:
 
     def _update_write(self) -> None:
         count = self._count()
-        self.write_button.text = f"Write {count} status{'' if count == 1 else 'es'}" if count else "Nothing to write"
-        self.write_button.set_enabled(bool(count))
+        completed = self.result.completed_on is not None
+        self.write_button.text = (f"Write {count} status{'' if count == 1 else 'es'}" if count
+                                  else "Write the completion date" if completed else "Nothing to write")
+        self.write_button.set_enabled(bool(count) or completed)
 
     async def _write(self) -> None:
         accepted = [change for change in self.result.plan.kept if change.row.row in self.accepted]

@@ -85,7 +85,9 @@ characters, none of `: \ / ? * [ ]`, and not one the workbook has.
   than a look at the history, for example when CMy is close to zero. The summary line counts these rows, and
   `--dry-run` lists each one. `--overwrite` lets the job's verdict replace them. Running and Pending always replace
   a verdict, because the case is running again. Diverged is kept when a job says Not Converged or Failed.
-- **Everything else in the file.** Only the Status cells change. Notes, formulas, formatting, the dropdown, text
+- **Completed on.** Once every run has a verdict (Converged, Not Converged, Diverged or Failed), a blank
+  Completed on cell gets the day the last of the runs' jobs ended. A date already there, typed by you, stays.
+- **Everything else in the file.** Only the Status cells (and a blank Completed on) change. Notes, formulas, formatting, the dropdown, text
   boxes, add-ins and the SharePoint properties are copied byte for byte. Excel recalculates the scorecard when it
   opens the file.
 - **A workbook open in Excel or LibreOffice.** If Excel's `~$` lock file or LibreOffice's `.~lock.<name>#` file sits

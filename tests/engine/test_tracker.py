@@ -16,8 +16,9 @@ EXTRA_PART = "customXml/item1.xml"
 EXTRA_BYTES = b"<FormTemplates>kept as it is</FormTemplates>"
 
 
-def make_workbook(path, statuses=None, notes=None):
-    """The template's layout: Run ID/Status/Notes headers in row 3, runs from row 5, the sweep table at A23."""
+def make_workbook(path, statuses=None, notes=None, completed=False):
+    """The template's layout: Run ID/Status/Notes headers in row 3, runs from row 5, the sweep table at A23; with
+    `completed` (None for blank), a "Completed on" detail in A11/D11."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Study"
@@ -35,15 +36,19 @@ def make_workbook(path, statuses=None, notes=None):
         ws.cell(row, 13, text)
     for row, text in (notes or {}).items():
         ws.cell(row, 14, text)
+    if completed is not False:
+        ws["A11"], ws["D11"] = "Completed on", completed
+        ws["D11"].number_format = "mm-dd-yy"
     wb.save(path)
     with zipfile.ZipFile(path, "a") as archive:  # a part openpyxl would drop on a save of its own
         archive.writestr(EXTRA_PART, EXTRA_BYTES)
     return path
 
 
-def add_job(project_dir, job_id, cases, state=JobState.DONE, note="", age_hours=0):
+def add_job(project_dir, job_id, cases, state=JobState.DONE, note="", age_hours=0, finished=None):
     job = JobRecord(id=job_id, backend="local", cases=list(cases), log_path=f"jobs/{job_id}.log", state=state,
-                    created=datetime(2026, 11, 1) - timedelta(hours=age_hours), case_status=dict(cases), note=note)
+                    created=datetime(2026, 11, 1) - timedelta(hours=age_hours), case_status=dict(cases), note=note,
+                    finished=finished)
     save_job(project_dir, job)
 
 

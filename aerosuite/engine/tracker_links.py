@@ -6,7 +6,7 @@ import threading
 import uuid
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field, ValidationError
 from .errors import AeroSuiteError, TrackerError
 from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
-from .tracker import (CellValue, Change, Matrix, Plan, collect_statuses, job_counts, lock_files, new_sheet,
-                      plan_changes, read_matrix, verdict_reason, write_statuses)
+from .tracker import (CellValue, Change, Matrix, Plan, collect_statuses, completion_date, job_counts, lock_files,
+                      new_sheet, plan_changes, read_matrix, verdict_reason, write_statuses)
 
 LOG_LENGTH = 50
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
@@ -47,6 +47,7 @@ class LogEntry(BaseModel):
     sheet: str
     written: int = 0
     trigger: str = "manual"  # "manual" (the Write button), "auto", "new-sheet" (the sheet was made from a template)
+    completed_on: Optional[date] = None  # the write also filled in "Completed on"
     error: str = ""
 
 
@@ -137,6 +138,7 @@ class LinkReport:
     warnings: list[str] = field(default_factory=list)
     error: str = ""  # the workbook or sheet cannot be used: nothing else is known
     reasons: dict[int, str] = field(default_factory=dict)  # kept verdicts: sheet row -> the convergence check's words
+    completed_on: Optional[date] = None  # what the blank "Completed on" cell gets: every run has a verdict
 
     @property
     def sheet_counts(self) -> Counter:
@@ -172,6 +174,7 @@ def report(link: Link, reasons: bool = False) -> LinkReport:
         result.error = str(exc)
         return result
     result.plan = plan_changes(result.matrix, statuses, overwrite=link.overwrite)
+    result.completed_on = completion_date(result.matrix, result.plan, statuses)
     by_folder = {project.path: project for project in result.projects}
     known = {row.key for row in result.matrix.rows}
     for case_key, entry in statuses.items():
@@ -195,14 +198,16 @@ def write_link(link: Link, accepted: Iterable[Change] = (), trigger: str = "manu
         current = {change.row.row: change.status for change in result.plan.kept}
         values.update({change.row.row: change.status for change in accepted
                        if current.get(change.row.row) == change.status})  # still what the job says
-        if values:
-            write_statuses(Path(link.workbook), link.sheet, result.matrix.status_column, values)
+        also = {result.matrix.completed_on: result.completed_on} if result.completed_on else {}
+        if values or also:
+            write_statuses(Path(link.workbook), link.sheet, result.matrix.status_column, values, also)
         entry.written = len(values)
+        entry.completed_on = result.completed_on
     except (AeroSuiteError, OSError) as exc:
         entry.error = str(exc)
         log_write(entry)
         raise TrackerError(str(exc)) from exc
-    if entry.written or trigger == "manual":
+    if entry.written or entry.completed_on or trigger == "manual":
         log_write(entry)
     return entry.written
 

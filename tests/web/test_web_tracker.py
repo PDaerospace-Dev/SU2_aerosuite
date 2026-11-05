@@ -37,10 +37,10 @@ def _workbook(path, statuses):
     return path
 
 
-def _job(folder, job_id, cases, hours_ago=0):
+def _job(folder, job_id, cases, hours_ago=0, finished=None):
     save_job(folder, JobRecord(id=job_id, backend="local", cases=list(cases), log_path=f"jobs/{job_id}.log",
                                state=JobState.DONE, created=datetime(2026, 11, 1) - timedelta(hours=hours_ago),
-                               case_status=cases))
+                               case_status=cases, finished=finished))
 
 
 @pytest.fixture
@@ -102,6 +102,25 @@ async def test_the_preview_takes_the_jobs_verdict_where_asked(user: User, matrix
     await user.should_see("Nothing to write")
     ws = load_workbook(book)["Study"]
     assert (ws["M5"].value, ws["M6"].value) == ("Not Converged", "Converged")
+
+
+async def test_the_preview_fills_in_completed_on(user: User, tmp_path):
+    book = _workbook(tmp_path / "matrix.xlsx", {5: "Converged", 6: "Converged", 7: "Not Converged", 8: "Converged"})
+    wb = load_workbook(book)
+    wb["Study"]["A11"] = "Completed on"
+    wb["Study"]["D11"].number_format = "mm-dd-yy"
+    wb.save(book)
+    folder = tmp_path / "wing_del0"
+    _job(folder, "j1", {"M0p3_0km_a0": CaseState.CONVERGED, "M0p3_0km_a5": CaseState.CONVERGED,
+                        "M0p6_0km_a0": CaseState.UNCONVERGED, "M0p6_0km_a5": CaseState.CONVERGED},
+         finished=datetime(2026, 11, 4, 9))
+    link = _link(book, folder)
+    await user.open(f"/tracker/preview?link={link.id}")
+    await user.should_see(marker="preview-completed")
+    assert _element(user, "preview-write").text == "Write the completion date"
+    user.find(marker="preview-write").click()
+    await user.should_not_see(marker="preview-completed")  # written: the cell is no longer blank
+    assert load_workbook(book)["Study"]["D11"].value == datetime(2026, 11, 4)
 
 
 async def test_linking_a_sheet(user: User, matrix, eventually):
