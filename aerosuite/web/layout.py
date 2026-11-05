@@ -123,6 +123,15 @@ def _refresh_button() -> None:
         "as-topbar-icon as-round").mark("refresh"), "Refresh: show what is on disk now")
 
 
+def _tracker_step() -> None:
+    """Run matrix (run-matrix workbooks whose Status follows the projects' jobs) at the bottom of a project's sidebar,
+    above Settings: like Settings, it is not one of the project's steps."""
+    with ui.link(target="/tracker").classes("as-step row").mark("sidebar-tracker"):
+        ui.icon("table_view", size="20px")
+        ui.label("Run matrix").classes("as-step-name")
+        ui.tooltip("Run matrix").classes("as-step-tip")
+
+
 def _settings_step() -> None:
     """Settings (server-wide: backend, Slurm) at the bottom of a project's sidebar, under its steps."""
     with ui.link(target="/settings").classes("as-step row").mark("settings"):
@@ -272,6 +281,7 @@ class ProjectFrame:
             with ui.column().classes("as-sidebar").mark("sidebar"):
                 self._steps = ui.column().classes("as-steps w-full")
                 with ui.column().classes("as-sidebar-foot w-full"):
+                    _tracker_step()
                     _settings_step()
             with ui.column().classes("as-main"):
                 with ui.row().classes("as-crumbs w-full"):
@@ -320,7 +330,6 @@ class ProjectFrame:
                 with ui.menu().mark("project-menu") as menu:
                     ui.menu_item("All projects", on_click=lambda: ui.navigate.to("/")).mark("menu-all-projects")
                     ui.menu_item("Profiles", on_click=lambda: ui.navigate.to("/profiles")).mark("menu-profiles")
-                    ui.menu_item("Run matrix", on_click=lambda: ui.navigate.to("/tracker")).mark("menu-tracker")
                     here = Path(self.session.directory).resolve()
                     for directory in load_recent():
                         if directory.resolve() != here:

@@ -138,6 +138,16 @@ async def test_settings_is_at_the_bottom_of_a_projects_sidebar(user: User, ready
     assert parent is sidebar
 
 
+async def test_run_matrix_is_in_a_projects_sidebar_above_settings(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("setup", project_dir))
+    tracker, settings = _element(user, "sidebar-tracker"), _element(user, "settings")
+    assert tracker.props["href"] == "/tracker"
+    foot = settings.parent_slot.parent
+    assert foot.default_slot.children.index(tracker) == foot.default_slot.children.index(settings) - 1
+    await user.should_not_see(marker="menu-tracker")  # no longer in the project menu
+
+
 async def test_the_job_indicator_follows_a_job_started_elsewhere(user: User, ready_project, eventually,
                                                                   monkeypatch):
     monkeypatch.setattr(layout, "WATCH_SECONDS", 0.1)
