@@ -85,8 +85,8 @@ async def test_the_running_indicator_opens_the_log_of_the_running_job(user: User
     await user.open(project_url("setup", project_dir))
     runner, job = _run(project_dir, project, wait=False, **{A0: "hang"})
     try:
-        await eventually(lambda: _shown(user, "job-indicator"), timeout=10)
-        user.find(marker="job-indicator").click()
+        await eventually(lambda: _shown(user, "menu-job-log"), timeout=10)  # in the project's menu
+        user.find(marker="menu-job-log").click()
         await user.should_see(marker="log-panel")
         assert _element(user, "log-job").value == job.id
         await eventually(lambda: f"Running Case 1/3: {A0}.cfg" in _element(user, "log-text").text, timeout=10)

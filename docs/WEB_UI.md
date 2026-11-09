@@ -33,14 +33,15 @@ If AeroSuite does not answer at all, it is not running on the workstation: see *
 - **Sidebar**: the steps of a study in order (Setup, Aircraft or CFG setup, Sweep, Run, Monitor, Results). The dot
   next to each says where it stands: green done, amber needs a look, blue running, grey not yet. While a job runs,
   **Run** shows its progress (*12/40*) with a thin bar under it. **Collapse**, at its bottom, folds it to icons.
-- **Top bar**: the AeroSuite logo goes back to *Projects*. Then the **search**, **Run matrix**, **Cluster**, the
-  project (in a project) and **⚙**. On a narrow window Run matrix and Cluster shrink to icons.
+- **Top bar**: the AeroSuite logo goes back to *Projects*. Then the **search**, **Run matrix**, **Cluster**,
+  **Calculators**, the project (in a project) and **⚙**. On a narrow window Run matrix, Cluster and Calculators shrink
+  to icons.
   - **Search** (click it, **Ctrl K**, or **/** outside a text field) goes anywhere: *Projects*, *Run matrix*,
     *Cluster*, *Settings*, *Profiles*; the project's steps, its cases (on Monitor) and its flow files (in ParaView);
     your recent projects; the run-matrix sheets; the calculators; the guide's sections. Type a few letters of any
     word (`m0p9`, `y+`, `subsonic`), move with ↑ ↓, **Enter** goes, **Esc** closes.
-  - **The project** shows its name and kind; while a job runs, a blue dot and *running 12 / 40 · <case>*. Click that
-    line for the job's log; click the rest for recent projects and *All projects*.
+  - **The project** shows its name (its kind on hover), with a blue dot on its badge while a job runs. Its menu has
+    *Show the running job's log*, *All projects* and the recent projects.
   - **⚙**: Settings, Profiles, the Web UI guide and the version.
 - **Log**: the button at the bottom right of every project page.
 - **Saving**: a field saves when you leave it. A value that is not valid turns red and is not saved. Editors save a
@@ -347,7 +348,7 @@ red when Slurm does not answer; the number is your running jobs.
   grouped by job.
 
 ### Calculators
-Search *calculators* (or a calculator's name, such as *y+*) to open them over any page.
+**Calculators** in the top bar (or search a calculator's name, such as *y+*) opens them over any page.
 
 - **ISA atmosphere**: temperature, pressure, density, viscosity, speed and Reynolds number from altitude, Mach and
   length. In a project, *Apply to project* sets the freestream (it lists every change and asks first).
@@ -364,7 +365,7 @@ newest first; the search finds them too (*paraview* and the case).
   `to_ascii-<job id>.out`). A case still running is refused.
 
 ### Log
-The **Log** button at the bottom right of every project page (or click *running 3 / 32* under the project in the top bar) shows the
+The **Log** button at the bottom right of every project page (or *Show the running job's log* in the project's menu) shows the
 sweep's output along the bottom of the page. It follows the running job; pick an earlier job from its list. Jobs are
 named by date and minute (`20260928-1358`).
 

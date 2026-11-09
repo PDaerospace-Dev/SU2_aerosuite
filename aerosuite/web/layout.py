@@ -253,8 +253,18 @@ def _shell_commands(guide: Guide, panel: CalcPanel, frame: Optional["ProjectFram
     return commands
 
 
+def _calculators_link(panel: CalcPanel) -> None:
+    """Calculators in the top bar: they open over the page, from the right (a second click closes them)."""
+    with ui.row().classes("as-topbar-link").props('tabindex=0 role=button').mark("calculators") as link:
+        ui.icon("calculate", size="18px")
+        ui.label("Calculators").classes("as-topbar-label")
+    link.on("click", panel.toggle)
+    link.on("keydown.enter", panel.toggle)
+
+
 def top_bar(page: str = "", frame: Optional["ProjectFrame"] = None) -> Guide:
-    """The bar on every page: the brand, the search, Run matrix, Cluster, the project (`frame`'s switcher) and ⚙."""
+    """The bar on every page: the brand, the search, Run matrix, Cluster, Calculators, the project (`frame`'s
+    switcher) and ⚙."""
     guide = Guide(page)
     panel = CalcPanel(frame)
     with ui.row().classes("as-topbar w-full"):
@@ -264,6 +274,7 @@ def top_bar(page: str = "", frame: Optional["ProjectFrame"] = None) -> Guide:
         ui.space()
         _tracker_link(page == "tracker")
         _cluster_button()
+        _calculators_link(panel)
         if frame is not None:
             frame.switcher()
         _app_menu(guide)
@@ -321,6 +332,7 @@ class ProjectFrame:
         self._run_progress: Optional[ui.label] = None  # the Run step's job progress (refresh draws the steps)
         self._run_fill: Optional[ui.element] = None
         self._running = False
+        self._job_text = ""  # the running job's progress, as the search shows it
         self.paraview = ParaViewMenu(self)  # its button is on Monitor and Results; the search finds the cases
         self.guide = top_bar(active, self)
         with ui.row().classes("as-body w-full"):
@@ -351,21 +363,14 @@ class ProjectFrame:
         ui.timer(WATCH_SECONDS, self._tick)
 
     def switcher(self) -> None:
-        """The project in the top bar: its name, kind and running job; its menu switches project."""
+        """The project in the top bar: its name (its kind on hover), and a dot while its job runs; its menu has the
+        running job's log and switches project."""
         with ui.row().classes("as-topbar-control as-switcher").props('tabindex=0 role=button').mark(
                 "project-switcher") as switcher:
             with ui.element("span").classes("as-initials-box"):
                 self._initials = ui.label("").classes("as-initials")
                 self._job_dot = ui.element("span").classes("as-switcher-dot").mark("project-running-dot")
-            with ui.column().classes("gap-0 min-w-0"):
-                self._name = ui.label("").classes("as-switcher-name as-truncate").mark("project-name")
-                with ui.row().classes("gap-1 no-wrap items-center min-w-0"):
-                    with ui.row().classes("as-switcher-job no-wrap").props('tabindex=0 role=button').mark(
-                            "job-indicator") as self._job:
-                        ui.label("running")
-                        self._job_text = ui.label("").classes("as-truncate as-job-text").mark("job-progress")
-                        ui.label("·")
-                    self._kind = ui.label("").classes("as-switcher-kind as-topbar-muted").mark("project-kind")
+            self._name = ui.label("").classes("as-switcher-name as-truncate").mark("project-name")
             ui.icon("expand_more").classes("as-topbar-muted")
             with ui.menu().mark("project-menu") as menu:
                 self._log_item = ui.menu_item("Show the running job's log", on_click=lambda: self.log.open()).mark(
@@ -379,12 +384,7 @@ class ProjectFrame:
                     ui.menu_item(directory.name, on_click=lambda d=directory: ui.navigate.to(
                         project_url("setup", d))).mark(f"menu-recent-{directory.name}")
         switcher.on("keydown.enter", menu.open)
-        # the job's log, not the menu: the browser stops the click before it reaches the switcher
-        self._job.props('onclick="event.stopPropagation()"')
-        self._job.props("onkeydown=\"event.key === 'Enter' && event.stopPropagation()\"")
-        self._job.on("click", lambda: self.log.open())
-        self._job.on("keydown.enter", lambda: self.log.open())
-        self._job.set_visibility(False)
+        self._switcher = switcher
         self._job_dot.set_visibility(False)
         self._log_item.set_visibility(False)
 
@@ -399,7 +399,7 @@ class ProjectFrame:
                     for key, label in visible_steps(project) if key in PAGE_OF_STEP]
         if self._running:
             commands.insert(0, Command("job-log", "This project", "Show the running job's log", "terminal",
-                                       lambda: self.log.open(), hint=self._job_text.text, words="job progress",
+                                       lambda: self.log.open(), hint=self._job_text, words="job progress",
                                        featured=True))
         commands += [Command(f"case-{case.name}", "Cases", case.name, "show_chart",
                              lambda name=case.name: go(project_url("monitor", directory) + f"&case={quote(name)}"),
@@ -420,7 +420,7 @@ class ProjectFrame:
         """Redraw the project name, the sidebar's steps and badges, and the job indicator."""
         project = self.session.project
         self._name.text = project.name
-        self._kind.text = project_kind(project)
+        self._switcher.props(f'title="{project_kind(project)}"')
         self._initials.text = initials(project.name)
         self._initials.style(f"background: {badge_color(project.name)}")
         self._crumb_project.text = project.name
@@ -473,14 +473,14 @@ class ProjectFrame:
         except (AeroSuiteError, OSError):
             progress = None  # a broken job record must never break navigation
         self._running = progress is not None
-        shown = [self._job, self._job_dot, self._log_item]
+        shown = [self._job_dot, self._log_item]
         if self._run_progress is not None and not self._run_progress.is_deleted:
             shown += [self._run_progress, self._run_bar]
         for element in shown:
             element.set_visibility(self._running)
         if progress is None:
             return
-        self._job_text.set_text(progress.text)
+        self._job_text = progress.text
         if self._run_progress is not None and not self._run_progress.is_deleted:
             self._run_progress.set_text(progress.text.split(" · ")[0].replace(" ", ""))
             self._run_fill.style(f"width: {progress.percent}%")

@@ -31,6 +31,15 @@ async def test_the_panel_switches_calculators_and_closes(user: User, ready_proje
     await user.should_see(marker="isa-altitude")
 
 
+async def test_the_top_bar_button_opens_and_closes_the_panel(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("aircraft", project_dir))
+    user.find(marker="calculators").click()
+    await user.should_see(marker="calc-panel")
+    user.find(marker="calculators").click()  # a second click closes it
+    await user.should_not_see(marker="calc-panel")
+
+
 async def test_on_the_projects_page_the_panel_has_no_apply(user: User, search):
     await user.open("/")
     await search(user, "calculators", pick="calculators")

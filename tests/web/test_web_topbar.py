@@ -1,5 +1,4 @@
 import json
-import re
 
 import pytest
 from nicegui import ElementFilter
@@ -41,7 +40,7 @@ async def test_the_switcher_names_the_project(user: User, ready_project):
     project_dir, _ = ready_project
     await user.open(project_url("setup", project_dir))
     assert _element(user, "project-name").text == "study"
-    assert _element(user, "project-kind").text == "sweep · 3 cases"
+    assert _element(user, "project-switcher").props["title"] == "sweep · 3 cases"  # its kind on hover
 
 
 async def test_the_switcher_menu_goes_to_all_projects(user: User, ready_project):
@@ -89,9 +88,9 @@ async def test_the_toggle_collapses_the_sidebar(user: User, ready_project, monke
 async def test_every_page_has_the_search_run_matrix_and_the_menu(user: User, ready_project, url):
     project_dir, _ = ready_project
     await user.open(url if url.startswith("/") else project_url(url, project_dir))
-    for marker in ("command-search", "topbar-tracker", "app-menu"):
+    for marker in ("command-search", "topbar-tracker", "calculators", "app-menu"):
         await user.should_see(marker=marker)
-    for gone in ("refresh", "help", "calculators", "sidebar-tracker"):  # the old bar's
+    for gone in ("refresh", "help", "sidebar-tracker", "job-indicator"):  # the old bar's
         await user.should_not_see(marker=gone)
 
 
@@ -155,18 +154,18 @@ async def test_the_job_indicator_follows_a_job_started_elsewhere(user: User, rea
     monkeypatch.setattr(layout, "WATCH_SECONDS", 0.1)
     project_dir, project = ready_project
     await user.open(project_url("setup", project_dir))
-    await user.should_not_see(marker="job-indicator")  # hidden elements are not found
+    await user.should_not_see(marker="step-run-progress")  # hidden elements are not found
     generate_configs(project_dir, project)
     (project_dir / CONFIGS_DIR / "fake_plan.json").write_text(json.dumps({"delay": 0.05, "cases": {A0: "hang"}}))
     runner = LocalRunner()
     job = runner.submit(project_dir, project)  # like the CLI: not through this page
-    await eventually(lambda: _shown(user, "job-indicator"), timeout=10)
-    await eventually(lambda: re.fullmatch(rf"0 / 3( · {A0})?", _element(user, "job-progress").text), timeout=10)
-    assert "as-truncate" in _element(user, "job-progress").classes  # long case names end in "…"
-    assert _element(user, "step-run-progress").text == "0/3" and _shown(user, "project-running-dot")
+    await eventually(lambda: _shown(user, "step-run-progress"), timeout=10)
+    await eventually(lambda: _element(user, "step-run-progress").text == "0/3", timeout=10)
+    assert _shown(user, "project-running-dot") and _shown(user, "step-run-bar")
     await user.should_see(marker="menu-job-log")
     runner.cancel(project_dir, runner.refresh(project_dir, job))
-    await eventually(lambda: not _shown(user, "job-indicator"), timeout=20)
+    await eventually(lambda: not _shown(user, "step-run-progress"), timeout=20)
+    assert not _shown(user, "project-running-dot")
 
 
 async def test_a_broken_job_state_hides_the_indicator_and_keeps_the_page(user: User, ready_project, monkeypatch):
@@ -179,7 +178,7 @@ async def test_a_broken_job_state_hides_the_indicator_and_keeps_the_page(user: U
     monkeypatch.setattr(layout.WATCHER, "state", broken)
     await user.open(project_url("setup", project_dir))
     await user.should_see(marker="partitions")
-    await user.should_not_see(marker="job-indicator")
+    await user.should_not_see(marker="step-run-progress")
 
 
 async def test_the_projects_page_has_the_top_bar_without_a_switcher(user: User):
@@ -194,13 +193,13 @@ async def test_a_lock_of_the_wrong_shape_does_not_break_the_page(user: User, rea
     (project_dir / ".lock").write_text("[]", encoding="utf-8")
     await user.open(project_url("setup", project_dir))
     await user.should_see(marker="partitions")
-    await user.should_not_see(marker="job-indicator")
+    await user.should_not_see(marker="step-run-progress")
 
 
 async def test_the_top_bar_controls_and_kind_tiles_take_the_keyboard(user: User, ready_project):
     project_dir, _ = ready_project
     await user.open(project_url("setup", project_dir))
-    for marker in ("project-switcher", "job-indicator"):
+    for marker in ("project-switcher", "calculators", "sidebar-toggle"):
         with user.client:
             element = next(iter(ElementFilter(only_visible=False, local_scope=False, marker=marker)))
         assert element.props.get("tabindex") == "0" and element.props.get("role") == "button"

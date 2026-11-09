@@ -115,14 +115,10 @@ html.as-mini .as-when-full, html:not(.as-mini) .as-when-mini { display: none; }
 .as-topbar-link { gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; align-items: center; flex-wrap: nowrap;
   color: var(--as-topbar-muted); text-decoration: none; font-size: 13px; white-space: nowrap; }
 .as-topbar-link:hover, .as-topbar-link-on { background: var(--as-topbar-control); color: #fff; }
-/* the project: a dot on its badge and a "running" line while its job runs (click it for the log) */
+/* the project: its name, and a dot on its badge while its job runs */
 .as-initials-box { position: relative; display: inline-flex; flex: none; }
 .as-switcher-dot { position: absolute; right: -3px; top: -3px; width: 11px; height: 11px; border-radius: 50%;
   background: var(--as-running); border: 2px solid var(--as-topbar-control); }
-.as-switcher-job { gap: 4px; color: #8ec5ff; font-size: 11px; line-height: 1.15; cursor: pointer; min-width: 0;
-  white-space: nowrap; }
-.as-switcher-job:hover { text-decoration: underline; }
-.as-job-text { max-width: 11rem; }
 .as-switcher { padding: 4px 10px 4px 4px; gap: 8px; cursor: pointer; align-items: center; flex-wrap: nowrap;
   max-width: 22rem; }
 .as-initials { width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center;
@@ -539,7 +535,7 @@ html.as-mini .as-step-bar { margin: -2px 10px 4px; }
 .as-calc-compact .as-calc-item-on { box-shadow: inset 0 -2px 0 var(--as-accent); }
 .as-calc-compact .as-grid-2, .as-calc-compact .as-grid-3, .as-calc-compact .as-grid-4 {
   grid-template-columns: repeat(2, minmax(0, 1fr)); }
-/* a narrower window: Run matrix and Cluster by their icons, the search by its icon and Ctrl K, then the brand by its
+/* a narrower window: Run matrix, Cluster and Calculators by their icons, the search by its icon and Ctrl K, then the brand by its
    mark and the project by its initials (the running dot stays) */
 @media (max-width: 1280px) {
   .as-topbar-label { display: none; }
@@ -547,7 +543,7 @@ html.as-mini .as-step-bar { margin: -2px 10px 4px; }
 }
 @media (max-width: 1024px) {
   .as-brand { width: auto; } .as-logo-text { display: none; }
-  .as-switcher > .nicegui-column { display: none; }
+  .as-switcher > .as-switcher-name { display: none; }
   .as-search-text { display: none; } .as-search { width: auto; }
 }
 .as-calc { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; width: 100%; }
