@@ -1,22 +1,27 @@
 """Coverage of a linked run-matrix sheet: every run's Status laid out by its sweep values, in three views.
 
 Panels (one small grid per altitude x elevator), Table (one table per altitude) and Pivot (any two parameters, each
-box gathering the runs that share them). Clicking a run, or a pivot box, lists it below the view."""
+box gathering the runs that share them). Clicking a run opens it below the view, to set its Status and Notes by hand;
+shift-click, a drag, or a Mach / AoA label selects several, and a bar marks them all at once."""
 from __future__ import annotations
 
+import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from html import escape
 from itertools import product
+from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
 from nicegui import run, ui
 
+from ...engine.errors import AeroSuiteError
 from ...engine.naming import format_value
-from ...engine.tracker import Key
-from ...engine.tracker_links import Link, LinkReport, load_tracker, report
-from ..ui_kit import banner, card, hint
+from ...engine.tracker import VERDICTS, Key, verdict_reason
+from ...engine.tracker_links import Link, LinkReport, RunEdit, edit_runs, load_tracker, report
+from ..layout import project_url
+from ..ui_kit import banner, card, flat_button, hint, primary_button, secondary_button
 
 VIEWS = {"panels": "Panels", "table": "Table", "pivot": "Pivot"}
 AXES = [("Mach", ""), ("Altitude", " km"), ("AoA", "°"), ("Elevator δe", "°"), ("Sideslip β", "°")]
@@ -25,6 +30,41 @@ RUNS_LISTED = 60  # runs a pivot box lists
 # the sheet's Status -> the square's colour (the overview bar's segments, failures apart)
 TONES = {"Converged": "converged", "Not Converged": "not", "Failed": "failed", "Diverged": "failed",
          "Running": "live", "Pending": "live", "Hold": "hold"}
+# what a run's Status can be set to by hand (the sheet's text: its label), "" blanking it
+STATUS_CHOICES = {"Converged": "Converged", "Not Converged": "Not converged", "Diverged": "Diverged",
+                  "Failed": "Failed", "Hold": "Hold", "": "Blank"}
+PICK_EVENT = "as-cov-pick"
+# A click on a run (or a Mach / AoA label: its runs) sends its run IDs; shift / Ctrl / ⌘ adds to the selection, and a
+# drag across runs selects them all.
+PICK_JS = f"""
+<script>
+if (!window.asCovPick) {{
+  window.asCovPick = true;
+  let drag = null;
+  const target = (e) => e.target.closest ? e.target.closest('[data-run], [data-runs]') : null;
+  document.addEventListener('mousedown', (e) => {{
+    const el = target(e);
+    if (!el || e.button !== 0) return;
+    e.preventDefault();
+    drag = {{ids: el.dataset.run ? [el.dataset.run] : el.dataset.runs.split(','),
+             add: e.shiftKey || e.ctrlKey || e.metaKey, cells: !!el.dataset.run}};
+    el.classList.add('as-cov-dragging');
+  }});
+  document.addEventListener('mouseover', (e) => {{
+    const el = drag && drag.cells ? target(e) : null;
+    if (!el || !el.dataset.run || drag.ids.includes(el.dataset.run)) return;
+    drag.ids.push(el.dataset.run);
+    el.classList.add('as-cov-dragging');
+  }});
+  document.addEventListener('mouseup', () => {{
+    if (!drag) return;
+    document.querySelectorAll('.as-cov-dragging').forEach((el) => el.classList.remove('as-cov-dragging'));
+    emitEvent('{PICK_EVENT}', {{ids: drag.ids, add: drag.add, many: !drag.cells || drag.ids.length > 1}});
+    drag = null;
+  }});
+}}
+</script>
+"""
 
 
 def coverage_url(link_id: str, view: str = "") -> str:
@@ -37,11 +77,12 @@ class Run:
     key: Key
     status: str  # in the sheet now; "" when blank
     new: Optional[str]  # what the link would write, if it differs
+    notes: str = ""
 
 
 def runs_of(result: LinkReport) -> list[Run]:
     changes = {change.row.row: change.status for change in result.plan.changes} if result.plan else {}
-    return [Run(row.run_id, row.key, row.status, changes.get(row.row)) for row in result.matrix.rows]
+    return [Run(row.run_id, row.key, row.status, changes.get(row.row), row.notes) for row in result.matrix.rows]
 
 
 def _value(axis: int, value: float) -> str:
@@ -54,14 +95,25 @@ def run_text(run: Run) -> str:
     return text + (f" · β {_value(BETA, beta)}" if beta else "")
 
 
-def square(run: Run, size: str = "") -> str:
-    """A run as a coloured square (a ring when a write is waiting); a click lists it below the view."""
+def square(run: Run, size: str = "", chosen: bool = False) -> str:
+    """A run as a coloured square (a ring when a write is waiting, a tick when selected); a click opens it below the
+    view (PICK_JS)."""
     tone = TONES.get(run.status, "none")
     tip = f"{run.run_id} · {run_text(run)}\n{run.status or 'no status'}" + (f" → {run.new} (to write)" if run.new
                                                                             else "")
-    classes = f"as-cov-cell as-cov-{tone}{' as-cov-change' if run.new else ''}{size}"
-    return (f'<span class="{classes}" title="{escape(tip)}" data-run="{run.run_id}" '
-            f"onclick=\"emitEvent('as-cov-run', '{run.run_id}')\"></span>")
+    tip += f"\n{run.notes}" if run.notes else ""
+    classes = (f"as-cov-cell as-cov-{tone}{' as-cov-change' if run.new else ''}{' as-cov-sel' if chosen else ''}"
+               f"{size}")
+    return f'<span class="{classes}" title="{escape(tip)}" data-run="{run.run_id}"></span>'
+
+
+def picker(text: str, runs: list[Run], tag: str = "div", classes: str = "") -> str:
+    """An axis label that selects its runs (a row or column of a grid) when clicked."""
+    ids = ",".join(run.run_id for run in runs)
+    if not ids:
+        return f'<{tag} class="{classes}">{text}</{tag}>'
+    return (f'<{tag} class="{classes} as-cov-pickable" data-runs="{ids}" '
+            f'title="Select these {len(runs)} runs">{text}</{tag}>')
 
 
 def bar(counts: Counter, total: int) -> str:
@@ -97,11 +149,13 @@ class Coverage:
         self.pivot_rows: Optional[int] = None
         self.pivot_columns: Optional[int] = None
         self.picked: Optional[tuple] = None  # a pivot box's (row value, column value)
+        self.selected: list[str] = []  # run IDs, for the bar
         self.body = ui.column().classes("w-full gap-4")
         with self.body:
             hint("Reading the workbook and the jobs…").mark("coverage-loading")
-        ui.on("as-cov-run", lambda event: self.show_runs([self.by_id[event.args]], "The run you clicked")
-              if event.args in self.by_id else None)
+        self._bar()
+        ui.add_body_html(PICK_JS)
+        ui.on(PICK_EVENT, self._on_pick)
         ui.timer(0, self.load, once=True)
 
     async def load(self) -> None:
@@ -116,6 +170,18 @@ class Coverage:
             self.pivot_columns = swept[0]
             self.pivot_rows = AOA if AOA in swept and AOA != swept[0] else swept[-1]
         self.draw()
+
+    async def refresh(self, editing: Optional[str] = None) -> None:
+        """Read the sheet and the jobs again, keeping the view as it is (and the run being edited open)."""
+        self.result = await run.io_bound(report, self.link)
+        if self.result.matrix is not None:
+            self.runs = runs_of(self.result)
+            self.by_id = {found.run_id: found for found in self.runs}
+            self.selected = [run_id for run_id in self.selected if run_id in self.by_id]
+        self.draw()
+        self.show_selection()
+        if editing in self.by_id:
+            await self.edit(self.by_id[editing])
 
     @property
     def levels(self) -> list[list[float]]:
@@ -155,8 +221,13 @@ class Coverage:
             legend()
             {"panels": self.panels, "table": self.table, "pivot": self.pivot}[self.view]()
         if self.view != "pivot" or self.picked is None:
-            with self.detail:
-                hint("Click a run to see it here." if self.view != "pivot" else "Click a box to list its runs.")
+            self._detail_hint()
+
+    def _detail_hint(self) -> None:
+        self.detail.clear()
+        with self.detail:
+            hint("Click a run to see it here and set its status or notes. Shift-click, drag, or click a Mach or AoA "
+                 "label to select several." if self.view != "pivot" else "Click a box to list its runs.")
 
     # --- Panels: one grid per altitude x elevator (x sideslip), AoA against Mach ---------------------------------------
 
@@ -178,12 +249,14 @@ class Coverage:
                           and run.key[BETA] == beta]
                 grid = [f'<div class="as-cov-panel"><div class="as-cov-grid" style="grid-template-columns: auto '
                         f'repeat({len(machs)}, 24px)"><div></div>']
-                grid += [f'<div class="as-cov-axis">{format_value(m)}</div>' for m in machs]
+                grid += [picker(format_value(m), [r for r in inside if r.key[MACH] == m], classes="as-cov-axis")
+                         for m in machs]
                 for aoa in aoas:
-                    grid.append(f'<div class="as-cov-axis as-cov-axis-r">{_value(AOA, aoa)}</div>')
+                    grid.append(picker(_value(AOA, aoa), [r for r in inside if r.key[AOA] == aoa],
+                                       classes="as-cov-axis as-cov-axis-r"))
                     for mach in machs:
                         found = by_key.get((alt, elev, beta, aoa, mach))
-                        grid.append(square(found) if found else "<div></div>")
+                        grid.append(self._square(found) if found else "<div></div>")
                 grid.append(f'</div><div class="as-cov-axis as-cov-foot">{_converged(inside)}</div></div>')
                 html.append("".join(grid))
         html.append("</div>")
@@ -209,7 +282,9 @@ class Coverage:
         by_key = {(run.key[AOA], run.key[MACH], run.key[ELEV]): run for run in self.runs
                   if run.key[ALT] == self.altitude and run.key[BETA] == self.beta}
         sep = '<td class="as-cov-sep"></td>'
-        head = ["<tr><th></th>" + sep.join(f'<th class="as-cov-group" colspan="{len(elevs)}">M {format_value(m)}</th>'
+        in_table = list(by_key.values())
+        head = ["<tr><th></th>" + sep.join(picker(f"M {format_value(m)}", [r for r in in_table if r.key[MACH] == m], "th",
+                                                  "as-cov-group").replace("<th ", f'<th colspan="{len(elevs)}" ', 1)
                                            for m in machs) + "<th></th></tr>",
                 "<tr><th></th>" + sep.join("".join(f"<th>{format_value(e)}°</th>" for e in elevs) for _ in machs)
                 + '<th class="as-cov-pct">conv.</th></tr>']
@@ -222,12 +297,12 @@ class Coverage:
                 cells = ""
                 for elev in elevs:
                     found = by_key.get((aoa, mach, elev))
-                    cells += f"<td>{square(found) if found else ''}</td>"
+                    cells += f"<td>{self._square(found) if found else ''}</td>"
                     if found:
                         row_runs.append(found)
                         per_mach[mach].append(found)
                 groups.append(cells)
-            body.append(f'<tr><th class="as-cov-axis-r">α {_value(AOA, aoa)}</th>{sep.join(groups)}'
+            body.append(f'<tr>{picker(f"α {_value(AOA, aoa)}", row_runs, "th", "as-cov-axis-r")}{sep.join(groups)}'
                         f'<td class="as-cov-pct">{_percent(row_runs)}</td></tr>')
         foot = ('<tr><th class="as-cov-pct">conv.</th>'
                 + sep.join(f'<td class="as-cov-pct as-cov-center" colspan="{len(elevs)}">{_percent(per_mach[m])}</td>'
@@ -304,15 +379,177 @@ class Coverage:
             counts = Counter(found.status for found in runs)
             ui.label(f"{title} — {len(runs)} run{'' if len(runs) == 1 else 's'} · {bar_text(counts, len(runs))}"
                      if len(runs) > 1 else title).classes("as-card-subtitle").mark("coverage-detail-title")
+            if len(runs) > 1:
+                flat_button(f"Select these {len(runs)}", lambda: self.select([found.run_id for found in runs]),
+                            icon="checklist").classes("self-start").mark("coverage-detail-select")
             lines = []
             for found in runs[:RUNS_LISTED]:
                 waiting = f' <span class="as-muted">→ {escape(found.new)} (to write)</span>' if found.new else ""
-                lines.append(f'<div class="as-cov-line">{square(found, " as-cov-small")}'
+                lines.append(f'<div class="as-cov-line" data-run="{found.run_id}">'
+                             f'{self._square(found, " as-cov-small")}'
                              f'<span class="as-mono">{found.run_id}</span>{escape(run_text(found))}'
                              f'<span class="as-muted">{escape(found.status or "no status")}</span>{waiting}</div>')
             ui.html(f'<div class="as-cov-lines">{"".join(lines)}</div>', sanitize=False).mark("coverage-detail-runs")
             if len(runs) > RUNS_LISTED:
                 hint(f"and {len(runs) - RUNS_LISTED} more")
+
+    def _square(self, found: Run, size: str = "") -> str:
+        return square(found, size, found.run_id in self.selected)
+
+    # --- one run: its Status and Notes, set by hand ----------------------------------------------------------------------
+
+    async def _on_pick(self, event) -> None:
+        args = event.args if isinstance(event.args, dict) else {}
+        ids = [run_id for run_id in dict.fromkeys(args.get("ids") or []) if run_id in self.by_id]
+        if not ids:
+            return
+        if args.get("add"):
+            if all(run_id in self.selected for run_id in ids):
+                self.select([run_id for run_id in self.selected if run_id not in ids])
+            else:
+                self.select(self.selected + [run_id for run_id in ids if run_id not in self.selected])
+        elif len(ids) == 1 and not args.get("many"):
+            self.select([])
+            await self.edit(self.by_id[ids[0]])
+        else:
+            self.select(ids)
+
+    async def edit(self, found: Run) -> None:
+        """The run below the view: its Status and Notes to set, beside what the jobs say about it."""
+        from .tracker import status_pill
+        source = self.result.statuses.get(found.key)
+        notes_column = self.result.matrix.notes_column
+        self.detail.clear()
+        with self.detail:
+            with ui.column().classes("as-run-edit w-full").mark("run-edit"):
+                with ui.row().classes("w-full items-start no-wrap"):
+                    with ui.column().classes("gap-0 grow min-w-0"):
+                        ui.label(found.run_id).classes("as-card-title").mark("run-edit-title")
+                        ui.label(run_text(found)).classes("as-mono as-muted")
+                    ui.button(icon="close", on_click=self._detail_hint).props("flat round dense size=sm").mark(
+                        "run-edit-close")
+                with ui.row().classes("as-run-edit-body w-full"):
+                    with ui.column().classes("gap-2 grow min-w-0"):
+                        ui.label("Status in the sheet").classes("as-label")
+                        status = ui.toggle(STATUS_CHOICES, value=found.status if found.status in STATUS_CHOICES
+                                           else None).props("dense no-caps unelevated toggle-color=dark").classes(
+                            "as-toggle as-run-status").mark("run-edit-status")
+                        said = hint().mark("run-edit-hint")
+                        status.on_value_change(lambda e: said.set_text(self._status_hint(e.value, found, source)))
+                        said.set_text(self._status_hint(status.value, found, source))
+                        ui.label("Notes").classes("as-label q-mt-sm")
+                        if notes_column and not found.notes.startswith("="):
+                            notes = ui.textarea(value=found.notes, placeholder="Add a note").props(
+                                "outlined dense autogrow").classes("w-full as-field").mark("run-edit-notes")
+                        else:
+                            notes = None
+                            hint("This sheet has no Notes column." if not notes_column
+                                 else "Its Notes cell holds a formula: change it in Excel.")
+                    with ui.column().classes("as-run-edit-side"):
+                        ui.label("What the jobs say").classes("as-label")
+                        if source is None:
+                            hint("No job has run this case yet.").mark("run-edit-nojob")
+                        else:
+                            status_pill(source.status).classes("self-start").mark("run-edit-job")
+                            reason = ui.label().classes("as-muted")
+                            ui.label(f"{source.project} · job {source.job_id}").classes("as-mono as-muted")
+                            ui.label(source.case).classes("as-mono as-muted as-truncate")
+                            ui.link("Open in Monitor", project_url("monitor", source.folder)
+                                    + f"&case={quote(source.case)}").classes("as-link")
+                with ui.row().classes("w-full items-center no-wrap gap-2"):
+                    hint("Saved into the workbook (a backup is kept beside it). Close it in Excel or LibreOffice "
+                         "first.").classes("grow")
+                    secondary_button("Cancel", self._detail_hint).mark("run-edit-cancel")
+                    save = primary_button("Save", icon="save").mark("run-edit-save")
+                    save.on_click(lambda: self._save({found.run_id: RunEdit(
+                        status=status.value, notes=notes.value if notes is not None else None)}, found.run_id))
+        if source is not None and source.status in VERDICTS:
+            text = await run.io_bound(verdict_reason, Path(source.folder), source.case)
+            if not reason.is_deleted:  # still open
+                reason.set_text(text)
+
+    def _status_hint(self, value: Optional[str], found: Run, source) -> str:
+        if value is None:
+            return f"Now {found.status}: a job sets this one." if found.status in ("Running", "Pending") else ""
+        if value in VERDICTS:
+            return ("This link overwrites verdicts: the next write puts back what the jobs say." if self.link.overwrite
+                    else "A verdict set here is kept: later writes won't change it.")
+        if source is not None and source.status != (value or None):
+            return f"The next write sets it to {source.status}, as the jobs say."
+        return ""
+
+    async def _save(self, edits: dict[str, RunEdit], editing: Optional[str] = None) -> bool:
+        try:
+            changed = await run.io_bound(edit_runs, self.link, edits)
+        except AeroSuiteError as exc:
+            ui.notify(str(exc), type="negative", multi_line=True)
+            return False
+        ui.notify(f"Saved {changed} run{'' if changed == 1 else 's'} to {Path(self.link.workbook).name}" if changed
+                  else "Nothing to save: it is already so", type="positive" if changed else "info")
+        await self.refresh(editing)
+        return True
+
+    # --- several runs: the bar ---------------------------------------------------------------------------------------
+
+    def _bar(self) -> None:
+        with ui.row().classes("as-cov-bar no-wrap").mark("coverage-bar") as self.bar:
+            self.bar_count = ui.label().classes("as-cov-bar-count").mark("coverage-bar-count")
+            ui.element("span").classes("as-cov-bar-sep")
+            ui.label("Mark as").classes("as-cov-bar-text")
+            for value, label in STATUS_CHOICES.items():
+                tone = TONES.get(value, "none")
+                ui.button(label, on_click=lambda value=value: self.mark_selected(value), color=None).props(
+                    "flat dense no-caps text-color=white").classes(f"as-cov-bar-btn as-cov-bar-{tone}").mark(
+                    f"coverage-bar-{(value or 'blank').lower().replace(' ', '-')}")
+            ui.element("span").classes("as-cov-bar-sep")
+            self.note_button = ui.button("Add a note", icon="edit_note", on_click=self._note_dialog, color=None).props(
+                "flat dense no-caps text-color=white").classes("as-cov-bar-btn").mark("coverage-bar-note")
+            ui.button(icon="close", on_click=lambda: self.select([]), color=None).props("flat dense round text-color=white").classes(
+                "as-cov-bar-btn").mark("coverage-bar-close")
+        self.bar.set_visibility(False)
+
+    def select(self, ids: list[str]) -> None:
+        self.selected = list(dict.fromkeys(ids))
+        self.show_selection()
+
+    def show_selection(self) -> None:
+        count = len(self.selected)
+        self.bar.set_visibility(bool(count))
+        self.bar_count.set_text(f"{count} run{'' if count == 1 else 's'} selected")
+        self.note_button.set_visibility(bool(self.result and self.result.matrix and self.result.matrix.notes_column))
+        self.bar.client.run_javascript(f"const chosen = new Set({json.dumps(self.selected)}); document.querySelectorAll("
+                          f"'.as-cov-cell[data-run]').forEach((c) => c.classList.toggle('as-cov-sel', "
+                          f"chosen.has(c.dataset.run)));")
+
+    async def mark_selected(self, status: str) -> None:
+        if await self._save({run_id: RunEdit(status=status) for run_id in self.selected}):
+            self.select([])
+
+    def _note_dialog(self) -> None:
+        count = len(self.selected)
+        with ui.dialog() as dialog, ui.card().classes("as-dialog").mark("coverage-note-dialog"):
+            ui.label(f"A note for {count} run{'' if count == 1 else 's'}").classes("as-card-title")
+            text = ui.textarea(placeholder="e.g. residuals blow up after 3k iterations").props(
+                "outlined dense autogrow autofocus").classes("w-full as-field").mark("coverage-note-text")
+            replace = ui.checkbox("Replace their notes (otherwise it goes after them)").mark("coverage-note-replace")
+
+            async def save() -> None:
+                note = (text.value or "").strip()
+                if not note:
+                    ui.notify("Write a note first", type="warning")
+                    return
+                edits = {}
+                for run_id in self.selected:
+                    old = self.by_id[run_id].notes
+                    edits[run_id] = RunEdit(notes=note if replace.value or not old else f"{old}; {note}")
+                if await self._save(edits):
+                    dialog.close()
+                    self.select([])
+
+            with ui.row().classes("w-full justify-end gap-2"):
+                secondary_button("Cancel", dialog.close)
+                primary_button("Save", save, icon="save").mark("coverage-note-save")
+        dialog.open()
 
 
 def _percent(runs: list[Run]) -> str:

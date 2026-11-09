@@ -197,6 +197,7 @@ class MatrixRow:
     run_id: str
     key: Key
     status: str  # in the sheet now; "" when blank
+    notes: str = ""  # its Notes cell
 
 
 @dataclass(frozen=True)
@@ -206,6 +207,7 @@ class Matrix:
     rows: list[MatrixRow]
     levels: list[list[float]]  # the values entered per sweep parameter: Mach, altitude, AoA, elevator, beta
     completed_on: str = ""  # the cell beside "Completed on", e.g. "D11", while it is blank
+    notes_column: str = ""  # its letter; "" when the header row has no Notes column
 
 
 _loaded: dict[tuple, object] = {}  # workbooks as last read, by (path, mtime, size): the web pages read one often
@@ -280,12 +282,20 @@ def _sheet(workbook: Path, sheet: str):
 
 def _run_columns(ws) -> tuple[int, int, int]:
     """The Run ID and Status columns (numbers), and the row of the first run."""
+    run_column, status_column, _notes, first_row = _header_columns(ws)
+    return run_column, status_column, first_row
+
+
+def _header_columns(ws) -> tuple[int, int, int, int]:
+    """The Run ID, Status and Notes columns (numbers; Notes 0 when there is none), and the row of the first run."""
     header_row = status_column = run_column = None
+    notes_column = 0
     for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, _SEARCH_ROWS)):
         status = next((cell for cell in row if _text(cell.value).lower() == "status"), None)
         if status is not None:
             header_row, status_column = status.row, status.column
             run_column = next((cell.column for cell in row if _text(cell.value).lower().startswith("run id")), None)
+            notes_column = next((cell.column for cell in row if _text(cell.value).lower().startswith("note")), 0)
             break
     if header_row is None or run_column is None:
         raise TrackerError(f"{ws.title}: no header row with 'Run ID' and 'Status' columns")
@@ -295,7 +305,7 @@ def _run_columns(ws) -> tuple[int, int, int]:
         if match:
             first_row = int(match[1]) + 1
             break
-    return run_column, status_column, first_row
+    return run_column, status_column, notes_column, first_row
 
 
 def _completed_cell(ws, workbook: Path) -> str:
@@ -314,7 +324,7 @@ def read_matrix(workbook: Path, sheet: str) -> Matrix:
 
     workbook = Path(workbook)
     ws = _sheet(workbook, sheet)
-    run_column, status_column, first_row = _run_columns(ws)
+    run_column, status_column, notes_column, first_row = _header_columns(ws)
     levels = _sweep_levels(ws, workbook)
     total = prod(max(1, len(values)) for values in levels) if any(levels) else 0
     counts = [max(1, len(values)) for values in levels]
@@ -329,8 +339,11 @@ def read_matrix(workbook: Path, sheet: str) -> Matrix:
             rest //= count
         indices.reverse()
         values = [level[index] if level else 0.0 for level, index in zip(levels, indices)]
-        rows.append(MatrixRow(row, f"RUN-{i + 1:04d}", key(*values), _text(ws.cell(row, status_column).value)))
-    return Matrix(sheet, get_column_letter(status_column), rows, levels, _completed_cell(ws, workbook))
+        value = ws.cell(row, notes_column).value if notes_column else None
+        notes = "" if value is None else str(value).strip()  # a formula reads as its text, "=..."
+        rows.append(MatrixRow(row, f"RUN-{i + 1:04d}", key(*values), _text(ws.cell(row, status_column).value), notes))
+    return Matrix(sheet, get_column_letter(status_column), rows, levels, _completed_cell(ws, workbook),
+                  get_column_letter(notes_column) if notes_column else "")
 
 
 @dataclass(frozen=True)

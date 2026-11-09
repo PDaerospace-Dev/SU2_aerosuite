@@ -15,8 +15,8 @@ from pydantic import BaseModel, Field, ValidationError
 from .errors import AeroSuiteError, TrackerError
 from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
-from .tracker import (VERDICTS, CellValue, Change, Matrix, Plan, collect_statuses, completion_date, job_counts,
-                      lock_files, new_sheet, plan_changes, read_matrix, verdict_reason, write_statuses)
+from .tracker import (VERDICTS, CaseStatus, CellValue, Change, Key, Matrix, Plan, collect_statuses, completion_date,
+                      job_counts, lock_files, new_sheet, plan_changes, read_matrix, verdict_reason, write_statuses)
 
 LOG_LENGTH = 50
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
@@ -47,7 +47,8 @@ class LogEntry(BaseModel):
     workbook: str
     sheet: str
     written: int = 0
-    trigger: str = "manual"  # "manual" (the Write button), "auto", "new-sheet" (the sheet was made from a template)
+    trigger: str = "manual"  # "manual" (the Write button), "auto", "new-sheet" (the sheet was made from a template),
+    # "edit" (Status or Notes set by hand on the coverage page: `written` counts the runs)
     completed_on: Optional[date] = None  # the write also filled in "Completed on"
     error: str = ""
 
@@ -149,6 +150,7 @@ class LinkReport:
     warnings: list[str] = field(default_factory=list)
     error: str = ""  # the workbook or sheet cannot be used: nothing else is known
     reasons: dict[int, str] = field(default_factory=dict)  # kept verdicts: sheet row -> the convergence check's words
+    statuses: dict[Key, CaseStatus] = field(default_factory=dict)  # what the jobs say, by run
     completed_on: Optional[date] = None  # what the blank "Completed on" cell gets: every run has a verdict
 
     @property
@@ -191,6 +193,7 @@ def report(link: Link, reasons: bool = False) -> LinkReport:
     except (AeroSuiteError, OSError) as exc:
         result.error = str(exc)
         return result
+    result.statuses = statuses
     result.plan = plan_changes(result.matrix, statuses, overwrite=link.overwrite)
     result.completed_on = completion_date(result.matrix, result.plan, statuses)
     by_folder = {project.path: project for project in result.projects}
@@ -226,6 +229,56 @@ def write_link(link: Link, accepted: Iterable[Change] = (), trigger: str = "manu
         log_write(entry)
         raise TrackerError(str(exc)) from exc
     if entry.written or entry.completed_on or trigger == "manual":
+        log_write(entry)
+    return entry.written
+
+
+# Status values a run can be given by hand (the template's list, less Running and Pending, which only a job knows), and
+# "" for a blank cell
+HAND_STATUSES = ("Converged", "Not Converged", "Diverged", "Failed", "Hold", "")
+
+
+@dataclass(frozen=True)
+class RunEdit:
+    status: Optional[str] = None  # None leaves the Status cell as it is; "" blanks it
+    notes: Optional[str] = None  # None leaves the Notes cell as it is
+
+
+def edit_runs(link: Link, edits: dict[str, RunEdit]) -> int:
+    """Set runs' Status and Notes cells by hand ({run ID: edit}), keeping every other byte of the workbook, and log it.
+    A verdict set this way is kept by later writes, as one typed in Excel is. Returns how many runs changed; a failure
+    is logged and raised."""
+    entry = LogEntry(link=link.id, workbook=link.workbook, sheet=link.sheet, trigger="edit")
+    try:
+        matrix = read_matrix(Path(link.workbook), link.sheet)
+        rows = {row.run_id: row for row in matrix.rows}
+        cells: dict[str, CellValue] = {}
+        changed = set()
+        for run_id, edit in edits.items():
+            row = rows.get(run_id)
+            if row is None:
+                raise TrackerError(f"{run_id} is not a run of {link.sheet}")
+            if edit.status is not None and edit.status != row.status:
+                if edit.status not in HAND_STATUSES:
+                    raise TrackerError(f"{edit.status!r} is not a status that can be set by hand")
+                cells[f"{matrix.status_column}{row.row}"] = edit.status
+                changed.add(run_id)
+            notes = None if edit.notes is None else edit.notes.strip()
+            if notes is not None and notes != row.notes:
+                if not matrix.notes_column:
+                    raise TrackerError(f"{link.sheet} has no Notes column")
+                if row.notes.startswith("="):
+                    raise TrackerError(f"{run_id}: its Notes cell holds a formula; change it in Excel")
+                cells[f"{matrix.notes_column}{row.row}"] = notes
+                changed.add(run_id)
+        if cells:
+            write_statuses(Path(link.workbook), link.sheet, matrix.status_column, {}, cells)
+        entry.written = len(changed)
+    except (AeroSuiteError, OSError) as exc:
+        entry.error = str(exc)
+        log_write(entry)
+        raise TrackerError(str(exc)) from exc
+    if entry.written:
         log_write(entry)
     return entry.written
 

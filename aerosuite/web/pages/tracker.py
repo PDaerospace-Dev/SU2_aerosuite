@@ -179,6 +179,8 @@ def _log_text(entry) -> str:
         return f"not written: {entry.error}"
     if entry.trigger == "new-sheet":
         return "added from the template"
+    if entry.trigger == "edit":
+        return f"{entry.written} run{'' if entry.written == 1 else 's'} edited"
     text = f"{entry.written} status{'' if entry.written == 1 else 'es'} written"
     return text + (f", completed on {entry.completed_on:%Y-%m-%d}" if entry.completed_on else "")
 

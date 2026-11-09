@@ -41,8 +41,20 @@ Open **Run matrix** from the top bar (or search for a sheet by name).
   - **Pivot**: any two swept parameters as rows and columns. Each box gathers the runs that share that pair of
     values, as a bar and a converged count; this suits a large sheet.
 
-  Click a run (or a pivot box) to list it below the view. The chips at the top switch to another linked sheet in
-  the same view.
+  The chips at the top switch to another linked sheet in the same view.
+
+  **Editing by hand.** Click a run to open it below the view. Set its **Status in the sheet** (Converged, Not
+  converged, Diverged, Failed, Hold or Blank) and its **Notes**. Beside them, **What the jobs say** shows the newest
+  job's verdict, the convergence check's reason, the job and the case, with a link to Monitor. **Save** writes the two
+  cells straight into the workbook. To change many runs at once, select them:
+  - **Shift-click** (or Ctrl-click / ⌘-click) adds a run to the selection, or takes it out.
+  - **Drag** across runs to select them all.
+  - Click a **Mach** or **AoA** label to select that row or column.
+  - Click a pivot box, then **Select these N**.
+
+  A bar at the bottom then marks every selected run with one status, or adds a note to them all. A new note goes
+  after the notes already there, unless you tick **Replace their notes**. Running and Pending can't be set by hand:
+  only a job knows those.
 
 Links and the log of writes are kept in `$AEROSUITE_HOME/tracker.json`, so they are shared by everyone using this
 server. With **Write automatically** on, the server checks every 20 s whether a linked project's job records (or the
@@ -104,8 +116,11 @@ characters, none of `: \ / ? * [ ]`, and not one the workbook has.
   a verdict, because the case is running again. Diverged is kept when a job says Not Converged or Failed.
 - **Completed on.** Once every run has a verdict (Converged, Not Converged, Diverged or Failed), a blank
   Completed on cell gets the day the last of the runs' jobs ended. A date already there, typed by you, stays.
-- **Everything else in the file.** Only the Status cells (and a blank Completed on) change. Notes, formulas, formatting, the dropdown, text
-  boxes, add-ins and the SharePoint properties are copied byte for byte. Excel recalculates the scorecard when it
+- **What you set on the coverage page.** A verdict you set there is kept, just like one typed in Excel. Hold or
+  Blank is not a verdict, so the next write fills it from the jobs if one has run that case.
+- **Everything else in the file.** A sync changes only the Status cells (and a blank Completed on). An edit on the
+  coverage page changes only the Status and Notes cells of its runs, and refuses a Notes cell that holds a formula.
+  Formulas, formatting, the dropdown, text boxes, add-ins and the SharePoint properties are copied byte for byte. Excel recalculates the scorecard when it
   opens the file.
 - **A workbook open in Excel or LibreOffice.** If Excel's `~$` lock file or LibreOffice's `.~lock.<name>#` file sits
   next to the workbook, the sync stops and asks you to close it. Automatic writes try again once it is closed.

@@ -1,9 +1,11 @@
 """The Run matrix pages: linked sheets, linking one, previewing and writing, a new sheet from the template; and the
 automatic writer."""
+import asyncio
 from datetime import date, datetime, timedelta
 
 import pytest
 from nicegui.testing import User
+from nicegui.testing.user_interaction import UserInteraction
 from openpyxl import Workbook, load_workbook
 
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
@@ -139,6 +141,90 @@ async def test_coverage_shows_the_sheet_in_three_views(user: User, matrix):
     user.find(marker="coverage-box-0-0.3").trigger("click")  # AoA 0 (a row), Mach 0.3 (a column)
     await user.should_see(marker="coverage-detail-runs")
     assert "AoA 0° · Mach 0.3" in _element(user, "coverage-detail-title").text
+
+
+async def _pick(user, ids, **flags):
+    """What the page's script sends for a click (or shift-click, or drag) on runs; its handler runs as a task."""
+    UserInteraction(user, {user.client.layout}, None).trigger("asCovPick", {"ids": ids, **flags})
+    await asyncio.sleep(0.05)
+
+
+async def _coverage(user, matrix, view="panels"):
+    book, folder = matrix
+    link = _link(book, folder)
+    await user.open(f"/tracker/coverage?link={link.id}&view={view}")
+    await user.should_see(marker=f"coverage-{view}")
+    return book
+
+
+async def test_a_clicked_run_is_set_by_hand(user: User, matrix):
+    book = await _coverage(user, matrix)
+    await _pick(user, ["RUN-0001"])  # M0.3 a0: Converged in the sheet, Not Converged by the job
+    await user.should_see(marker="run-edit")
+    assert _element(user, "run-edit-title").text == "RUN-0001"
+    assert _element(user, "run-edit-job").text == "Not Converged"
+    status = _element(user, "run-edit-status")
+    assert status.value == "Converged"
+    status.set_value("Diverged")
+    assert "kept" in _element(user, "run-edit-hint").text
+    _element(user, "run-edit-notes").set_value("blows up at 3k")
+    user.find(marker="run-edit-save").click()
+    await user.should_see("Saved 1 run to matrix.xlsx")
+    ws = load_workbook(book)["Study"]
+    assert (ws["M5"].value, ws["N5"].value) == ("Diverged", "blows up at 3k")
+    await user.should_see(marker="run-edit")  # still open, as saved
+    assert _element(user, "run-edit-status").value == "Diverged"
+
+
+async def test_a_run_no_job_has_run_says_so(user: User, matrix):
+    await _coverage(user, matrix)
+    await _pick(user, ["RUN-0003"])
+    await user.should_see(marker="run-edit-nojob")
+    _element(user, "run-edit-status").set_value("Hold")
+    assert _element(user, "run-edit-hint").text == ""
+
+
+async def test_selected_runs_are_marked_together(user: User, matrix):
+    book = await _coverage(user, matrix)
+    await _pick(user, ["RUN-0003", "RUN-0004"], many=True)  # a drag
+    await user.should_see(marker="coverage-bar")
+    assert _element(user, "coverage-bar-count").text == "2 runs selected"
+    await _pick(user, ["RUN-0001"], add=True)  # shift-click adds
+    assert _element(user, "coverage-bar-count").text == "3 runs selected"
+    await _pick(user, ["RUN-0001"], add=True)  # and takes away
+    assert _element(user, "coverage-bar-count").text == "2 runs selected"
+    user.find(marker="coverage-bar-hold").click()
+    await user.should_see("Saved 2 runs to matrix.xlsx")
+    ws = load_workbook(book)["Study"]
+    assert (ws["M7"].value, ws["M8"].value) == ("Hold", "Hold")
+    await user.should_not_see(marker="coverage-bar")
+
+
+async def test_a_note_goes_after_the_notes_already_there(user: User, matrix):
+    book, folder = matrix
+    workbook = load_workbook(book)
+    workbook["Study"]["N5"] = "mesh v2"
+    workbook.save(book)
+    await _coverage(user, matrix)
+    await _pick(user, ["RUN-0001", "RUN-0002"], many=True)
+    await user.should_see(marker="coverage-bar")
+    user.find(marker="coverage-bar-note").click()
+    await user.should_see(marker="coverage-note-dialog")
+    _element(user, "coverage-note-text").set_value("rerun at CFL 5")
+    user.find(marker="coverage-note-save").click()
+    await user.should_see("Saved 2 runs to matrix.xlsx")
+    ws = load_workbook(book)["Study"]
+    assert (ws["N5"].value, ws["N6"].value) == ("mesh v2; rerun at CFL 5", "rerun at CFL 5")
+
+
+async def test_a_label_selects_its_row_and_a_plain_click_edits_again(user: User, matrix):
+    await _coverage(user, matrix)
+    await _pick(user, ["RUN-0002"], many=True)  # the AoA 5° label of a panel holding one Mach
+    await user.should_see(marker="coverage-bar")
+    assert _element(user, "coverage-bar-count").text == "1 run selected"
+    await _pick(user, ["RUN-0004"])  # a plain click: the selection goes, the run opens
+    await user.should_see(marker="run-edit")
+    await user.should_not_see(marker="coverage-bar")
 
 
 async def test_sheets_are_ongoing_or_completed(user: User, matrix):

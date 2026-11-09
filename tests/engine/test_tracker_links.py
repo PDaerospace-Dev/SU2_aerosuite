@@ -7,9 +7,10 @@ from test_tracker import add_job, make_workbook
 
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
-from aerosuite.engine.tracker_links import (Link, LinkedProject, candidate_projects, create_sheet, find_link,
-                                            link_stamp, load_tracker, remove_link, report, save_link, set_auto,
-                                            set_completed, write_link)
+from aerosuite.engine.tracker import read_matrix
+from aerosuite.engine.tracker_links import (Link, LinkedProject, RunEdit, candidate_projects, create_sheet, edit_runs,
+                                            find_link, link_stamp, load_tracker, remove_link, report, save_link,
+                                            set_auto, set_completed, write_link)
 
 
 def _link(tmp_path, **changes):
@@ -155,3 +156,57 @@ def test_a_sheet_is_completed_by_its_runs_or_by_hand(tmp_path):
     assert report(whole).done
     set_completed(whole.id, False)
     assert not report(find_link(whole.id)).done
+
+
+def test_status_and_notes_are_set_by_hand_and_logged(tmp_path):
+    link = _link(tmp_path)
+    assert edit_runs(link, {"RUN-0001": RunEdit(status="Diverged", notes="  blows up at 3k  "),
+                            "RUN-0002": RunEdit(notes="check the mesh"),
+                            "RUN-0003": RunEdit(status="")}) == 2  # RUN-0003 is blank already
+    matrix = read_matrix(link.workbook, "Study")
+    assert [(row.status, row.notes) for row in matrix.rows[:3]] == [("Diverged", "blows up at 3k"),
+                                                                     ("", "check the mesh"), ("", "")]
+    assert matrix.notes_column == "N"
+    entry = load_tracker().log[0]
+    assert (entry.written, entry.trigger) == (2, "edit")
+    assert load_workbook(link.workbook)["Study"]["N24"].value is None  # nothing else moved
+
+
+def test_a_verdict_set_by_hand_is_kept_by_later_writes(tmp_path):
+    link = _link(tmp_path)
+    edit_runs(link, {"RUN-0003": RunEdit(status="Failed")})  # the job says Converged
+    assert [(c.row.row, c.status) for c in report(link).plan.kept] == [(5, "Not Converged"), (7, "Converged")]
+    write_link(link)
+    assert load_workbook(link.workbook)["Study"]["M7"].value == "Failed"
+
+
+def test_nothing_changed_is_not_logged(tmp_path):
+    link = _link(tmp_path)
+    assert edit_runs(link, {"RUN-0001": RunEdit(status="Converged", notes="")}) == 0
+    assert load_tracker().log == []
+
+
+@pytest.mark.parametrize("edit, words", [(RunEdit(status="Running"), "not a status"),
+                                         (RunEdit(status="Converged"), "RUN-0099 is not a run")])
+def test_a_bad_edit_is_refused(tmp_path, edit, words):
+    link = _link(tmp_path)
+    run_id = "RUN-0099" if "RUN-0099" in words else "RUN-0001"
+    with pytest.raises(TrackerError, match=words):
+        edit_runs(link, {run_id: edit})
+
+
+def test_a_notes_formula_is_left_to_excel(tmp_path):
+    link = _link(tmp_path)
+    book = load_workbook(link.workbook)
+    book["Study"]["N5"] = '=IF(M5="","",M5)'
+    book.save(link.workbook)
+    with pytest.raises(TrackerError, match="formula"):
+        edit_runs(link, {"RUN-0001": RunEdit(notes="mine")})
+
+
+def test_an_edit_waits_for_excel_to_close(tmp_path):
+    link = _link(tmp_path)
+    (tmp_path / "~$m.xlsx").write_bytes(b"")
+    with pytest.raises(TrackerError, match="open in Excel"):
+        edit_runs(link, {"RUN-0001": RunEdit(status="Diverged")})
+    assert load_tracker().log[0].trigger == "edit"
