@@ -247,7 +247,7 @@ async def test_a_tab_opens_from_the_link_and_stays_open_through_a_redraw(user: U
     assert _element(user, "form-tabs").value == "solver"
     with user:
         _element(user, "form-tabs").set_value("reference")
-    user.find(marker="refresh")  # the frame is there
+    user.find(marker="project-switcher")  # the frame is there
     with user:
         _element(user, "aircraft-sweep").set_value(False)  # redraws the whole page
     assert _element(user, "form-tabs").value == "reference"
@@ -468,7 +468,7 @@ async def test_refresh_shows_a_template_edited_outside(user: User, ready_project
     assert _element(user, "freestream-mach").value == "0.3"
     path = project_dir / "template.cfg"
     path.write_text(path.read_text().replace("MACH_NUMBER= 0.3", "MACH_NUMBER= 0.6"))
-    user.find(marker="refresh").click()
+    await _open(user, project_dir)  # the browser's reload
     await eventually(lambda: _element(user, "freestream-mach").value == "0.6")
     assert _element(user, "case-name-text").text.startswith("M0p6")
 

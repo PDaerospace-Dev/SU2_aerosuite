@@ -90,4 +90,4 @@ async def test_profiles_are_reachable_from_projects_setup_and_the_switcher(user:
     await user.should_see(marker="projects-profiles")
     await user.open(project_url("setup", project_dir))
     await user.should_see(marker="setup-manage-profiles")
-    await user.should_see(marker="menu-profiles")
+    await user.should_see(marker="menu-profiles")  # in the ⚙ menu

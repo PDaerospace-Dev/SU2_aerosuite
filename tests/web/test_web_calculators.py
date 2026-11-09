@@ -29,12 +29,14 @@ def test_first_cell_text_picks_a_unit():
     assert first_cell_text(2.5e-3) == "2.5 mm"
 
 
-async def test_the_icon_is_on_both_top_bars(user: User, ready_project):
+async def test_the_search_finds_them_on_both_top_bars(user: User, ready_project, search):
     project_dir, _ = ready_project
     await user.open("/")
-    await user.should_see(marker="calculators")
+    await search(user, "y+")
+    await user.should_see(marker="command-calc-yplus")
     await user.open(project_url("setup", project_dir))
-    await user.should_see(marker="calculators")
+    await search(user, "calculators")
+    await user.should_see(marker="command-calculators")
 
 
 async def test_without_a_project_there_is_no_project_frame(user: User):

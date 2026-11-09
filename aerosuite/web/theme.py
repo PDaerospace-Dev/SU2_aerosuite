@@ -86,16 +86,43 @@ body { background: var(--as-page); color: var(--as-text); font-family: var(--as-
 .as-topbar-icon { width: 30px; height: 30px; min-height: 30px; padding: 0; border: 1px solid var(--as-topbar-border);
   border-radius: 7px; color: var(--as-topbar-muted); }
 .as-topbar-icon.as-round { border-radius: 50%; }
-.as-topbar-labelled .q-btn__content { flex-wrap: nowrap; white-space: nowrap; }
 .as-topbar > * { flex-shrink: 0; }
-.as-topbar > .as-job, .as-topbar > .as-switcher { flex-shrink: 1; min-width: 0; }
+.as-topbar > .as-switcher, .as-topbar > .as-search { flex-shrink: 1; min-width: 0; }
 html.as-mini .as-when-full, html:not(.as-mini) .as-when-mini { display: none; }
-.as-job { padding: 6px 12px; gap: 10px; cursor: pointer; align-items: center; flex-wrap: nowrap; }
-.as-job-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--as-running);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, .25); }
-.as-job-text { max-width: 14rem; }
-.as-job-bar { width: 90px; height: 5px; border-radius: 3px; background: var(--as-topbar-border); overflow: hidden; }
-.as-job-fill { height: 100%; background: var(--as-running); }
+/* the search box, and the palette it opens */
+.as-search { width: 440px; height: 34px; padding: 0 10px; gap: 9px; border-radius: 8px; cursor: pointer;
+  align-items: center; background: var(--as-topbar-control); border: 1px solid var(--as-topbar-border);
+  color: var(--as-topbar-muted); }
+.as-search:hover, .as-search:focus-visible { border-color: #5b6b85; color: #fff; outline: none; }
+.as-search-text { font-size: 13px; flex: 1; min-width: 0; }
+.as-kbd { font: 11px var(--as-mono); border: 1px solid var(--as-topbar-border); border-radius: 4px; padding: 1px 5px;
+  white-space: nowrap; }
+.as-palette { width: 560px; max-width: 92vw; margin-top: 44px; padding: 6px 8px 8px; border-radius: 12px; gap: 0; }
+.as-palette-input { font-size: 15px; border-bottom: 1px solid var(--as-hairline); }
+.as-palette-input .q-field__prepend { color: var(--as-muted); }
+.as-palette-results { max-height: 60vh; overflow-y: auto; gap: 0; padding-top: 4px; flex-wrap: nowrap; }
+.as-palette-group { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--as-muted); padding: 10px 10px 4px; }
+.as-palette-item { gap: 10px; padding: 7px 10px; border-radius: 7px; cursor: pointer; align-items: center;
+  font-size: 13px; width: 100%; }
+.as-palette-item:hover, .as-palette-on { background: var(--as-accent-tint); }
+.as-palette-icon { color: #57606a; flex: none; }
+.as-palette-label { min-width: 0; flex: 0 1 auto; }
+.as-palette-hint { margin-left: auto; color: var(--as-muted); font-size: 12px; min-width: 0; flex: 0 1 auto;
+  padding-left: 16px; }
+.as-palette-none { padding: 14px 10px; }
+/* Run matrix and Cluster: quiet links; the page you are on is lit */
+.as-topbar-link { gap: 6px; height: 32px; padding: 0 10px; border-radius: 8px; align-items: center; flex-wrap: nowrap;
+  color: var(--as-topbar-muted); text-decoration: none; font-size: 13px; white-space: nowrap; }
+.as-topbar-link:hover, .as-topbar-link-on { background: var(--as-topbar-control); color: #fff; }
+/* the project: a dot on its badge and a "running" line while its job runs (click it for the log) */
+.as-initials-box { position: relative; display: inline-flex; flex: none; }
+.as-switcher-dot { position: absolute; right: -3px; top: -3px; width: 11px; height: 11px; border-radius: 50%;
+  background: var(--as-running); border: 2px solid var(--as-topbar-control); }
+.as-switcher-job { gap: 4px; color: #8ec5ff; font-size: 11px; line-height: 1.15; cursor: pointer; min-width: 0;
+  white-space: nowrap; }
+.as-switcher-job:hover { text-decoration: underline; }
+.as-job-text { max-width: 11rem; }
 .as-switcher { padding: 4px 10px 4px 4px; gap: 8px; cursor: pointer; align-items: center; flex-wrap: nowrap;
   max-width: 22rem; }
 .as-initials { width: 26px; height: 26px; border-radius: 6px; display: inline-flex; align-items: center;
@@ -116,12 +143,19 @@ a.as-step:hover { background: #f6f8fa; }
   font-weight: 600; }
 .as-step-later { color: #b0b7c0; cursor: default; }
 .as-steps { gap: 2px; }
-/* Settings, under the steps: at the sidebar's bottom, and at the window's while a long page scrolls */
+/* Collapse, under the steps: at the sidebar's bottom, and at the window's while a long page scrolls */
 .as-sidebar-foot { margin-top: auto; position: sticky; bottom: 0; padding: 8px 0 0; background: #fff;
   border-top: 1px solid var(--as-hairline); }
-.as-settings-corner { position: fixed; left: 16px; bottom: 16px; z-index: 1400; border-radius: 999px;
-  background: #fff; color: #57606a; border: 1px solid var(--as-frame); padding: 2px 14px;
-  box-shadow: 0 4px 12px rgba(31, 35, 40, .12); }
+.as-collapse { cursor: pointer; color: var(--as-muted); }
+.as-collapse:hover { background: #f6f8fa; }
+/* a running job on the Run step: its progress, and a thin bar under it */
+.as-step-progress { margin-left: auto; font: 11px var(--as-mono); color: var(--as-running); }
+html.as-mini .as-step-progress { display: none; }
+.as-step-run { align-self: stretch; }
+.as-step-bar { align-self: stretch; height: 3px; border-radius: 2px; background: var(--as-hairline);
+  margin: -2px 10px 4px 42px; overflow: hidden; }
+html.as-mini .as-step-bar { margin: -2px 10px 4px; }
+.as-step-fill { height: 100%; background: var(--as-running); transition: width .4s; }
 .as-step .as-dot { position: absolute; top: 6px; left: 26px; border: 1.5px solid #fff; box-sizing: content-box; }
 .as-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; }
 .as-dot-todo { background: #fff; box-shadow: inset 0 0 0 1.5px #8c959f; }
@@ -376,10 +410,12 @@ a.as-step:hover { background: #f6f8fa; }
 .as-run-panel .as-banner, .as-run-panel .as-warn-group { font-size: 12.5px; }
 .as-machine { gap: 18px; row-gap: 8px; }
 .as-cluster-bad { background: #ffebe9; border-radius: 6px; padding: 4px 6px; }
-.as-cluster-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 7px; }
+.as-cluster-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .as-dot-green { background: #2da44e; } .as-dot-amber { background: #d4a72c; }
 .as-dot-red { background: #cf222e; } .as-dot-grey { background: #8c959f; }
-.as-cluster-count { margin-left: 4px; color: #9fb0c8; }
+.as-cluster-count { font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--as-topbar-border);
+  color: #fff; }
+.as-cluster-count:empty { display: none; }
 /* Cluster page: tiles at a glance, a gauge card per node (dragged into the user's order), collapsible sections */
 .as-glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .as-glance-tile { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 10px 14px;
@@ -503,21 +539,17 @@ a.as-step:hover { background: #f6f8fa; }
 .as-calc-compact .as-calc-item-on { box-shadow: inset 0 -2px 0 var(--as-accent); }
 .as-calc-compact .as-grid-2, .as-calc-compact .as-grid-3, .as-calc-compact .as-grid-4 {
   grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.as-topbar-icon.as-topbar-labelled { width: auto; padding: 0 10px; font-weight: 500; }
-.as-topbar-labelled .q-icon { margin-right: 6px; }
-/* a narrower window: the buttons by their icons (their names on hover), then the brand by its mark and the project
-   by its initials, then the running job by its dot */
-@media (max-width: 1360px) {
+/* a narrower window: Run matrix and Cluster by their icons, the search by its icon and Ctrl K, then the brand by its
+   mark and the project by its initials (the running dot stays) */
+@media (max-width: 1280px) {
   .as-topbar-label { display: none; }
-  .as-topbar-labelled .q-icon { margin-right: 0; }
-  .as-topbar-icon.as-topbar-labelled { padding: 0 6px; }
+  .as-search { width: 300px; }
 }
 @media (max-width: 1024px) {
   .as-brand { width: auto; } .as-logo-text { display: none; }
   .as-switcher > .nicegui-column { display: none; }
-  .as-job-text { max-width: 9rem; }
+  .as-search-text { display: none; } .as-search { width: auto; }
 }
-@media (max-width: 760px) { .as-job-text, .as-job-bar { display: none; } }
 .as-calc { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; width: 100%; }
 .as-calc-item { padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; cursor: pointer; gap: 2px; }
 .as-calc-item:hover { background: #fff; }

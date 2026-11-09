@@ -7,7 +7,7 @@ sheet by hand.
 
 ## In the web UI
 
-Open **Run matrix** from the Projects page (or the project menu in the top bar).
+Open **Run matrix** from the top bar (or search for a sheet by name).
 
 - **Run matrix** (`/tracker`) lists the linked sheets in two tabs, **Ongoing** and **Completed**, grouped by
   workbook. A sheet is completed once every run has a verdict (Converged, Not Converged, Diverged, Failed), or when

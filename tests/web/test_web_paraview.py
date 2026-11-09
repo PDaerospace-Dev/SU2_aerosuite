@@ -1,4 +1,4 @@
-"""The top bar's ParaView menu: the cases with flow files, opened on the workstation."""
+"""The ParaView button (Monitor, Results) and the search: the cases with flow files, opened on the workstation."""
 import pytest
 from nicegui.testing import User
 
@@ -38,8 +38,7 @@ def test_only_a_loopback_browser_is_local():
 
 async def test_without_flow_files_the_menu_says_so(user: User, ready_project, opened):
     project_dir, _ = ready_project
-    await user.open(project_url("setup", project_dir))
-    assert _element(user, "paraview").props["title"] == "ParaView"  # its name on hover, when the window is narrow
+    await user.open(project_url("monitor", project_dir))
     await user.should_see("ParaView")
     _element(user, "paraview-menu").open()
     await user.should_see(marker="paraview-none")
@@ -49,7 +48,7 @@ async def test_without_flow_files_the_menu_says_so(user: User, ready_project, op
 async def test_a_case_opens_its_flow_files(user: User, ready_project, opened):
     project_dir, _ = ready_project
     _flow(project_dir, A0)
-    await user.open(project_url("sweep", project_dir))
+    await user.open(project_url("monitor", project_dir))
     _element(user, "paraview-menu").open()
     await user.should_not_see(marker=f"paraview-case-{A2}")  # no files: not listed
     await user.should_not_see(marker="paraview-all")  # one case: nothing more to open
@@ -61,7 +60,7 @@ async def test_a_case_opens_its_flow_files(user: User, ready_project, opened):
 async def test_all_cases_open_their_surfaces_and_new_files_show_on_reopening(user: User, ready_project, opened):
     project_dir, _ = ready_project
     _flow(project_dir, A0)
-    await user.open(project_url("run", project_dir))
+    await user.open(project_url("monitor", project_dir))
     menu = _element(user, "paraview-menu")
     menu.open()
     await user.should_see(marker=f"paraview-case-{A0}")
@@ -84,7 +83,7 @@ async def test_a_failure_to_start_is_reported(user: User, ready_project, monkeyp
     monkeypatch.setattr(paraview_menu, "is_local", lambda ip: True)
     project_dir, _ = ready_project
     _flow(project_dir, A0)
-    await user.open(project_url("setup", project_dir))
+    await user.open(project_url("monitor", project_dir))
     _element(user, "paraview-menu").open()
     user.find(marker=f"paraview-case-{A0}").click()
     await user.should_see("ParaView not found")
@@ -95,7 +94,7 @@ async def test_from_another_pc_a_case_copies_its_path_instead(user: User, ready_
     project_dir, _ = ready_project
     folder = _flow(project_dir, A0)
     _flow(project_dir, A2)
-    await user.open(project_url("setup", project_dir))
+    await user.open(project_url("monitor", project_dir))
     _element(user, "paraview-menu").open()
     await user.should_see(marker="paraview-remote")
     await user.should_not_see(marker="paraview-all")
@@ -111,13 +110,29 @@ async def test_the_projects_page_has_no_paraview_button(user: User):
     await user.should_not_see(marker="paraview")
 
 
+async def test_paraview_is_on_monitor_and_results_only(user: User, ready_project):
+    project_dir, _ = ready_project
+    await user.open(project_url("setup", project_dir))
+    await user.should_not_see(marker="paraview")
+    await user.open(project_url("results", project_dir))
+    await user.should_see(marker="paraview")
+
+
+async def test_the_search_opens_a_case_in_paraview(user: User, ready_project, opened, search):
+    project_dir, _ = ready_project
+    _flow(project_dir, A2)
+    await user.open(project_url("setup", project_dir))
+    await search(user, "paraview m0p8", pick=f"paraview-{A2}")
+    assert opened == [["surface_flow.vtu", "flow.vtu"]]
+
+
 async def test_ascii_files_are_written_from_a_cases_restart(user: User, ready_project, opened, monkeypatch):
     project_dir, _ = ready_project
     started = []
     monkeypatch.setattr(paraview_menu, "write_ascii",
                         lambda directory, project, case, settings: started.append(case) or f"Writing {case}")
     _flow(project_dir, A2, files=("restart_flow.dat",))  # binary output: a restart, no .vtk
-    await user.open(project_url("run", project_dir))
+    await user.open(project_url("monitor", project_dir))
     _element(user, "paraview-menu").open()
     user.find(marker="paraview-ascii").click()
     await user.should_see(marker="ascii-where")
@@ -130,7 +145,7 @@ async def test_ascii_files_are_written_from_a_cases_restart(user: User, ready_pr
 
 async def test_without_a_restart_there_is_nothing_to_write(user: User, ready_project, opened):
     project_dir, _ = ready_project
-    await user.open(project_url("run", project_dir))
+    await user.open(project_url("monitor", project_dir))
     _element(user, "paraview-menu").open()
     user.find(marker="paraview-ascii").click()
     await user.should_see("No case has a restart file yet")

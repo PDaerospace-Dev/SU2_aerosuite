@@ -31,17 +31,22 @@ If AeroSuite does not answer at all, it is not running on the workstation: see *
 
 ### Finding your way
 - **Sidebar**: the steps of a study in order (Setup, Aircraft or CFG setup, Sweep, Run, Monitor, Results). The dot
-  next to each says where it stands: green done, amber needs a look, blue running, grey not yet. The **«** button
-  folds it to icons. **Settings** is at its bottom.
-- **Top bar**: the AeroSuite logo goes back to *Projects*. In a project you also see the running job
-  (*Running 3/32*, click it for the log), **ParaView**, **Cluster**, **Calculators**, **↻ Refresh**, **? Help** and
-  the project switcher (recent projects, *All projects*, *Profiles*). On a narrow window the buttons shrink to icons;
-  hover one for its name.
+  next to each says where it stands: green done, amber needs a look, blue running, grey not yet. While a job runs,
+  **Run** shows its progress (*12/40*) with a thin bar under it. **Collapse**, at its bottom, folds it to icons.
+- **Top bar**: the AeroSuite logo goes back to *Projects*. Then the **search**, **Run matrix**, **Cluster**, the
+  project (in a project) and **⚙**. On a narrow window Run matrix and Cluster shrink to icons.
+  - **Search** (click it, **Ctrl K**, or **/** outside a text field) goes anywhere: *Projects*, *Run matrix*,
+    *Cluster*, *Settings*, *Profiles*; the project's steps, its cases (on Monitor) and its flow files (in ParaView);
+    your recent projects; the run-matrix sheets; the calculators; the guide's sections. Type a few letters of any
+    word (`m0p9`, `y+`, `subsonic`), move with ↑ ↓, **Enter** goes, **Esc** closes.
+  - **The project** shows its name and kind; while a job runs, a blue dot and *running 12 / 40 · <case>*. Click that
+    line for the job's log; click the rest for recent projects and *All projects*.
+  - **⚙**: Settings, Profiles, the Web UI guide and the version.
 - **Log**: the button at the bottom right of every project page.
 - **Saving**: a field saves when you leave it. A value that is not valid turns red and is not saved. Editors save a
   second after you stop typing, when you leave them, or on Ctrl+S.
-- **Refresh (↻)** redraws the page from the files on disk. Pages follow changes to the project by themselves; use it
-  after changing something outside AeroSuite, such as a template edited in another program.
+- **Reloading**: pages follow changes to the project by themselves. After changing something outside AeroSuite,
+  such as a template edited in another program, reload the page (F5).
 - **Bookmarks**: every page has the study in its address (`/run?project=/data/…/study`), so a bookmark opens it
   directly. `?tab=solver` opens a tab on Aircraft, `?tab=board|list|history&case=<name>` on Run.
 
@@ -70,8 +75,8 @@ that already ran keep their results.
 **A.** **Results**: plots and tables of the averaged coefficients, **Copy table** for a spreadsheet, **Export CSV**.
 
 #### Q7. How do I look at the flow field?
-**A.** **ParaView** in the top bar opens a case's files on the workstation. *Write ASCII from restart…* rebuilds them from
-the restart file.
+**A.** **ParaView** on the Monitor or Results page (or search *paraview* and the case) opens a case's files on the
+workstation. *Write ASCII from restart…* rebuilds them from the restart file.
 
 #### Q8. How do I use AeroSuite from my own PC?
 **A.** **Settings → Open from your PC → download the launcher**, copy it to your PC and double-click it.
@@ -331,7 +336,7 @@ What a new study of an aircraft starts from: template, mesh, reference values, s
 > The bundled X07 profile has no template or mesh. Set them once in **Profiles → X07**.
 
 ### Cluster
-The **Cluster** button in the top bar, when Slurm is there. Its dot is green, amber when a node is drained or down,
+**Cluster** in the top bar, when Slurm is there. Its dot is green, amber when a node is drained or down,
 red when Slurm does not answer; the number is your running jobs.
 
 - **Tiles**: studies running and where, studies queued, cases still to go, CPUs in use, nodes up.
@@ -342,14 +347,15 @@ red when Slurm does not answer; the number is your running jobs.
   grouped by job.
 
 ### Calculators
-The **Calculators** button in the top bar opens over any page.
+Search *calculators* (or a calculator's name, such as *y+*) to open them over any page.
 
 - **ISA atmosphere**: temperature, pressure, density, viscosity, speed and Reynolds number from altitude, Mach and
   length. In a project, *Apply to project* sets the freestream (it lists every change and asks first).
 - **y+ first cell height**: the wall spacing for a target y+. *Send to y+* copies the flow from ISA.
 
 ### ParaView
-The **ParaView** button lists the cases with flow files (`.vtu`, `.vtk`, `.vtm`), newest first.
+The **ParaView** button on the Monitor and Results pages lists the cases with flow files (`.vtu`, `.vtk`, `.vtm`),
+newest first; the search finds them too (*paraview* and the case).
 
 - Click a case to open its surface and volume files in ParaView on the workstation; *All cases* opens every case's
   surface. From another PC, it copies the folder path instead.
@@ -358,7 +364,7 @@ The **ParaView** button lists the cases with flow files (`.vtu`, `.vtk`, `.vtm`)
   `to_ascii-<job id>.out`). A case still running is refused.
 
 ### Log
-The **Log** button at the bottom right of every project page (or click *Running 3/32* in the top bar) shows the
+The **Log** button at the bottom right of every project page (or click *running 3 / 32* under the project in the top bar) shows the
 sweep's output along the bottom of the page. It follows the running job; pick an earlier job from its list. Jobs are
 named by date and minute (`20260928-1358`).
 
@@ -438,7 +444,7 @@ aerosuite summarize /data/me/wing --last 200
 | *Ran out of memory* | Pick a partition with more memory per case, or fewer tasks per node. **Resubmit** on Cluster → My jobs. |
 | A restart has *none yet* | That case has no solution: choose *As the sweep says* or *From scratch* for it. |
 | Restarted cases behave differently | Look at **Sweep → Your choices** for amber tiles: something changed since they last ran. |
-| A page looks out of date | **↻ Refresh** in the top bar. |
+| A page looks out of date | Reload it (F5): pages follow the project, but not a template changed in another program. |
 | Slurm does not answer | The Cluster dot is red: wait a moment, or ask the cluster admin. Running jobs go on. |
 
 ### Words used here

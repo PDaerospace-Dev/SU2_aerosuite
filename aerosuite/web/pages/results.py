@@ -113,6 +113,7 @@ class ResultsPage:
         self._shown: tuple = ([], [])  # (rows per design, varying sweep variables) as last drawn
         self.panel: Optional[str] = None  # the open control panel (PANELS), None: all closed
         with frame.actions:
+            frame.paraview.button()
             if frame.session.project.imported is not None:
                 secondary_button("Rescan", icon="refresh", on_click=self.rescan).mark("results-rescan").props(
                     'title="Read the runs folder again: new case folders, gone ones, changed values"')

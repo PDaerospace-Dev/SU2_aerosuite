@@ -41,6 +41,20 @@ def flat_my_jobs():
 
 
 @pytest.fixture
+def search():
+    """Use the top bar's search: open it, type `text`, and (with `pick`) choose the command with that key."""
+
+    async def run(user, text: str, pick: str = "") -> None:
+        user.find(marker="command-search").click()
+        await user.should_see(marker="command-input")
+        next(iter(user.find(marker="command-input").elements)).set_value(text)
+        if pick:
+            user.find(marker=f"command-{pick}").click()
+
+    return run
+
+
+@pytest.fixture
 def eventually():
     """Wait (without blocking the event loop) until condition() is true, e.g. after an awaited dialog.
 
