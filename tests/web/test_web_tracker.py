@@ -187,6 +187,41 @@ async def test_a_clicked_run_is_set_by_hand(user: User, matrix):
     assert _element(user, "run-edit-status").value == "Diverged"
 
 
+async def test_an_edit_while_the_workbook_is_open_is_queued_then_written(user: User, matrix):
+    book, folder = matrix
+    lock = book.with_name("~$matrix.xlsx")
+    lock.write_bytes(b"")
+    await _coverage(user, matrix)
+    await _pick(user, ["RUN-0003"])
+    await user.should_see(marker="run-edit-open")  # it says so before Save
+    _element(user, "run-edit-status").set_value("Hold")
+    user.find(marker="run-edit-save").click()
+    await user.should_see("matrix.xlsx is open: 1 edit queued, written when it is closed")
+    await user.should_see(marker="run-edit-queued")
+    assert _element(user, "run-edit-status").value == "Hold"  # the card shows what is queued
+    assert load_workbook(book)["Study"]["M7"].value is None
+    await user.open("/tracker")
+    await user.should_see("1 edit of yours queued")
+    lock.unlink()
+    await TrackerWatch().check_once()  # the server's next look
+    assert load_workbook(book)["Study"]["M7"].value == "Hold"
+    assert load_tracker().queued == []
+
+
+async def test_a_queued_edit_can_be_discarded(user: User, matrix):
+    book, folder = matrix
+    book.with_name("~$matrix.xlsx").write_bytes(b"")
+    await _coverage(user, matrix)
+    await _pick(user, ["RUN-0003"])
+    await user.should_see(marker="run-edit")
+    _element(user, "run-edit-status").set_value("Failed")
+    user.find(marker="run-edit-save").click()
+    await user.should_see(marker="run-edit-discard")
+    user.find(marker="run-edit-discard").click()
+    await user.should_see("The queued edit of RUN-0003 was discarded")
+    assert load_tracker().queued == []
+
+
 async def test_a_run_no_job_has_run_says_so(user: User, matrix):
     await _coverage(user, matrix)
     await _pick(user, ["RUN-0003"])

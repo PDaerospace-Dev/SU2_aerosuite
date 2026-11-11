@@ -351,6 +351,11 @@ class Overview:
                     "as-strong" if pending else "as-ok-text").mark(f"{mark}-pending")
                 if item.plan.kept:
                     ui.label(f"{len(item.plan.kept)} verdicts kept").classes("as-hint as-hint-warning")
+            if item.queued:
+                count = len(item.queued)
+                titled(ui.label(f"{count} edit{'' if count == 1 else 's'} of yours queued").classes(
+                    "as-hint as-hint-warning").mark(f"{mark}-queued"),
+                    "Set on the coverage page while the workbook was open; written when it is closed")
         with td_box():
             secondary_button("Preview", lambda: ui.navigate.to(preview_url(link.id))).mark(f"{mark}-preview")
             write = primary_button("Write", lambda: self._write(link)).mark(f"{mark}-write")

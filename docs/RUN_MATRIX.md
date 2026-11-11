@@ -56,6 +56,11 @@ Open **Run matrix** from the top bar (or search for a sheet by name).
   after the notes already there, unless you tick **Replace their notes**. Running and Pending can't be set by hand:
   only a job knows those.
 
+  **While the workbook is open** in Excel or LibreOffice, an edit is *queued*: the run gets the ring, its card says
+  **Queued** (with **Discard it**), and the Run matrix row counts the edits queued. The server writes them within
+  20 s of the workbook being closed, before any automatic write. A cell you changed in Excel in the meantime is
+  left as Excel has it; Recent writes says which queued edits were left out.
+
 Links and the log of writes are kept in `$AEROSUITE_HOME/tracker.json`, so they are shared by everyone using this
 server. With **Write automatically** on, the server checks every 20 s whether a linked project's job records (or the
 workbook, or Excel's lock file) changed, and writes what is new. The first check after a link is saved, or after the
@@ -133,7 +138,13 @@ characters, none of `: \ / ? * [ ]`, and not one the workbook has.
 - **A workbook open in Excel or LibreOffice.** If Excel's `~$` lock file or LibreOffice's `.~lock.<name>#` file sits
   next to the workbook, the sync stops and asks you to close it. Automatic writes try again once it is closed.
 
-Each save keeps the previous file as `<name>.bak.xlsx` next to the workbook.
+Each save keeps the previous file as `<name>.bak.xlsx` next to the workbook. The first save of a day also keeps the
+workbook as it was in `<name>.backups/<name>.<date>.xlsx`, and the newest 7 of those stay: a week to go back over,
+which the one-write-old `.bak` cannot give with automatic writes. The clock icon beside **Download** lists them.
+
+**The links file.** `tracker.json` is changed under a lock that the server and the `aerosuite` command both take, and
+the file before each save is kept as `tracker.json.bak`. A `tracker.json` that cannot be read is reported (on the Run
+matrix page, and by the command) and left alone: it is never treated as "no links" and saved over.
 
 ## Running it on a schedule
 

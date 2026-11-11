@@ -19,7 +19,7 @@ from nicegui import run, ui
 from ...engine.errors import AeroSuiteError
 from ...engine.naming import format_value
 from ...engine.tracker import VERDICTS, Key, verdict_reason
-from ...engine.tracker_links import Link, LinkReport, RunEdit, edit_runs, report, saved_links
+from ...engine.tracker_links import Link, LinkReport, RunEdit, discard_queued, edit_or_queue, report, saved_links
 from ..layout import project_url
 from ..ui_kit import banner, card, flat_button, hint, primary_button, secondary_button
 
@@ -78,11 +78,17 @@ class Run:
     status: str  # in the sheet now; "" when blank
     new: Optional[str]  # what the link would write, if it differs
     notes: str = ""
+    queued: Optional[RunEdit] = None  # a hand edit waiting for the workbook to close
 
 
 def runs_of(result: LinkReport) -> list[Run]:
     changes = {change.row.row: change.status for change in result.plan.changes} if result.plan else {}
-    return [Run(row.run_id, row.key, row.status, changes.get(row.row), row.notes) for row in result.matrix.rows]
+    runs = []
+    for row in result.matrix.rows:
+        queued = result.queued.get(row.run_id)
+        new = queued.status if queued is not None and queued.status is not None else changes.get(row.row)
+        runs.append(Run(row.run_id, row.key, row.status, new if new != row.status else None, row.notes, queued))
+    return runs
 
 
 def _value(axis: int, value: float) -> str:
@@ -99,10 +105,12 @@ def square(run: Run, size: str = "", chosen: bool = False) -> str:
     """A run as a coloured square (a ring when a write is waiting, a tick when selected); a click opens it below the
     view (PICK_JS)."""
     tone = TONES.get(run.status, "none")
-    tip = f"{run.run_id} · {run_text(run)}\n{run.status or 'no status'}" + (f" → {run.new} (to write)" if run.new
-                                                                            else "")
+    waiting = "queued: the workbook is open" if run.queued else "to write"
+    tip = f"{run.run_id} · {run_text(run)}\n{run.status or 'no status'}" + (
+        f" → {run.new or 'blank'} ({waiting})" if run.new is not None else "")
     tip += f"\n{run.notes}" if run.notes else ""
-    classes = (f"as-cov-cell as-cov-{tone}{' as-cov-change' if run.new else ''}{' as-cov-sel' if chosen else ''}"
+    classes = (f"as-cov-cell as-cov-{tone}{' as-cov-change' if run.new is not None or run.queued else ''}"
+               f"{' as-cov-sel' if chosen else ''}"
                f"{size}")
     return f'<span class="{classes}" title="{escape(tip)}" data-run="{run.run_id}"></span>'
 
@@ -384,7 +392,8 @@ class Coverage:
                             icon="checklist").classes("self-start").mark("coverage-detail-select")
             lines = []
             for found in runs[:RUNS_LISTED]:
-                waiting = f' <span class="as-muted">→ {escape(found.new)} (to write)</span>' if found.new else ""
+                waiting = (f' <span class="as-muted">→ {escape(found.new or "blank")} '
+                           f'({"queued" if found.queued else "to write"})</span>' if found.new is not None else "")
                 lines.append(f'<div class="as-cov-line" data-run="{found.run_id}">'
                              f'{self._square(found, " as-cov-small")}'
                              f'<span class="as-mono">{found.run_id}</span>{escape(run_text(found))}'
@@ -419,6 +428,9 @@ class Coverage:
         from .tracker import status_pill
         source = self.result.statuses.get(found.key)
         notes_column = self.result.matrix.notes_column
+        queued = found.queued
+        now_status = queued.status if queued is not None and queued.status is not None else found.status
+        now_notes = queued.notes if queued is not None and queued.notes is not None else found.notes
         self.detail.clear()
         with self.detail:
             with ui.column().classes("as-run-edit w-full").mark("run-edit"):
@@ -431,7 +443,7 @@ class Coverage:
                 with ui.row().classes("as-run-edit-body w-full"):
                     with ui.column().classes("gap-2 grow min-w-0"):
                         ui.label("Status in the sheet").classes("as-label")
-                        status = ui.toggle(STATUS_CHOICES, value=found.status if found.status in STATUS_CHOICES
+                        status = ui.toggle(STATUS_CHOICES, value=now_status if now_status in STATUS_CHOICES
                                            else None).props("dense no-caps unelevated toggle-color=dark").classes(
                             "as-toggle as-run-status").mark("run-edit-status")
                         said = hint().mark("run-edit-hint")
@@ -439,7 +451,7 @@ class Coverage:
                         said.set_text(self._status_hint(status.value, found, source))
                         ui.label("Notes").classes("as-label q-mt-sm")
                         if notes_column and not found.notes.startswith("="):
-                            notes = ui.textarea(value=found.notes, placeholder="Add a note").props(
+                            notes = ui.textarea(value=now_notes, placeholder="Add a note").props(
                                 "outlined dense autogrow").classes("w-full as-field").mark("run-edit-notes")
                         else:
                             notes = None
@@ -457,8 +469,18 @@ class Coverage:
                             ui.link("Open in Monitor", project_url("monitor", source.folder)
                                     + f"&case={quote(source.case)}").classes("as-link")
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
-                    hint("Saved into the workbook (a backup is kept beside it). Close it in Excel or LibreOffice "
-                         "first.").classes("grow")
+                    if queued is not None:
+                        with ui.row().classes("grow items-center gap-2"):
+                            ui.label(f"Queued: written when the workbook is closed"
+                                     f"{' in ' + self.result.open_in if self.result.open_in else ''}.").classes(
+                                "as-tag-hint").mark("run-edit-queued")
+                            ui.label("Discard it").classes("as-link").mark("run-edit-discard").on(
+                                "click", lambda: self._discard(found.run_id))
+                    elif self.result.open_in:
+                        hint(f"The workbook is open in {self.result.open_in}: Save keeps this edit and writes it when "
+                             "the workbook is closed.").classes("grow").mark("run-edit-open")
+                    else:
+                        hint("Saved into the workbook (a backup is kept beside it).").classes("grow")
                     secondary_button("Cancel", self._detail_hint).mark("run-edit-cancel")
                     save = primary_button("Save", icon="save").mark("run-edit-save")
                     save.on_click(lambda: self._save({found.run_id: RunEdit(
@@ -480,14 +502,24 @@ class Coverage:
 
     async def _save(self, edits: dict[str, RunEdit], editing: Optional[str] = None) -> bool:
         try:
-            changed = await run.io_bound(edit_runs, self.link, edits)
+            changed, queued = await run.io_bound(edit_or_queue, self.link, edits)
         except AeroSuiteError as exc:
             ui.notify(str(exc), type="negative", multi_line=True)
             return False
-        ui.notify(f"Saved {changed} run{'' if changed == 1 else 's'} to {Path(self.link.workbook).name}" if changed
-                  else "Nothing to save: it is already so", type="positive" if changed else "info")
+        name = Path(self.link.workbook).name
+        if queued:
+            ui.notify(f"{name} is open: {queued} edit{'' if queued == 1 else 's'} queued, written when it is closed",
+                      type="warning", multi_line=True)
+        else:
+            ui.notify(f"Saved {changed} run{'' if changed == 1 else 's'} to {name}" if changed
+                      else "Nothing to save: it is already so", type="positive" if changed else "info")
         await self.refresh(editing)
         return True
+
+    async def _discard(self, run_id: str) -> None:
+        await run.io_bound(discard_queued, self.link.id, [run_id])
+        ui.notify(f"The queued edit of {run_id} was discarded")
+        await self.refresh(run_id)
 
     # --- several runs: the bar ---------------------------------------------------------------------------------------
 
@@ -540,7 +572,8 @@ class Coverage:
                     return
                 edits = {}
                 for run_id in self.selected:
-                    old = self.by_id[run_id].notes
+                    found = self.by_id[run_id]
+                    old = found.queued.notes if found.queued and found.queued.notes is not None else found.notes
                     edits[run_id] = RunEdit(notes=note if replace.value or not old else f"{old}; {note}")
                 if await self._save(edits):
                     dialog.close()

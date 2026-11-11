@@ -9,10 +9,11 @@ from test_tracker import add_job, make_workbook
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.tracker import read_matrix
-from aerosuite.engine.tracker_links import (Link, LinkedProject, LogEntry, RunEdit, backup_file, candidate_projects,
-                                            create_sheet, edit_runs, find_link, link_stamp, load_tracker, log_write,
-                                            remove_link, report, save_link, saved_links, set_auto, set_completed,
-                                            tracker_file, write_link)
+from aerosuite.engine.tracker_links import (Link, LinkedProject, LogEntry, RunEdit, apply_queued, backup_file,
+                                            candidate_projects, create_sheet, discard_queued, edit_or_queue, edit_runs,
+                                            find_link, link_stamp, load_tracker, log_write, queued_edits, remove_link,
+                                            report, save_link, saved_links, set_auto, set_completed, tracker_file,
+                                            write_link)
 
 
 def _link(tmp_path, **changes):
@@ -245,3 +246,50 @@ def test_settings_a_newer_aerosuite_wrote_survive_a_save(tmp_path):
     saved = json.loads(tracker_file().read_text())
     assert saved["links"][0]["from_the_future"] == {"a": 1} and saved["shared"] is True
     assert saved["links"][0]["completed"] is True
+
+
+def test_an_edit_made_while_excel_has_the_workbook_is_queued_and_written_when_it_closes(tmp_path):
+    link = save_link(_link(tmp_path))
+    lock = tmp_path / "~$m.xlsx"
+    lock.write_bytes(b"")
+    assert edit_or_queue(link, {"RUN-0001": RunEdit(status="Diverged"), "RUN-0002": RunEdit(notes="check")}) == (0, 2)
+    assert edit_or_queue(link, {"RUN-0001": RunEdit(notes="blows up")}) == (0, 1)  # the same run again: one edit
+    assert queued_edits(link.id) == {"RUN-0001": RunEdit("Diverged", "blows up"), "RUN-0002": RunEdit(None, "check")}
+    result = report(link)
+    assert set(result.queued) == {"RUN-0001", "RUN-0002"} and result.open_in == "Excel"
+    assert apply_queued(link) == 0 and len(queued_edits(link.id)) == 2  # still open
+    assert load_workbook(link.workbook)["Study"]["M5"].value == "Converged"
+    lock.unlink()
+    assert apply_queued(link) == 2
+    ws = load_workbook(link.workbook)["Study"]
+    assert (ws["M5"].value, ws["N5"].value, ws["N6"].value) == ("Diverged", "blows up", "check")
+    assert queued_edits(link.id) == {} and apply_queued(link) == 0
+
+
+def test_a_cell_changed_in_excel_meanwhile_wins_over_the_queued_edit(tmp_path):
+    link = save_link(_link(tmp_path))
+    lock = tmp_path / "~$m.xlsx"
+    lock.write_bytes(b"")
+    edit_or_queue(link, {"RUN-0001": RunEdit(status="Failed", notes="mine"), "RUN-0002": RunEdit(status="Hold")})
+    book = load_workbook(link.workbook)
+    book["Study"]["M5"] = "Not Converged"  # typed in Excel, saved, closed
+    book.save(link.workbook)
+    lock.unlink()
+    assert apply_queued(link) == 2
+    ws = load_workbook(link.workbook)["Study"]
+    assert (ws["M5"].value, ws["N5"].value, ws["M6"].value) == ("Not Converged", "mine", "Hold")
+    entry = load_tracker().log[0]
+    assert "1 queued edit(s) left out" in entry.error and "RUN-0001" in entry.error
+    assert queued_edits(link.id) == {}
+
+
+def test_a_workbook_that_is_closed_is_written_at_once_and_queued_edits_can_be_dropped(tmp_path):
+    link = save_link(_link(tmp_path))
+    assert edit_or_queue(link, {"RUN-0001": RunEdit(status="Diverged")}) == (1, 0)
+    (tmp_path / "~$m.xlsx").write_bytes(b"")
+    edit_or_queue(link, {"RUN-0002": RunEdit(status="Hold"), "RUN-0003": RunEdit(status="Hold")})
+    with pytest.raises(TrackerError, match="not a status"):
+        edit_or_queue(link, {"RUN-0004": RunEdit(status="Running")})  # checked when queued, not weeks later
+    assert discard_queued(link.id, ["RUN-0002"]) == 1 and set(queued_edits(link.id)) == {"RUN-0003"}
+    remove_link(link.id)
+    assert load_tracker().queued == []

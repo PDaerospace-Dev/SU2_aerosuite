@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 
 from ..engine.errors import AeroSuiteError
-from ..engine.tracker_links import link_stamp, saved_links, write_link
+from ..engine.tracker_links import apply_queued, link_stamp, saved_links, write_link
 
 log = logging.getLogger("aerosuite.tracker")
 INTERVAL = 20.0  # seconds between looks
@@ -20,7 +20,13 @@ class TrackerWatch:
 
     async def check_once(self) -> int:
         """Write every automatic link whose stamp changed since the last look; returns how many were written."""
-        links = [link for link in saved_links() if link.auto]  # an unreadable file: the Run matrix page says so
+        every = saved_links()  # an unreadable file: the Run matrix page says so
+        for link in every:  # hand edits queued while a workbook was open: written once it is closed
+            try:
+                await asyncio.to_thread(apply_queued, link)
+            except (AeroSuiteError, OSError):
+                pass  # logged in the link's write log
+        links = [link for link in every if link.auto]
         ids = {link.id for link in links}
         self._seen = {link_id: stamp for link_id, stamp in self._seen.items() if link_id in ids}
         written = 0

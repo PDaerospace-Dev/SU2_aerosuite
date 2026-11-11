@@ -19,7 +19,8 @@ from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
 from .locking import file_lock
 from .tracker import (VERDICTS, CaseStatus, CellValue, Change, Key, Matrix, Plan, collect_statuses, completion_date,
-                      job_counts, lock_files, new_sheet, plan_changes, read_matrix, verdict_reason, write_statuses)
+                      job_counts, lock_files, new_sheet, open_in, plan_changes, read_matrix, verdict_reason,
+                      write_statuses)
 
 LOG_LENGTH = 50
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
@@ -63,9 +64,21 @@ class LogEntry(_Kept):
     error: str = ""
 
 
+class QueuedEdit(_Kept):
+    """A run's Status and/or Notes set by hand while the workbook was open in Excel: written when it is closed."""
+    link: str
+    run_id: str
+    status: Optional[str] = None  # None: the Status cell is not part of the edit
+    notes: Optional[str] = None
+    was_status: str = ""  # what the cells held when it was queued: one changed in Excel meanwhile is left to Excel
+    was_notes: str = ""
+    at: datetime = Field(default_factory=datetime.now)
+
+
 class TrackerFile(_Kept):
     links: list[Link] = Field(default_factory=list)
     log: list[LogEntry] = Field(default_factory=list)  # newest first
+    queued: list[QueuedEdit] = Field(default_factory=list)  # hand edits waiting for their workbook to close
 
 
 def tracker_file() -> Path:
@@ -140,6 +153,7 @@ def save_link(link: Link) -> Link:
 def remove_link(link_id: str) -> None:
     with _changing() as data:
         data.links = [link for link in data.links if link.id != link_id]
+        data.queued = [edit for edit in data.queued if edit.link != link_id]
 
 
 def set_completed(link_id: str, completed: Optional[bool]) -> None:
@@ -187,6 +201,8 @@ class LinkReport:
     warnings: list[str] = field(default_factory=list)
     error: str = ""  # the workbook or sheet cannot be used: nothing else is known
     reasons: dict[int, str] = field(default_factory=dict)  # kept verdicts: sheet row -> the convergence check's words
+    queued: dict[str, "RunEdit"] = field(default_factory=dict)  # hand edits waiting for the workbook to close, by run
+    open_in: str = ""  # the office program that has the workbook open now
     statuses: dict[Key, CaseStatus] = field(default_factory=dict)  # what the jobs say, by run
     completed_on: Optional[date] = None  # what the blank "Completed on" cell gets: every run has a verdict
 
@@ -232,6 +248,8 @@ def report(link: Link, reasons: bool = False) -> LinkReport:
         result.error = str(exc)
         return result
     result.statuses = statuses
+    result.queued = queued_edits(link.id)
+    result.open_in = open_in(Path(link.workbook))
     result.plan = plan_changes(result.matrix, statuses, overwrite=link.overwrite)
     result.completed_on = completion_date(result.matrix, result.plan, statuses)
     by_folder = {project.path: project for project in result.projects}
@@ -247,7 +265,9 @@ def report(link: Link, reasons: bool = False) -> LinkReport:
 
 def write_link(link: Link, accepted: Iterable[Change] = (), trigger: str = "manual") -> int:
     """Write the link's changes, plus kept verdicts the user chose to replace (`accepted`), and log it. Returns how
-    many Status cells were written; a failure is logged and raised."""
+    many Status cells were written; a failure is logged and raised. Hand edits queued while the workbook was open go
+    in first: a status of yours is then a verdict the write keeps."""
+    apply_queued(link)
     result = report(link)
     entry = LogEntry(link=link.id, workbook=link.workbook, sheet=link.sheet, trigger=trigger)
     try:
@@ -319,6 +339,96 @@ def edit_runs(link: Link, edits: dict[str, RunEdit]) -> int:
     if entry.written:
         log_write(entry)
     return entry.written
+
+
+def queued_edits(link_id: str) -> dict[str, RunEdit]:
+    """The link's hand edits waiting for its workbook to close, by run ID."""
+    try:
+        queued = load_tracker().queued
+    except TrackerError:
+        return {}
+    return {edit.run_id: RunEdit(edit.status, edit.notes) for edit in queued if edit.link == link_id}
+
+
+def edit_or_queue(link: Link, edits: dict[str, RunEdit]) -> tuple[int, int]:
+    """edit_runs; or, while the workbook is open in Excel or LibreOffice, keep the edits to write when it is closed
+    (apply_queued: the server looks every 20 s). Returns (runs changed now, runs queued). A later edit of a queued run
+    replaces the fields it sets."""
+    workbook = Path(link.workbook)
+    if not open_in(workbook):
+        try:
+            return edit_runs(link, edits), 0
+        except TrackerError:
+            if not open_in(workbook):  # not opened just now: a real failure
+                raise
+    matrix = read_matrix(workbook, link.sheet)
+    rows = {row.run_id: row for row in matrix.rows}
+    for run_id, edit in edits.items():
+        if run_id not in rows:
+            raise TrackerError(f"{run_id} is not a run of {link.sheet}")
+        if edit.status is not None and edit.status not in HAND_STATUSES:
+            raise TrackerError(f"{edit.status!r} is not a status that can be set by hand")
+        if edit.notes is not None and not matrix.notes_column:
+            raise TrackerError(f"{link.sheet} has no Notes column")
+    with _changing() as data:
+        waiting = {edit.run_id: edit for edit in data.queued if edit.link == link.id}
+        for run_id, edit in edits.items():
+            row = rows[run_id]
+            queued = waiting.get(run_id) or QueuedEdit(link=link.id, run_id=run_id, was_status=row.status,
+                                                       was_notes=row.notes)
+            if edit.status is not None:
+                queued.status = edit.status
+            if edit.notes is not None:
+                queued.notes = edit.notes.strip()
+            queued.at = datetime.now()
+            waiting[run_id] = queued
+        data.queued = [edit for edit in data.queued if edit.link != link.id] + list(waiting.values())
+    return 0, len(edits)
+
+
+def discard_queued(link_id: str, run_ids: Optional[Iterable[str]] = None) -> int:
+    """Drop the link's queued edits (of `run_ids`, or all). Returns how many."""
+    chosen = None if run_ids is None else set(run_ids)
+    with _changing() as data:
+        keep = [edit for edit in data.queued
+                if edit.link != link_id or (chosen is not None and edit.run_id not in chosen)]
+        dropped = len(data.queued) - len(keep)
+        data.queued = keep
+    return dropped
+
+
+def apply_queued(link: Link) -> int:
+    """Write the link's queued hand edits now that its workbook is closed; 0 while it is still open, or with none
+    queued. A cell changed in Excel since the edit was queued is left as Excel has it, and the log says so. Returns
+    how many runs were written."""
+    with _lock:
+        queued = [edit for edit in load_tracker().queued if edit.link == link.id]
+    if not queued or open_in(Path(link.workbook)):
+        return 0
+    written, dropped = 0, []
+    try:
+        rows = {row.run_id: row for row in read_matrix(Path(link.workbook), link.sheet).rows}
+        edits: dict[str, RunEdit] = {}
+        for edit in queued:
+            row = rows.get(edit.run_id)
+            status = edit.status if row is not None and row.status == edit.was_status else None
+            notes = edit.notes if row is not None and row.notes == edit.was_notes else None
+            if (edit.status is not None and status is None) or (edit.notes is not None and notes is None):
+                dropped.append(edit.run_id)
+            if status is not None or notes is not None:
+                edits[edit.run_id] = RunEdit(status, notes)
+        written = edit_runs(link, edits) if edits else 0
+    except TrackerError:
+        if open_in(Path(link.workbook)):  # opened again meanwhile: they stay queued
+            return 0
+        dropped = [edit.run_id for edit in queued]  # logged by edit_runs; not tried for ever
+    discard_queued(link.id, [edit.run_id for edit in queued])
+    if dropped:
+        shown = ", ".join(dropped[:6]) + (" …" if len(dropped) > 6 else "")
+        log_write(LogEntry(link=link.id, workbook=link.workbook, sheet=link.sheet, trigger="edit",
+                           error=f"{len(dropped)} queued edit(s) left out: changed in the workbook meanwhile, or "
+                                 f"no longer possible ({shown})"))
+    return written
 
 
 def create_sheet(link: Link, template: str, details: dict[int, CellValue], levels: list[list[float]],

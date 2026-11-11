@@ -472,6 +472,12 @@ def lock_files(workbook: Path) -> list[tuple[str, Path]]:
             ("LibreOffice", workbook.with_name(f".~lock.{workbook.name}#"))]
 
 
+def open_in(workbook: Path) -> str:
+    """The office program that has the workbook open ("Excel", "LibreOffice"); "" when none does."""
+    lock = _office_lock(Path(workbook))
+    return lock[0] if lock else ""
+
+
 def _office_lock(workbook: Path) -> Optional[tuple[str, Path]]:
     """The application that has the workbook open, and its lock file; None when no lock file is there."""
     return next(((app, path) for app, path in lock_files(workbook) if path.exists()), None)

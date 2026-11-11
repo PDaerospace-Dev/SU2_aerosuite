@@ -1,6 +1,5 @@
 """The lock other programs honour: a state file's read-change-save cannot be undone by another program's."""
 import json
-import multiprocessing
 import subprocess
 import sys
 import time
@@ -56,21 +55,23 @@ def test_the_same_thread_can_take_its_lock_again(tmp_path):
             pass
 
 
-def _count(args):
-    path, times = args
-    from pathlib import Path
-    from aerosuite.engine.locking import file_lock
-    for _ in range(times):
-        with file_lock(Path(path)):
-            value = json.loads(Path(path).read_text())["n"]
-            Path(path).write_text(json.dumps({"n": value + 1}))
+COUNT = """
+import json, sys
+from pathlib import Path
+from aerosuite.engine.locking import file_lock
+path = Path(sys.argv[1])
+for _ in range(int(sys.argv[2])):
+    with file_lock(path):
+        value = json.loads(path.read_text())["n"]
+        path.write_text(json.dumps({"n": value + 1}))
+"""
 
 
 def test_no_update_is_lost_between_programs(tmp_path):
     target = tmp_path / "count.json"
     target.write_text('{"n": 0}')
-    with multiprocessing.get_context("spawn").Pool(4) as pool:
-        pool.map(_count, [(str(target), 25)] * 4)
+    programs = [subprocess.Popen([sys.executable, "-c", COUNT, str(target), "25"]) for _ in range(4)]
+    assert [program.wait() for program in programs] == [0, 0, 0, 0]
     assert json.loads(target.read_text())["n"] == 100
 
 
