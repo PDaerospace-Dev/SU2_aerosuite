@@ -16,9 +16,25 @@ def register_pages(root: Path) -> None:
 
     app.on_startup(WATCH.start)  # the Slurm poller: idle until a Slurm job or the cluster panel needs it
     app.on_shutdown(WATCH.stop)
+    from .tracker_watch import TRACKER_WATCH
+
+    app.on_startup(TRACKER_WATCH.start)  # writes linked run-matrix sheets as their projects' cases start and finish
+    app.on_shutdown(TRACKER_WATCH.stop)
+    from .pages import (
+        aircraft,
+        calculators,
+        cluster,
+        monitor,
+        profiles,
+        projects,
+        results,
+        run,
+        settings,
+        setup,
+        sweep,
+        tracker,
+    )
     from .pages import config as config_page
-    from .pages import (aircraft, calculators, cluster, monitor, profiles, projects, results, run, settings, setup,
-                        sweep)
 
     projects.register()
     setup.register()
@@ -32,3 +48,4 @@ def register_pages(root: Path) -> None:
     profiles.register()
     settings.register()
     cluster.register()
+    tracker.register()

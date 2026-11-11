@@ -8,7 +8,7 @@ from aerosuite.engine.jobs.executors import slurm_options
 from aerosuite.engine.preflight import preflight
 from aerosuite.engine.project import save_project, set_mesh
 from aerosuite.engine.settings import AppSettings, set_value
-from aerosuite.engine.slurm_checks import memory_check, memory_notes, mesh_elements, slurm_problems
+from aerosuite.engine.slurm_checks import memory_check, memory_summary, mesh_elements, slurm_problems
 
 MESH_HEADER = "% a comment\n%\nNDIME= 3\nNELEM= {nelem}\n"
 
@@ -93,10 +93,22 @@ def test_a_good_submit_has_no_problems(study, tmp_path):
     assert problems == []
 
 
-def test_memory_estimate_in_the_notes(study, tmp_path):
+def test_memory_estimate_in_the_note(study, tmp_path):
     project_dir, project = study
-    notes = memory_notes(project_dir, project, None, "node1", _settings(tmp_path))
-    assert notes == ["≈ 58 GB of 120 GB on node1 (15.0M cells)"]
+    summary = memory_summary(project_dir, project, None, "node1", _settings(tmp_path))
+    assert summary.note == "≈ 58 GB of 120 GB on node1 (15.0M cells)"
+
+
+def test_the_memory_summary_is_the_largest_mesh_against_the_partitions_limit(study, tmp_path):
+    project_dir, project = study
+    settings = _settings(tmp_path)
+    summary = memory_summary(project_dir, project, None, "node2", settings)
+    assert (round(summary.estimate_gb), round(summary.limit_gb), summary.elements, summary.over) == (
+        58, 61, 15_000_000, False)
+    set_mesh(project, _mesh(tmp_path / "wing.su2", 20_700_000))
+    generate_configs(project_dir, project)
+    assert memory_summary(project_dir, project, None, "node2", settings).over
+    assert memory_summary(project_dir, project, None, "nowhere", settings) is None
 
 
 def test_over_the_limit_warns_on_node1_and_blocks_on_node2(study, tmp_path):
@@ -179,3 +191,37 @@ def test_preflight_uses_the_slurm_checks_for_a_slurm_project(study, tmp_path, mo
     options = slurm_options(project, settings, partition="node2", ntasks=96)
     problems = preflight(project_dir, project, "run", options=options, settings=settings)
     assert [p.message for p in problems] == ["node2 gains nothing above about 48 tasks; 96 asked"]
+
+
+def _node(name, partition, allocated, total, load, state="idle"):
+    from aerosuite.engine.slurm import NodeRow
+    return NodeRow(name, partition, False, state, allocated, total - allocated, 0, total, 1000, 500, load, "")
+
+
+def test_a_node_busy_outside_slurm_warns():
+    from aerosuite.engine.slurm_checks import outside_load_problems
+    found = outside_load_problems("hpc0", [_node("hpc0", "hpc0", 0, 64, 56.6)])
+    assert [p.severity for p in found] == ["warning"]
+    assert "hpc0 is busy outside Slurm: load 57 with 0 of 64 cores allocated" in found[0].message
+
+
+def test_load_that_slurm_explains_or_other_partitions_do_not_warn():
+    from aerosuite.engine.slurm_checks import outside_load_problems
+    nodes = [_node("hpc1", "hpc1", 192, 192, 96.0), _node("hpc2", "hpc2", 96, 192, 47.9),
+             _node("hpc0", "hpc0", 0, 64, 56.6), _node("hpc3", "hpc3", 0, 64, None),
+             _node("hpc4", "hpc4", 0, 64, 60.0, state="down*")]
+    assert outside_load_problems("hpc1", nodes) == []
+    assert outside_load_problems("hpc2", nodes) == []
+    assert outside_load_problems("hpc3", nodes) == []
+    assert outside_load_problems("hpc4", nodes) == []
+
+
+def test_threads_count_as_half_a_core_when_deciding_what_load_slurm_explains():
+    from aerosuite.engine.slurm import NodeRow
+    from aerosuite.engine.slurm_checks import outside_load_problems
+    full = NodeRow("hpc1", "hpc1", False, "alloc", 192, 0, 0, 192, 1000, 500, 96.0, "", 2)
+    half = NodeRow("hpc2", "hpc2", False, "mix", 96, 96, 0, 192, 1000, 500, 47.9, "", 2)
+    stray = NodeRow("hpc3", "hpc3", False, "idle", 0, 192, 0, 192, 1000, 500, 60.0, "", 2)
+    assert outside_load_problems("hpc1", [full]) == []
+    assert outside_load_problems("hpc2", [half]) == []
+    assert "0 of 96 cores allocated" in outside_load_problems("hpc3", [stray])[0].message

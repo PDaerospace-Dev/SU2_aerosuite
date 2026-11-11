@@ -1,4 +1,5 @@
 import pytest
+from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
 
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
@@ -7,8 +8,6 @@ from aerosuite.engine.jobs.slurm import job_name, job_script
 from aerosuite.engine.jobs.store import active_lock, list_jobs, load_job, read_lock
 from aerosuite.engine.project import save_project
 from aerosuite.engine.settings import SlurmSettings
-
-from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
 
 OPTIONS = SlurmOptions(partition="node1", ntasks=96, time_limit="", exclusive=True, account="pdas")
 
@@ -209,7 +208,7 @@ def test_previous_restarts_wait_for_the_case_before(slurm_study):
     assert f"[ -f {solution} ] || [ -f {solution}.dat ] || [ -f {solution}.csv ]" in script
     assert f"cat {project_dir / 'runs' / A2 / 'aerosuite_exit'}" in script
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
-    assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg
+    assert f"SOLUTION_FILENAME= ../{A0}/restart_flow" in cfg
     assert "RESTART_SOL= YES" in cfg
     assert "RESTART_SOL= NO" in (project_dir / "runs" / A0 / f"{A0}.cfg").read_text()
 
@@ -224,7 +223,7 @@ def test_a_restart_from_a_case_outside_the_job_has_no_dependency(slurm_study):
     job = runner.submit(project_dir, project, cases=[A2])
     assert job.slurm[A2].depends_on is None and fake.job("101")["dependency"] is None
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
-    assert f"SOLUTION_FILENAME= {project_dir / 'jobs' / job.id / 'restart' / A0 / 'restart_flow.dat'}" in cfg
+    assert f"SOLUTION_FILENAME= ../../jobs/{job.id}/restart/{A0}/restart_flow.dat" in cfg
 
 
 def test_a_second_submit_while_one_runs_is_refused(slurm_study):

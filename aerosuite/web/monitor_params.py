@@ -16,7 +16,8 @@ from nicegui import ui
 from ..engine.results import ITERATION_COLUMNS, group_of, ordered_groups
 from .fields import text_field
 from .theme import HAIRLINE, SERIES_COLORS
-from .ui_kit import card, field as kit_field, hint, primary_button, secondary_button, titled
+from .ui_kit import card, hint, primary_button, secondary_button, titled
+from .ui_kit import field as kit_field
 
 CHART_HEIGHT = "260px"
 FULL = 0.01  # percent: a zoom this close to both ends is the whole run

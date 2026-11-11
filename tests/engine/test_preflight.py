@@ -1,8 +1,8 @@
-import pytest
 import os
 import sys
 
 import psutil
+import pytest
 
 from aerosuite.engine.cfg import generate_configs
 from aerosuite.engine.jobs.store import write_lock

@@ -2,6 +2,7 @@
 import json
 
 import pytest
+from slurm_helpers import A0, A2, STEADY, slurm_study  # noqa: F401  (fixture)
 
 from aerosuite.engine.attempts import KEEP, archive, attempts, make_current
 from aerosuite.engine.cfg import generate_configs
@@ -11,8 +12,6 @@ from aerosuite.engine.jobs.plan import prepare_job
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
 from aerosuite.engine.jobs.store import save_job
 from aerosuite.engine.restarts import RUNS_DIR
-
-from slurm_helpers import A0, A2, STEADY, slurm_study  # noqa: F401  (fixture)
 
 
 def _run(project_dir, case, marker="first order"):

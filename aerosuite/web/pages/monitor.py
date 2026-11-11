@@ -36,6 +36,8 @@ def register() -> None:
             return
         pages: list = []
         frame = ProjectFrame(session, "monitor", on_reload=lambda: pages[0].render() if pages else None)
+        with frame.actions:
+            frame.paraview.button()
         with frame.content:
             pages.append(MonitorPage(frame, case or None))
 

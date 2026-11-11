@@ -1,14 +1,13 @@
 from pathlib import Path
 
 import pytest
+from slurm_helpers import A0, A2, A4, STEADY, as_afterok, slurm_study  # noqa: F401  (fixture)
 
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
 from aerosuite.engine.jobs.runner import CaseState, JobState
 from aerosuite.engine.jobs.store import active_lock, load_job, save_job
 from aerosuite.engine.project import save_project
-
-from slurm_helpers import A0, A2, A4, STEADY, as_afterok, slurm_study  # noqa: F401  (fixture)
 
 
 def test_cancel_scancels_every_unfinished_case_in_one_call(slurm_study, history_writer):
@@ -96,7 +95,7 @@ def test_a_resubmitted_case_gets_its_config_back_and_keeps_its_earlier_run(slurm
     history_writer(project_dir / "runs" / A0, STEADY[:3])  # A0's run so far
     job = runner.resubmit(project_dir, project, job)
     assert "RESTART_SOL= YES" in cfg.read_text()  # restarts again from A0, which runs again first
-    assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg.read_text()
+    assert f"SOLUTION_FILENAME= ../{A0}/restart_flow" in cfg.read_text()
     assert (folder / "slurm-102.out").is_file()  # the earlier attempt's output stays beside the new one
     assert not (project_dir / "runs" / A0 / "history.csv").exists()  # A0's failed run is put aside ...
     assert A0 in job.attempts and (Path(job.attempts[A0]) / "history.csv").is_file()
@@ -111,6 +110,19 @@ def test_a_resubmitted_case_whose_solution_is_gone_starts_from_scratch(slurm_stu
     text = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
     assert "RESTART_SOL= NO" in text  # A0 never wrote a solution: SU2 would stop at once
     assert f"{A2} starts from scratch" in (project_dir / job.log_path).read_text()
+
+
+def test_a_resubmitted_case_whose_solution_is_there_keeps_its_restart(slurm_study, monkeypatch, tmp_path):
+    """SOLUTION_FILENAME is relative to the case folder: found from there, not from the server's directory."""
+    project_dir, project, runner, fake = slurm_study
+    job = _fail_first(slurm_study)
+    job.slurm[A2].state, job.case_status[A2] = "NODE_FAIL", CaseState.FAILED
+    save_job(project_dir, job)
+    (project_dir / "runs" / A0 / "restart_flow.dat").write_text("solution")
+    monkeypatch.chdir(tmp_path)
+    job = runner.resubmit(project_dir, project, job, [A2])
+    assert "RESTART_SOL= YES" in (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
+    assert f"{A2} starts from scratch" not in (project_dir / job.log_path).read_text()
 
 
 def test_resubmit_is_refused_for_other_states_and_while_another_job_runs(slurm_study):

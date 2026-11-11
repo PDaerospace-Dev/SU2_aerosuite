@@ -19,6 +19,9 @@ DEFAULT_CONVERGENCE_COLUMNS = ("CL", "CD", "CMy")
 MIN_CONVERGENCE_ITERATIONS = 10
 CONVERGENCE_THRESHOLD = 1e-3
 ABSOLUTE_TOLERANCE = 1e-6  # a column this steady is converged whatever its mean
+# Coefficients near zero (CL and CMy of a symmetric case, at α = 0): a wobble this small is steady whatever its share of
+# the mean. 1e-5 is a tenth of a drag count.
+COEFFICIENT_TOLERANCES = {"CL": 1e-4, "CD": 1e-5, "CMy": 1e-4}
 SUMMARY_KEY_COLUMNS = ["Case", "Mach", "Alpha", "Beta", "Converged"]
 RESULTS_DIR = "results"
 SUMMARY_FILE = "summary.csv"
@@ -141,7 +144,8 @@ def check_convergence(
 ) -> tuple[bool, str]:
     """Converged when, over the last 10% (at least 10 rows), every column is steady.
 
-    Steady: std below ABSOLUTE_TOLERANCE, or std/mean below CONVERGENCE_THRESHOLD.
+    Steady: std/mean below CONVERGENCE_THRESHOLD, or std below the column's absolute tolerance
+    (COEFFICIENT_TOLERANCES; ABSOLUTE_TOLERANCE for any other column), which decides for a coefficient near zero.
     Without any of the requested columns there is no evidence, so not converged.
     """
     if len(df) < MIN_CONVERGENCE_ITERATIONS:
@@ -151,14 +155,19 @@ def check_convergence(
         wanted = "/".join(columns)
         return False, f"No {wanted} columns in history; add them to HISTORY_OUTPUT to judge convergence"
     tail = df.tail(max(10, int(len(df) * 0.1)))
+    floored = []
     for col in check:
         std = tail[col].std()
-        if std < ABSOLUTE_TOLERANCE:
-            continue
         mean = abs(tail[col].mean())
-        if mean > 0 and std / mean > CONVERGENCE_THRESHOLD:
-            return False, f"{col} not converged (std/mean = {std / mean:.2e})"
-    return True, "Converged"
+        if mean > 0 and std / mean <= CONVERGENCE_THRESHOLD:
+            continue
+        tolerance = COEFFICIENT_TOLERANCES.get(col, ABSOLUTE_TOLERANCE)
+        if std < tolerance:
+            if std >= ABSOLUTE_TOLERANCE:
+                floored.append(f"{col} std {std:.1e} < {tolerance:.0e}")
+            continue
+        return False, f"{col} not converged (std/mean = {std / mean:.2e})" if mean > 0 else f"{col} not converged"
+    return True, "Converged" + (f" (near zero: {', '.join(floored)})" if floored else "")
 
 
 def history_header(path: Path) -> list[str]:

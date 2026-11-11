@@ -6,9 +6,10 @@ AeroSuite is a web application for preparing, running and reviewing SU2 CFD stud
 - Runs on this machine or on a Slurm cluster
 - Live convergence monitoring
 - Results with plots, derived values.
-- **Cluster:** Slurm nodes and your jobs management.
-- **Calculators:** (ISA atmosphere and y+).
-- **ParaView:** Open your cases in Paraview/write ASCII files
+
+**Cluster:** Slurm nodes and your jobs management
+**Calculators:** (ISA atmosphere and y+)
+**ParaView:** Open your cases in Paraview/ Write ASCII files for paraview to read
 
 It runs as a service on the workstation and opens in any browser; everything it does is also available as the `aerosuite` command.
 
@@ -19,7 +20,7 @@ One-time setup (no admin rights needed; Python 3.12 in its own environment, mana
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
-cd /path/to/SU2_aerosuite
+cd */path/to/SU2_aerosuite*
 uv sync
 uv run aerosuite service install --root /data   # starts at boot, listens on 127.0.0.1:8080
 ```
@@ -37,9 +38,8 @@ Then open http://localhost:8080 on the workstation, or from your PC with the lau
 6. **Monitor** — residuals and coefficients while a case runs.
 7. **Results** — parameters averaged over the last iterations, as plots, tables and CSV.
 
-Alongside: **Cluster** (Slurm nodes and your jobs), **Calculators** (ISA atmosphere, y+), **ParaView**,
-**Settings** and **Profiles**. Each is described in the [web UI guide](docs/WEB_UI.md); the **?** in the top bar opens it on the
-page you are on.
+Alongside: **Cluster** (Slurm nodes and your jobs), **Calculators** (ISA atmosphere, y+), **ParaView**, **Settings** and **Profiles**.
+Each is described in the [web UI guide](docs/WEB_UI.md); the **?** in the top bar opens it on the page you are on.
 
 ## Project structure
 ```
@@ -80,10 +80,24 @@ export AEROSUITE_SWEEP_PYTHON=/usr/bin/python3
 
 The install steps are under *Quick start* above.
 
-### Tests
+### Tests and checks
 ```bash
-uv run pytest
+uv run pytest -n 8      # the suite on 8 cores: about 2 minutes (20 on one)
+uv run ruff check .     # mistakes, not style: undefined names, unused imports and variables
 ```
+GitHub runs both on every pull request (`.github/workflows/checks.yml`).
+
+### Updating the running server
+The service does not run from this checkout but from a copy of its own, `SU2_aerosuite-live` beside it, at one
+commit and with its own environment. Edits here, finished or not, never reach the running server. To put a commit
+live:
+
+```bash
+uv run aerosuite service release            # this checkout's HEAD; or: ... release <commit, tag or branch>
+uv run aerosuite service status             # what is live
+```
+A release says which commit was live before, and the command that goes back to it. Running sweeps and Slurm jobs
+go on through a release.
 
 ## Documentation
 - [docs/WEB_UI.md](docs/WEB_UI.md): the web UI page by page. The **?** in the top bar shows this file.
@@ -105,6 +119,7 @@ aerosuite status ./study --watch
 aerosuite cancel ./study
 aerosuite import ./old-runs ./old-study   # read existing SU2 case folders into a read-only study
 aerosuite summarize ./study    # the Results page's parameters, derived and characteristic values → results/*.csv
+aerosuite rejudge ./study      # judge finished runs again with the convergence check as it is now (--dry-run)
 ```
 
 `aerosuite <command> --help` lists every option. Set `run.sweep_python` (`aerosuite set ./study --sweep-python /path/to/python3`) if the Python that imports SU2 is not the first `python3` on your PATH.
@@ -118,10 +133,9 @@ Submitting to Slurm (`--backend slurm`, `--partition`, `resubmit`) is in [docs/C
 - `aerosuite edit` waits for the editor to exit, so a GUI editor needs its wait flag, e.g. `EDITOR="code --wait"`.
 
 ## Future Plans
-See [docs/ROADMAP.md](docs/ROADMAP.md). Next:
-
 - **One case on several nodes:** run a case across 2 or 4 identical nodes over InfiniBand, with a scaling test
   that measures how much faster it gets.
+>See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Legacy desktop app (PyQt5)
 The original desktop version is still in the repository (`run_aerosuite.py`, `aerosuite/main.py`, `ui/`, `core/`,
@@ -132,10 +146,15 @@ uv run python run_aerosuite.py
 alias su2aero2='uv run --project /path/to/SU2_aerosuite python /path/to/SU2_aerosuite/run_aerosuite.py'
 ```
 
-Its pages follow the same order as the web UI: Calculators, Directory, Mesh, CFG (*Aircraft Aero* or *General*),
-Sweep, Control File (scan the configs into `run_control.txt`), Run (launches `aoa_sweep_v8.py` and streams its
-output), Monitor (live residuals) and Results (summary CSV and plots). **Profiles → Save / Load SU2 Profile**
-(Ctrl+S / Ctrl+O) keeps its settings in a JSON file; the web UI's Profiles page replaces that.
+Its pages follow the similiar order as the web UI: 
+- Calculators
+- Directory
+- Mesh
+- CFG (*Aircraft Aero* or *General*)
+- Sweep, Control File (scan the configs into `run_control.txt`)
+- Run (launches `aoa_sweep_v8.py`
+- Monitor (live residuals)
+- Results (summary CSV and plots).
 
 ## Contributors
 Thanks to the following contributors for their work on this project:

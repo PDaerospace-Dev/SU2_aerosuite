@@ -1,10 +1,12 @@
 """Rerun with changes: config lines for one job only, in its own copy of the case's config."""
+from pathlib import Path
+
+from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
+
 from aerosuite.engine.cfg import generate_configs
 from aerosuite.engine.jobs.plan import prepare_job
 from aerosuite.engine.jobs.rerun import describe, rerun_changes
 from aerosuite.engine.project import save_project
-
-from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
 
 LOWER = rerun_changes(cfl=0.5, first_order=True, iterations=3000)
 
@@ -62,10 +64,10 @@ def test_adding_a_case_with_changes_to_a_running_job(slurm_study):
 
 
 def test_a_failed_rerun_keeps_the_solution_it_started_from_and_a_finished_one_not(slurm_study, history_writer):
+    from slurm_helpers import STEADY
+
     from aerosuite.engine.jobs.plan import started_from
     from aerosuite.engine.restarts import RUNS_DIR
-
-    from slurm_helpers import STEADY
 
     project_dir, project, runner, fake = slurm_study
     for name in (A0, A2):
@@ -95,10 +97,10 @@ def test_a_rerun_can_start_from_a_given_solution(ready_project, tmp_path):
 
 
 def test_a_kept_solution_goes_once_the_case_has_one_of_its_own(slurm_study, history_writer):
+    from slurm_helpers import STEADY
+
     from aerosuite.engine.jobs.plan import started_from
     from aerosuite.engine.restarts import RUNS_DIR
-
-    from slurm_helpers import STEADY
 
     project_dir, project, runner, fake = slurm_study
     (project_dir / RUNS_DIR / A0).mkdir(parents=True)
@@ -113,3 +115,41 @@ def test_a_kept_solution_goes_once_the_case_has_one_of_its_own(slurm_study, hist
     runner.refresh(project_dir, again)
     assert started_from(project_dir / "jobs" / failed.id, A0) is None
     assert not (project_dir / "jobs" / failed.id / "restart").exists()
+
+
+def test_a_case_that_stopped_before_writing_a_solution_continues_from_the_one_it_started_from(slurm_study):
+    from aerosuite.engine.jobs.plan import last_solution, started_from
+    from aerosuite.engine.restarts import RUNS_DIR, restart_file
+
+    project_dir, project, runner, fake = slurm_study
+    (project_dir / RUNS_DIR / A0).mkdir(parents=True, exist_ok=True)
+    (project_dir / RUNS_DIR / A0 / "restart_flow.dat").write_text("first-order solution")
+    job = runner.submit(project_dir, project, cases=[A0], continue_cases=[A0])
+    (project_dir / RUNS_DIR / A0 / "restart_flow.dat").unlink(missing_ok=True)  # SU2 stopped at once: none written
+    fake.finish("101", "FAILED", "134:0")
+    job = runner.refresh(project_dir, job)
+    assert restart_file(project_dir, A0) is None
+    kept = started_from(project_dir / "jobs" / job.id, A0)
+    assert last_solution(project_dir, A0) == kept
+    again = runner.submit(project_dir, project, cases=[A0], continue_cases=[A0])
+    control = (project_dir / "jobs" / again.id / "configs" / "run_control.txt").read_text()
+    assert control.startswith(f"{A0}.cfg, custom, ") and "RESTART_SOL= YES" in (
+        project_dir / "jobs" / again.id / "configs" / f"{A0}.cfg").read_text()
+    assert Path(control.split(", ")[2].strip()).read_text() == "first-order solution"
+
+
+def test_after_a_run_from_scratch_an_older_kept_solution_is_not_its_last(slurm_study):
+    from aerosuite.engine.jobs.plan import last_solution
+    from aerosuite.engine.restarts import RUNS_DIR
+
+    project_dir, project, runner, fake = slurm_study
+    (project_dir / RUNS_DIR / A0).mkdir(parents=True, exist_ok=True)
+    (project_dir / RUNS_DIR / A0 / "restart_flow.dat").write_text("first-order solution")
+    first = runner.submit(project_dir, project, cases=[A0], continue_cases=[A0])
+    (project_dir / RUNS_DIR / A0 / "restart_flow.dat").unlink(missing_ok=True)
+    fake.finish("101", "FAILED", "134:0")
+    runner.refresh(project_dir, first)
+    second = runner.submit(project_dir, project, cases=[A0])  # from scratch this time
+    fake.finish("102", "FAILED", "1:0")
+    runner.refresh(project_dir, second)
+    assert last_solution(project_dir, A0) is None

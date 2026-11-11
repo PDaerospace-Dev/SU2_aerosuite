@@ -10,9 +10,23 @@ from nicegui import ui
 
 from ...engine import service
 from ...engine.errors import ServiceError
-from ...engine.remote import default_ssh_address, local_url, ssh_address, tunnel_command, unix_launcher, windows_launcher
-from ...engine.settings import (PartitionSettings, SettingsError, load_settings, save_settings, set_value,
-                                settings_path, validated)
+from ...engine.remote import (
+    default_ssh_address,
+    local_url,
+    ssh_address,
+    tunnel_command,
+    unix_launcher,
+    windows_launcher,
+)
+from ...engine.settings import (
+    PartitionSettings,
+    SettingsError,
+    load_settings,
+    save_settings,
+    set_value,
+    settings_path,
+    validated,
+)
 from .. import serving
 from ..fields import text_field
 from ..layout import header

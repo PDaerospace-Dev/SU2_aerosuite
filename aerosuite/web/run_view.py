@@ -8,8 +8,8 @@ from typing import Optional, Sequence
 
 from ..engine.jobs.overview import NOT_RUN
 from ..engine.jobs.runner import FINAL_CASE_STATES, CaseState, JobRecord
-from ..engine.slurm import parse_duration
 from ..engine.naming import format_value
+from ..engine.slurm import parse_duration
 
 GROUPS_FROM = 13  # fewer cases are listed plainly
 STATUS_ORDER = ("CONVERGED", "RUNNING", "PENDING", NOT_RUN, "UNCONVERGED", "FAILED", "BLOCKED", "CANCELLED")
@@ -144,8 +144,6 @@ def case_from_name(name: str) -> Optional[NamedCase]:
         if match:
             altitude = float(match[1] + ("." + match[2] if match[2] else ""))
     return NamedCase(name, parsed.mach, parsed.alpha, parsed.beta or 0.0, altitude)
-
-COMPACT_FROM = 40  # more cases show as compact tiles
 
 
 @dataclass(frozen=True)

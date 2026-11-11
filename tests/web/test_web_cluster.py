@@ -1,4 +1,5 @@
 import pytest
+from nicegui import ui
 from nicegui.testing import User
 
 from aerosuite.engine.cfg import generate_configs
@@ -440,3 +441,69 @@ async def test_a_failed_job_says_why(user: User, cluster_study, eventually):
     await _open(user)
     await eventually(lambda: bool(user.find(marker="job-101-why").elements), 8)
     assert _text(user, "job-101-why") == "The node failed"
+
+
+# -- a job's nodes and note in My jobs ----------------------------------------------------------------------------
+
+
+async def _my_job(user, cluster_study, eventually, note="", node="hpc1"):
+    project_dir, project, fake = cluster_study
+    job = runner_for("slurm").submit(project_dir, project, cases=[A0, A2], note=note)
+    if node:
+        fake.run("101", node=node, time="0:30")
+    WATCH.track(project_dir, job.id)
+    from aerosuite.web.pages import cluster as cluster_page
+
+    cluster_page._GROUP["on"] = True  # My jobs under a line per study job
+    await _open(user)
+    key = f"{project.name}-{job.id}"
+    await eventually(lambda: bool(user.find(marker=f"group-{key}").elements), 5)
+    return project_dir, job, key
+
+
+async def test_a_job_line_names_its_nodes_with_the_job_id_on_hover_not_the_id_itself(
+        user: User, cluster_study, eventually):
+    _dir, job, key = await _my_job(user, cluster_study, eventually)
+    assert _text(user, f"group-{key}-nodes") == "hpc1"
+    where = _element(user, f"group-{key}-nodes").parent_slot.parent  # the icon, the nodes and their tooltip
+    tip = [c for c in where.descendants() if isinstance(c, ui.tooltip)]
+    assert [t.text for t in tip] == [f"Job {job.id}"]  # the id is on hover when there is no note
+    await user.should_not_see(f"job {job.id}")
+    await user.should_not_see(marker=f"group-{key}-note")  # no note, no note icon
+
+
+async def test_a_job_line_without_a_node_yet_shows_a_dash(user: User, cluster_study, eventually):
+    _dir, _job, key = await _my_job(user, cluster_study, eventually, node="")
+    assert _text(user, f"group-{key}-nodes") == "—"
+
+
+async def test_a_job_with_a_note_has_an_icon_whose_popover_has_the_note_and_edit(
+        user: User, cluster_study, eventually):
+    project_dir, job, key = await _my_job(user, cluster_study, eventually, note="lower CFL #cfl-low")
+    runner_for("slurm").annotate(project_dir, job.id, outcome="converged")
+    await _open(user)
+    await user.should_see(marker=f"group-{key}-note")
+    user.find(marker=f"group-{key}-note").click()  # a click keeps the popover open
+    assert _element(user, f"group-{key}-note-text").content == 'lower CFL <span class="as-hash">#cfl-low</span>'
+    assert _text(user, f"group-{key}-outcome") == "Outcome: converged"
+    assert _text(user, f"group-{key}-job-id").startswith(f"Job {job.id} · saved ")
+
+
+async def test_editing_a_note_on_a_running_job_saves_it_and_the_tags(user: User, cluster_study, eventually):
+    project_dir, job, key = await _my_job(user, cluster_study, eventually, note="first #one")
+    await user.should_see(marker=f"group-{key}-note")
+    user.find(marker=f"group-{key}-note").click()
+    user.find(marker=f"group-{key}-edit").click()
+    await user.should_see(marker="note-dialog")
+    with user:
+        _element(user, "note-edit").set_value("second #two")
+        _element(user, "outcome-edit").set_value("kept")
+    user.find(marker="note-save").click()
+    await eventually(lambda: list_jobs(project_dir)[0].note == "second #two", 5)
+    saved = list_jobs(project_dir)[0]
+    assert (saved.outcome, saved.state.value) == ("kept", "RUNNING")  # the rest of the record is as it was
+    from aerosuite.engine.tags import load_index
+
+    assert set(load_index()) == {"two"}
+    await eventually(lambda: _element(user, f"group-{key}-note-text").content == (
+        'second <span class="as-hash">#two</span>'), 5)

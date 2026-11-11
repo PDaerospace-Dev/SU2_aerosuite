@@ -21,9 +21,9 @@ VIEWS = {"written": "Written lines", "whole": "Whole config"}
 # who writes a line -> (the legend's word, its colour); see theme.py's .as-wl-*
 SOURCES = {"form": ("form", "#2f6fe4"), "altitude": ("altitude", "#0a7ea4"), "marker": ("boundaries", "#8250df"),
            "placeholder": ("extra options", "#bc4c00"), "case": ("per case", "#8c959f")}
-FORM_TABS = {"Flight & air": "flight", "Reference": "reference", "Solver": "solver"}
-TAB_NAMES = {"flight": "Flight & air", "solver": "Solver", "boundaries": "Boundaries", "reference": "Reference",
-             "extra": "Extra options"}
+FORM_TABS = {"Flight & air": "flight", "Reference": "reference", "Solver": "solver", "Convergence": "convergence"}
+TAB_NAMES = {"flight": "Flight & air", "solver": "Solver", "convergence": "Convergence", "boundaries": "Boundaries",
+             "reference": "Reference", "extra": "Extra options"}
 
 
 def line_tab(line: WrittenLine) -> Optional[str]:

@@ -2,14 +2,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from slurm_helpers import A0, slurm_study  # noqa: F401  (fixture)
 
-from aerosuite.engine.ascii_export import (ASCII_CFG, ascii_config, ascii_script, local_script, sol_launch,
-                                           write_ascii)
+from aerosuite.engine.ascii_export import ASCII_CFG, ascii_config, ascii_script, local_script, sol_launch, write_ascii
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
 from aerosuite.engine.settings import AppSettings, SlurmSettings
-
-from slurm_helpers import A0, slurm_study  # noqa: F401  (fixture)
 
 CFG = """MESH_FILENAME= /data/mesh/wing.su2
 SOLUTION_FILENAME= /data/s/runs/M0p6_0km_a5/restart_flow
@@ -95,3 +93,16 @@ def test_a_case_still_running_is_refused(slurm_study):
     (project_dir / "runs" / A0 / "restart_flow.dat").write_text("solution")
     with pytest.raises(JobError, match="pending in job .*once it has ended"):
         write_ascii(project_dir, project, A0, AppSettings())
+
+
+def test_su2_sol_reads_the_restart_by_its_short_name(ready_project, monkeypatch):
+    """SU2 aborts on a solution path over 99 characters; SU2_SOL runs in the case folder, so its name is enough."""
+    project_dir, project = ready_project
+    case = project.cases[0].name
+    folder = project_dir / "runs" / case
+    folder.mkdir(parents=True)
+    (folder / f"{case}.cfg").write_text(CFG)
+    (folder / "restart_flow.dat").write_text("solution")
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: None)
+    write_ascii(project_dir, project, case, AppSettings())
+    assert "SOLUTION_FILENAME= restart_flow\n" in (folder / ASCII_CFG).read_text()

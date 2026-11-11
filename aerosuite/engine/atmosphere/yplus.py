@@ -7,7 +7,6 @@ All correlations and logic ported directly from cfd_yplus_calculator.py.
 import math
 from typing import Dict, Tuple
 
-
 # ── Skin-friction correlations ────────────────────────────────────────────────
 
 def _cf_laminar_external(Re: float) -> float:

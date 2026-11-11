@@ -2,11 +2,11 @@ import json
 
 import pytest
 
-from aerosuite.engine import models, project as project_mod
+from aerosuite.engine import models
+from aerosuite.engine import project as project_mod
 from aerosuite.engine.errors import ProjectError, TemplateError
 from aerosuite.engine.project import (
     PROJECT_FILE,
-    TEMPLATE_FILE,
     create_project,
     open_project,
     save_project,

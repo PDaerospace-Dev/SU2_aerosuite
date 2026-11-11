@@ -13,7 +13,7 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 from .cfg import apply_parameters, case_layers, case_mach, case_parameters
-from .editing import parse_cfl_adapt_param
+from .editing import parse_cfl_adapt_param, parse_conv_field
 from .errors import ProjectError
 from .freestream import case_altitude, freestream_for
 from .models import Case, Project
@@ -35,9 +35,14 @@ FORM_FIELDS = {
     "CFL_NUMBER": ("numerics", "cfl", float, "Solver"),
     "CFL_ADAPT": ("numerics", "cfl_adapt", str, "Solver"),
     "CFL_ADAPT_PARAM": ("numerics", "cfl_adapt_param", parse_cfl_adapt_param, "Solver"),
-    "ITER": ("numerics", "iter", int, "Solver"),
+    "ITER": ("numerics", "iter", int, "Convergence"),
     "CONV_NUM_METHOD_FLOW": ("numerics", "conv_method", str, "Solver"),
     "MUSCL_FLOW": ("numerics", "muscl", str, "Solver"),
+    "CONV_FIELD": ("numerics", "conv_field", parse_conv_field, "Convergence"),
+    "CONV_RESIDUAL_MINVAL": ("numerics", "conv_residual_minval", float, "Convergence"),
+    "CONV_CAUCHY_ELEMS": ("numerics", "conv_cauchy_elems", int, "Convergence"),
+    "CONV_CAUCHY_EPS": ("numerics", "conv_cauchy_eps", float, "Convergence"),
+    "CONV_STARTITER": ("numerics", "conv_startiter", int, "Convergence"),
 }
 SWEEP_KEYS = {"MACH_NUMBER": "Mach", "AOA": "α", "SIDESLIP_ANGLE": "β"}
 

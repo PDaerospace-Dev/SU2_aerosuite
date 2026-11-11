@@ -29,7 +29,7 @@ async def test_the_button_dot_and_count(user: User, fake_slurm, ready_project, t
     assert WATCH.viewers >= 1  # the button asks the poller for sinfo -N
     await WATCH.poll_once()
     await eventually(lambda: "as-dot-green" in _element(user, "cluster-dot").classes, 5)
-    assert _element(user, "cluster-count").text == "· 2"
+    assert _element(user, "cluster-count").text == "2"
     fake_slurm.update(nodes=["hpc1|node1*|alloc|192/0/0/192|125000|101000|96.0|none",
                              "hpc2|node2|drain|0/0/192/192|62000|57000|0.0|bad DIMM"])
     await WATCH.poll_once()

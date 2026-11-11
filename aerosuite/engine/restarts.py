@@ -8,6 +8,7 @@ from typing import Iterable, Optional
 
 RUNS_DIR = "runs"
 DEFAULT_RESTART_NAME = "restart_flow"  # SU2's default RESTART_FILENAME
+SU2_MAX_PATH = 99  # SU2 copies SOLUTION_FILENAME into a char[100] (CSolver::Read_SU2_Restart_*): longer aborts it
 _RESTART_RE = re.compile(r"^\s*RESTART_FILENAME\s*=\s*(\S+)", re.MULTILINE)
 
 
@@ -22,6 +23,25 @@ def _restart_name(folder: Path) -> str:
         if match:
             return Path(match.group(1)).name
     return DEFAULT_RESTART_NAME
+
+
+def su2_solution_path(solution: str | Path, run_folder: Path) -> str:
+    """SOLUTION_FILENAME for a case SU2 runs in `run_folder` (a relative `solution` is from there): the path
+    relative to that folder when it is shorter, as SU2 cannot read a path longer than SU2_MAX_PATH."""
+    path = Path(solution)
+    if not path.is_absolute():
+        path = Path(run_folder) / path
+    path = Path(os.path.normpath(path))
+    try:
+        relative = os.path.relpath(path, run_folder)
+    except ValueError:  # Windows: on another drive
+        return str(path)
+    return min((str(path), relative), key=len)
+
+
+def su2_path_length(solution: str) -> int:
+    """The length of `solution` as SU2 reads it: it adds .dat to a name without .dat or .csv."""
+    return len(solution) + (0 if solution.endswith((".dat", ".csv")) else 4)
 
 
 def find_restart_file(folder: Path) -> Optional[Path]:

@@ -7,10 +7,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, NamedTuple, Optional, Sequence
 
-from ..engine.jobs.runner import FINAL_CASE_STATES, JobRecord
 from ..engine.cluster import MyJob
-from ..engine.slurm import (FAILED_STATES, QUEUED_STATES, RESUBMITTABLE, RUNNING_STATES, ClusterInfo,
-                             Snapshot, parse_duration)
+from ..engine.jobs.runner import FINAL_CASE_STATES, JobRecord
+from ..engine.settings import SlurmSettings
+from ..engine.slurm import (
+    FAILED_STATES,
+    QUEUED_STATES,
+    RESUBMITTABLE,
+    RUNNING_STATES,
+    ClusterInfo,
+    Snapshot,
+    parse_duration,
+)
 from .run_view import about_text, case_seconds, job_left
 
 
@@ -71,6 +79,7 @@ class NodeLine:
     memory_gb: Optional[int] = None
     free_gb: Optional[int] = None
     load_value: Optional[float] = None
+    threads: int = 1  # allocated and total are physical cores; Slurm's CPUs are this many threads per core
 
     @property
     def busy_percent(self) -> int:
@@ -108,8 +117,9 @@ def node_groups(cluster: Optional[ClusterInfo]) -> list[tuple[str, bool, list[No
     for row in cluster.nodes:
         total, free = _gb(row.memory_mb), _gb(row.free_mb)
         memory = f"{free} of {total} GB free" if total is not None and free is not None else "—"
-        line = NodeLine(row.node, row.state, row.bad, row.allocated, row.total, memory,
-                        "—" if row.load is None else f"{row.load:.1f}", row.reason, total, free, row.load)
+        line = NodeLine(row.node, row.state, row.bad, row.cores_allocated, row.cores, memory,
+                        "—" if row.load is None else f"{row.load:.1f}", row.reason, total, free, row.load,
+                        row.threads)
         default, lines = groups.setdefault(row.partition, (row.default, []))
         lines.append(line)
         if row.default and not default:
@@ -370,34 +380,72 @@ def summary_line(cluster: Optional[ClusterInfo], snapshot: Optional[Snapshot], u
 class SummaryParts(NamedTuple):
     message: str  # "Slurm controller unreachable" / "Asking Slurm…"; "" when the nodes are known
     bad: bool  # a drained or down node, or Slurm not answering
-    nodes: tuple  # (partition, level "free" | "busy" | "bad", text, tooltip)
+    nodes: tuple  # (partition, level "free" | "full" | "bad", text, tooltip), the ones with room first
     mine: str  # "1 running · 15 queued" (the user's jobs), "" when none
 
 
-def summary_parts(cluster: Optional[ClusterInfo], snapshot: Optional[Snapshot], user: str) -> SummaryParts:
-    """The Run page's footer: one pill per partition (free, a share busy, or bad) and the user's jobs."""
+def summary_parts(cluster: Optional[ClusterInfo], snapshot: Optional[Snapshot], user: str,
+                  slurm: Optional[SlurmSettings] = None) -> SummaryParts:
+    """The Run page's node strip: one pill per partition ("node2 · 50% free", "node0 · full", or its bad state), the
+    ones with room first, and the user's jobs. With `slurm`, only the partitions AeroSuite can run on, and one whose
+    jobs are --exclusive has room only on a node with nothing on it."""
     status, _tip = cluster_status(snapshot, cluster)
     if status == "red":
         return SummaryParts("Slurm controller unreachable", True, (), "")
     if status == "grey":
         return SummaryParts("Asking Slurm…", False, (), "")
-    nodes = []
+    known = {p.name: p for p in slurm.partitions} if slurm is not None else None
+    nodes = []  # (sort key, pill)
     for name, _default, lines in node_groups(cluster):
+        if known is not None and name not in known:
+            continue
         allocated, total = sum(n.allocated for n in lines), sum(n.total for n in lines)
         bad = [n for n in lines if n.bad]
         tip = f"{allocated}/{total} busy"
+        exclusive = known is not None and (slurm.exclusive if known[name].exclusive is None else known[name].exclusive)
+        idle = [n for n in lines if not n.bad and n.allocated == 0]
         if bad:
             states = ", ".join(dict.fromkeys(n.state for n in bad))
-            nodes.append((name, "bad", f"{name} {states}", f"{tip}; {', '.join(n.node for n in bad)} {states}"))
-        elif allocated == 0:
-            nodes.append((name, "free", f"{name} free", tip))
+            nodes.append(((2, 0), (name, "bad", f"{name} · {states}", f"{tip}; {', '.join(n.node for n in bad)} {states}")))
+        elif total and allocated >= total:
+            nodes.append(((1, 0), (name, "full", f"{name} · full", tip)))
+        elif exclusive and not idle:  # partly used: an --exclusive case waits for a node to empty
+            nodes.append(((1, 0), (name, "full", f"{name} · full", f"{tip}; an exclusive case needs an idle node")))
+        elif exclusive and allocated:
+            share = len(idle) / len(lines)
+            nodes.append(((0, -share), (name, "free", f"{name} · {len(idle)} of {len(lines)} nodes free", tip)))
         else:
-            nodes.append((name, "busy", f"{name} {round(100 * allocated / total) if total else 0}%", tip))
+            share = 1 - allocated / total if total else 1.0
+            words = "free" if allocated == 0 else f"{max(1, round(100 * share))}% free"
+            nodes.append(((0, -share), (name, "free", f"{name} · {words}", tip)))
+    nodes.sort(key=lambda item: item[0])  # stable: the cluster's order among equals
     rows = [r for r in snapshot.queue.values() if r.user == user] if snapshot is not None else []
     running = sum(1 for r in rows if r.state in RUNNING_STATES)
     queued = sum(1 for r in rows if r.state in QUEUED_STATES)
     mine = " · ".join(text for count, text in ((running, f"{running} running"), (queued, f"{queued} queued")) if count)
-    return SummaryParts("", status == "amber", tuple(nodes), mine)
+    return SummaryParts("", status == "amber", tuple(pill for _key, pill in nodes), mine)
+
+
+def full_note(nodes: Sequence[tuple], selected: Optional[str]) -> str:
+    """Under the fields when the chosen partition has no free core: its cases wait, and where they could start now."""
+    if not any(name == selected and level == "full" for name, level, _text, _tip in nodes):
+        return ""
+    free = [name for name, level, _text, _tip in nodes if level == "free"]
+    return f"{selected} is full, so cases will wait in the queue." + (f" {free[0]} can start them now." if free else "")
+
+
+def fitting_partition(estimate_gb: float, current: Optional[str], partitions: Sequence, nodes: Sequence[tuple]
+                      ) -> Optional[tuple[str, float]]:
+    """Another partition whose memory limit holds `estimate_gb`, as (name, its limit in GB): one with room first,
+    then in the strip's order; never one that is down or drained."""
+    place = {name: index for index, (name, _level, _text, _tip) in enumerate(nodes)}
+    level = {name: level for name, level, _text, _tip in nodes}
+    fits = [p for p in partitions if p.name != current and p.memory_limit_mb / 1024 >= estimate_gb
+            and level.get(p.name) != "bad"]
+    if not fits:
+        return None
+    best = min(fits, key=lambda p: place.get(p.name, len(place)))
+    return best.name, best.memory_limit_mb / 1024
 
 
 def started_at(row: MyJob, taken: float) -> Optional[float]:
@@ -483,6 +531,26 @@ class JobGroup:
     ended: Optional[float]  # when it ended; while it runs, about when it ends (None: not known yet)
     active: bool
     rows: tuple[MyJob, ...]
+    nodes: tuple[str, ...] = ()  # where its cases ran or run, each once, in the order of the job's cases
+    note: str = ""
+    outcome: str = ""
+    created: Optional[float] = None  # when the job was submitted
+
+
+def job_nodes_text(nodes: Sequence[str]) -> str:
+    """'node1, node2', or '—' while no case has a node yet."""
+    return ", ".join(nodes) or "—"
+
+
+def record_nodes(record: JobRecord) -> tuple[str, ...]:
+    """The nodes of a job's cases, each once, in the order of its cases."""
+    found: dict[str, None] = {}
+    for case in record.cases:
+        sc = record.slurm.get(case)
+        for node in (sc.node.split(",") if sc is not None and sc.node else ()):
+            if node.strip():
+                found[node.strip()] = None
+    return tuple(found)
 
 
 def job_groups(rows: Sequence[MyJob], lookup: Callable[[Path, str], Optional[tuple[JobRecord, str]]],
@@ -509,7 +577,8 @@ def job_groups(rows: Sequence[MyJob], lookup: Callable[[Path, str], Optional[tup
             ended = max(ends) if ends else (record.finished.timestamp() if record.finished else None)
         groups.append(JobGroup(f"{name}-{job_id}", study, name, job_id, record.state.value.capitalize(), finished,
                                len(record.cases), min(starts, default=None), ended, record.is_active,
-                               tuple(members)))
+                               tuple(members), record_nodes(record), record.note, record.outcome,
+                               record.created.timestamp()))
     return groups
 
 

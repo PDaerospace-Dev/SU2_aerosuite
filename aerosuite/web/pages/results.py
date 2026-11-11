@@ -18,24 +18,73 @@ from nicegui import run, ui
 from ...engine.errors import AeroSuiteError
 from ...engine.formula import FormulaError, Missing, parse
 from ...engine.models import DerivedValue, PlotSpec, ResultsSettings
-from ...engine.packages import (Package, availability, disable_package, effective, enable_package, list_packages,
-                                load_package, save_package)
-from ...engine.study_results import CONSTANT_NAMES, SWEEP_NAMES
+from ...engine.packages import (
+    Package,
+    availability,
+    disable_package,
+    effective,
+    enable_package,
+    list_packages,
+    load_package,
+    save_package,
+)
 from ...engine.project import PROJECT_FILE
 from ...engine.results import history_columns
-from ...engine.study_results import cost_frame, node_hours, study_results, summary_frame, write_results
+from ...engine.study_results import (
+    CONSTANT_NAMES,
+    SWEEP_NAMES,
+    cost_frame,
+    node_hours,
+    study_results,
+    summary_frame,
+    write_results,
+)
 from ..fields import text_field
 from ..jobs import WATCHER
 from ..layout import ProjectFrame, open_session, project_url
 from ..param_picker import ParamPicker
 from ..picker import pick_path
 from ..results_charts import ChartDesign, along, chart_options, describe_lines, split_keys
-from ..results_view import (COST_HEADINGS, SWEEP_LABELS, SWEEP_UNITS, add_parameter, cost_cells, clear_filters, conditions, converged_text, filter_rows, pin,
-                            remove_parameter, shown_plot, shown_values, status_counts, sweep_values, table_text, toggle_filter,
-                            variable_text, varying)
+from ..results_view import (
+    COST_HEADINGS,
+    SWEEP_LABELS,
+    SWEEP_UNITS,
+    add_parameter,
+    clear_filters,
+    conditions,
+    converged_text,
+    cost_cells,
+    filter_rows,
+    pin,
+    remove_parameter,
+    shown_plot,
+    shown_values,
+    status_counts,
+    sweep_values,
+    table_text,
+    toggle_filter,
+    variable_text,
+    varying,
+)
 from ..theme import SERIES_COLORS
-from ..ui_kit import (banner, chip_button, field, hint, html_table, html_td, html_th, pill, pill_text, pill_tone,
-                      primary_button, secondary_button, table, td, td_box, th, titled)
+from ..ui_kit import (
+    banner,
+    chip_button,
+    field,
+    hint,
+    html_table,
+    html_td,
+    html_th,
+    pill_text,
+    pill_tone,
+    primary_button,
+    secondary_button,
+    table,
+    td,
+    td_box,
+    th,
+    titled,
+)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended
 FILTERED = ("Config", "Mach", "Altitude", "Temperature", "Alpha", "Beta")  # the Filters panel's variables
@@ -113,6 +162,7 @@ class ResultsPage:
         self._shown: tuple = ([], [])  # (rows per design, varying sweep variables) as last drawn
         self.panel: Optional[str] = None  # the open control panel (PANELS), None: all closed
         with frame.actions:
+            frame.paraview.button()
             if frame.session.project.imported is not None:
                 secondary_button("Rescan", icon="refresh", on_click=self.rescan).mark("results-rescan").props(
                     'title="Read the runs folder again: new case folders, gone ones, changed values"')

@@ -1,12 +1,11 @@
 import pytest
+from slurm_helpers import A0, A2, A4, STEADY, slurm_study  # noqa: F401  (fixture)
 
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
 from aerosuite.engine.jobs.runner import CaseState, JobState
 from aerosuite.engine.jobs.store import active_lock, list_jobs, load_job
 from aerosuite.engine.project import save_project
-
-from slurm_helpers import A0, A2, A4, STEADY, slurm_study  # noqa: F401  (fixture)
 
 NODE2 = SlurmOptions(partition="node2", ntasks=48, time_limit="", exclusive=True, account="pdas")
 
@@ -65,7 +64,7 @@ def test_an_added_case_waits_for_the_running_case_it_restarts_from(slurm_study):
     assert job.slurm[A2].depends_on == A0
     assert fake.job("102")["dependency"] == "afterany:101"
     cfg = (project_dir / "runs" / A2 / f"{A2}.cfg").read_text()
-    assert f"SOLUTION_FILENAME= {project_dir / 'runs' / A0 / 'restart_flow'}" in cfg
+    assert f"SOLUTION_FILENAME= ../{A0}/restart_flow" in cfg
     assert "RESTART_SOL= YES" in cfg
     solution = project_dir / "runs" / A0 / "restart_flow"
     assert f"[ -f {solution} ] || [ -f {solution}.dat ] || [ -f {solution}.csv ]" in (

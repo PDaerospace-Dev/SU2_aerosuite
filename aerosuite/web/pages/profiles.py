@@ -13,14 +13,35 @@ from ...engine.editing import parse_value_list
 from ...engine.errors import ProjectError
 from ...engine.models import Settings
 from ...engine.naming import format_value
-from ...engine.profiles import (BUNDLED_PROFILES, Profile, ProfileData, delete_profile, duplicate_profile,
-                                edit_profile, list_profiles, load_profile, set_profile_mesh, set_profile_template)
+from ...engine.profiles import (
+    BUNDLED_PROFILES,
+    Profile,
+    ProfileData,
+    delete_profile,
+    duplicate_profile,
+    edit_profile,
+    list_profiles,
+    load_profile,
+    set_profile_mesh,
+    set_profile_template,
+)
 from ..fields import text_field
 from ..layout import header
 from ..picker import pick_path
 from ..session import parse_int, parse_optional_number
-from ..ui_kit import (banner, card, card_head, danger_button, field, hint, primary_button, secondary_button, table,
-                      td, th)
+from ..ui_kit import (
+    banner,
+    card,
+    card_head,
+    danger_button,
+    field,
+    hint,
+    primary_button,
+    secondary_button,
+    table,
+    td,
+    th,
+)
 
 REFERENCE = [("Reference length", "ref_length"), ("Reference area", "ref_area"), ("Moment origin x", "origin_x"),
              ("Moment origin y", "origin_y"), ("Moment origin z", "origin_z")]

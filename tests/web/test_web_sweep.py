@@ -477,3 +477,24 @@ async def test_no_check_cases_button_without_cases(user: User, ready_project):
     await _open(user, project_dir)
     await user.should_see(marker="sweep-none")
     await user.should_not_see(marker="check-cases")
+
+
+async def test_your_choices_shows_what_the_cases_run_with_and_what_changed_since_they_ran(user: User, ready_project):
+    project_dir, project = ready_project
+    project.settings.numerics.iter = 800
+    save_project(project_dir, project)
+    case = project.cases[0].name
+    (project_dir / "runs" / case).mkdir(parents=True)
+    (project_dir / "runs" / case / f"{case}.cfg").write_text("ITER= 600\n")
+    await _open(user, project_dir)
+    await user.should_see(marker="choices")
+    assert "as-card-folded" not in _element(user, "choices").classes  # open at first
+    await user.should_see("800 per case")
+    await user.should_see("1 changed since the cases last ran")
+    user.find(marker="fold-sweep-choices").click()  # folded: one line
+    assert "as-card-folded" in _element(user, "choices").classes
+    assert "800 iterations" in _element(user, "choices-line").text
+    user.find(marker="fold-sweep-choices").click()
+    await user.should_see(marker="choice-iterations-own")
+    await user.should_see("last run: ITER= 600")
+    await user.should_see(marker="choice-mesh")

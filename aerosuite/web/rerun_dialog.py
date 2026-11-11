@@ -1,5 +1,5 @@
-"""The Run page's "Rerun with changes…": a lower CFL, a first-order start, the iterations, from the last solution or
-from scratch, for one job only (engine/jobs/rerun.py); and "Keep" afterwards, which writes what a case ran with into
+"""The Run page's "Rerun with changes…": a lower CFL, a first-order start, the iterations, and where it starts from
+(the Run page's three ways, each saying which solution, or another solution), for one job only (engine/jobs/rerun.py); and "Keep" afterwards, which writes what a case ran with into
 its config (the template, or the form field or placeholder that writes the line)."""
 import re
 from pathlib import Path
@@ -10,12 +10,13 @@ from nicegui import ui
 from ..engine.cfg import case_layers, read_template, render_case
 from ..engine.config_edit import apply_changes
 from ..engine.errors import AeroSuiteError, ProjectError
+from ..engine.jobs.plan import last_solution, preview_starts
 from ..engine.jobs.rerun import describe, rerun_changes
 from ..engine.models import Project
 from ..engine.naming import format_value
-from ..engine.restarts import restart_file
 from .layout import ProjectFrame
 from .session import parse_optional_int, parse_optional_number
+from .starts_view import MODE_LABELS, SINGLE_LABELS, start_text
 from .template_edit import write_template_params
 from .ui_kit import hint, primary_button, secondary_button
 
@@ -34,8 +35,8 @@ async def ask_rerun(directory: Path, project: Project, name: str, kind: str,
                     ) -> Optional[tuple[dict, str]]:
     """Ask how to rerun `name` after a failure of `kind` (jobs/diagnose.py; "unconverged" too). `sources` are more
     solutions it can start from ({path: label}, e.g. the one its failed run started from), `chosen` the one to
-    offer first. Returns (the config changes, where it starts: "last", "scratch" or a solution's path), or None
-    when cancelled."""
+    offer first. Returns (the config changes, where it starts: "last", "sweep", "scratch" or a solution's path), or
+    None when cancelled."""
     sources = sources or {}
     case = next(c for c in project.cases if c.name == name)
     try:
@@ -45,7 +46,8 @@ async def ask_rerun(directory: Path, project: Project, name: str, kind: str,
     cfl = _value(config, "CFL_NUMBER") or "1"
     adaptive = (_value(config, "CFL_ADAPT") or "NO").upper() == "YES"
     iterations = _value(config, "ITER") or ""
-    has_solution = restart_file(directory, name) is not None
+    last = last_solution(directory, name)
+    has_solution = last is not None
     diverged = kind == "diverged"
     try:
         lower = format_value(round(float(cfl) / 2, 6)) if diverged else cfl
@@ -63,10 +65,16 @@ async def ask_rerun(directory: Path, project: Project, name: str, kind: str,
         with ui.row().classes("items-center gap-2 no-wrap"):
             ui.label("Iterations").classes("as-label")
             iter_box = ui.input(value=iterations).props("dense outlined").classes("w-28").mark("rerun-iter")
-        options = {"last": "From its last solution" + ("" if has_solution else " (none yet)"), **sources,
-                   "scratch": "From scratch"}
-        first_choice = chosen or (next(iter(sources)) if sources and kind != "unconverged" else None)
-        start = ui.radio(options, value=first_choice or ("last" if has_solution else "scratch")).mark("rerun-start")
+        options = {"last": _choice(directory, project, name, "last") if has_solution else
+                   f"{SINGLE_LABELS['last']} (none yet)",
+                   "sweep": _choice(directory, project, name, "sweep"),
+                   **{path: label for path, label in sources.items() if last is None or Path(path) != last},
+                   "scratch": SINGLE_LABELS["scratch"]}
+        others = [path for path in options if path not in ("last", "sweep", "scratch")]
+        first_choice = chosen or (others[0] if others and kind != "unconverged" else None)
+        ui.label("Starts from").classes("as-run-head")
+        start = ui.radio(options, value=first_choice or ("last" if has_solution else "scratch")).props(
+            "dense").classes("as-start-choice").mark("rerun-start")
         error = ui.label("").classes("as-error-text").mark("rerun-error")
 
         def confirm() -> None:
@@ -93,6 +101,16 @@ async def ask_rerun(directory: Path, project: Project, name: str, kind: str,
             secondary_button("Cancel", on_click=lambda: _answer(dialog, None)).mark("rerun-cancel")
             primary_button("Rerun", icon="replay", on_click=confirm).mark("rerun-confirm")
     return await dialog
+
+
+def _choice(directory: Path, project: Project, name: str, mode: str) -> str:
+    """A start's label with what it means for this case, e.g. "As set up · M0p3_20km_a5's solution"."""
+    label = MODE_LABELS["sweep"] if mode == "sweep" and len(project.cases) > 1 else SINGLE_LABELS[mode]
+    try:
+        start = preview_starts(directory, project, [name], mode)[0]
+    except AeroSuiteError:
+        return label
+    return f"{label} · {start_text(start)}"
 
 
 def kept(config: str, changes: dict) -> bool:

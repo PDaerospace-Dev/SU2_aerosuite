@@ -3,8 +3,15 @@ import json
 
 import pytest
 
-from aerosuite.engine.cfg import (CASE_INDEX_FILE, CONFIGS_DIR, build_cases, case_altitude, case_freestream,
-                                  generate_configs, render_case)
+from aerosuite.engine.cfg import (
+    CASE_INDEX_FILE,
+    CONFIGS_DIR,
+    build_cases,
+    case_altitude,
+    case_freestream,
+    generate_configs,
+    render_case,
+)
 from aerosuite.engine.editing import set_altitudes, set_freestream, update_sweep
 from aerosuite.engine.errors import ProjectError
 from aerosuite.engine.freestream import freestream_setup_errors, naming_altitude

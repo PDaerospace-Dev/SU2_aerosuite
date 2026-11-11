@@ -1,5 +1,6 @@
-"""The top bar's ParaView button: a menu of the project's cases that have flow files, newest first, and
-"Write ASCII from restart…" (a case's flow.vtk and surface_flow.vtk rebuilt by SU2_SOL from its restart file).
+"""ParaView for a project: the Monitor and Results pages' button, a menu of the project's cases that have flow
+files, newest first, and "Write ASCII from restart…" (a case's flow.vtk and surface_flow.vtk rebuilt by SU2_SOL from
+its restart file). The top bar's search finds the same cases.
 
 ParaView starts on the workstation's own display, so only a browser on the workstation starts it;
 from another PC a case copies its folder path instead.
@@ -32,14 +33,27 @@ def is_local(ip: str) -> bool:
 
 
 class ParaViewMenu:
+    """Built once per project page (the ASCII dialog); `button` puts the button where a page wants it."""
+
     def __init__(self, frame) -> None:
         self.frame = frame
-        with ui.button("ParaView", icon="view_in_ar", color=None).props("flat dense no-caps").classes(
-                "as-topbar-icon as-topbar-labelled").mark("paraview"):
+        self.menu = None
+        self._ascii_dialog()
+
+    def button(self) -> ui.button:
+        with ui.button("ParaView", icon="view_in_ar", color=None).props("unelevated no-caps").classes(
+                "as-btn as-btn-secondary").mark("paraview") as button:
             # Filled each time it opens: flow files appear as cases finish.
             self.menu = ui.menu().mark("paraview-menu")
         self.menu.on_value_change(lambda e: self._fill() if e.value else None)
-        self._ascii_dialog()
+        return button
+
+    def choose(self, output: CaseOutput) -> None:
+        """Open a case's flow files (on the workstation), else copy its folder path."""
+        self._choose(output, is_local(ui.context.client.ip))
+
+    def ask_ascii(self) -> None:
+        self._ask_ascii()
 
     def _runs_folder(self) -> Path:
         project = self.frame.session.project

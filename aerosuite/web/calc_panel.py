@@ -1,4 +1,4 @@
-"""Calculators as a panel that slides in from the right over any page (the top bar's Calculators button)."""
+"""Calculators as a panel that slides in from the right over any page (from the top bar's search)."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
@@ -29,12 +29,15 @@ class CalcPanel:
         else:
             self.open()
 
-    def open(self) -> None:
+    def open(self, key: str = "") -> None:
+        """Show the panel, on calculator `key` if given."""
         if self.view is None:
             from .pages.calculators import CalculatorsView  # the page module imports layout, which imports this
 
             with self.body:
-                self.view = CalculatorsView(self.frame, "", compact=True)
+                self.view = CalculatorsView(self.frame, key, compact=True)
+        elif key:
+            self.view.show(key, {})
         self.panel.set_visibility(True)
 
     def close(self) -> None:

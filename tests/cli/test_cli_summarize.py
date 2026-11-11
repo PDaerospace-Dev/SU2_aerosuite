@@ -1,8 +1,7 @@
 import math
 
-import pytest
-
 import pandas as pd
+import pytest
 from typer.testing import CliRunner
 
 from aerosuite.cli import app

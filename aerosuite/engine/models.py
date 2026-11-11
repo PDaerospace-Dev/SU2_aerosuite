@@ -43,6 +43,14 @@ class Numerics(BaseModel):
     iter: Optional[int] = None
     conv_method: Optional[str] = None
     muscl: Optional[str] = None
+    # When SU2 stops before `iter` (the Convergence tab): CONV_FIELD as SU2 reads it, "RMS_DENSITY" (a residual,
+    # down to conv_residual_minval) or "( LIFT, DRAG )" (coefficients that settle: Cauchy over conv_cauchy_elems
+    # iterations, below conv_cauchy_eps); checked from iteration conv_startiter
+    conv_field: Optional[str] = None
+    conv_residual_minval: Optional[float] = None
+    conv_cauchy_elems: Optional[int] = None
+    conv_cauchy_eps: Optional[float] = None
+    conv_startiter: Optional[int] = None
 
 
 class Settings(BaseModel):

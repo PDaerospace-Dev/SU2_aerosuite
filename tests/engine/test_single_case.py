@@ -1,9 +1,6 @@
 import json
 import time
 
-from aerosuite.engine.jobs.local import RUNS_DIR, LocalRunner
-from aerosuite.engine.jobs.runner import JobState
-from aerosuite.engine.results import load_case_index, summarize
 from aerosuite.engine.cfg import (
     CASE_INDEX_FILE,
     CONFIGS_DIR,
@@ -14,9 +11,12 @@ from aerosuite.engine.cfg import (
     single_case_name,
     template_case_values,
 )
+from aerosuite.engine.jobs.local import RUNS_DIR, LocalRunner
+from aerosuite.engine.jobs.runner import JobState
 from aerosuite.engine.models import SCHEMA_VERSION, Project
 from aerosuite.engine.preflight import preflight, sweep_problems
-from aerosuite.engine.project import create_project, open_project, save_project, PROJECT_FILE
+from aerosuite.engine.project import PROJECT_FILE, create_project, open_project, save_project
+from aerosuite.engine.results import load_case_index, summarize
 
 
 def _single(ready_project):

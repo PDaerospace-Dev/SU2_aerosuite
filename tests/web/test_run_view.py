@@ -1,8 +1,15 @@
 """The Run page's rules without NiceGUI: layout by study size, groups, counts, durations, time left."""
 from aerosuite.engine.jobs.overview import CaseRow
 from aerosuite.engine.models import Case
-from aerosuite.web.run_view import (case_conditions, case_groups, clock_text, duration_text, layout, status_counts,
-                                    time_left)
+from aerosuite.web.run_view import (
+    case_conditions,
+    case_groups,
+    clock_text,
+    duration_text,
+    layout,
+    status_counts,
+    time_left,
+)
 
 
 def _cases(machs=(1.5, 2.0), altitudes=(5.0, 10.0), alphas=range(8)):

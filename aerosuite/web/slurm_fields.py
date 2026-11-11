@@ -8,7 +8,7 @@ from ..engine.jobs.executors import slurm_options
 from ..engine.settings import AppSettings
 from .fields import text_field
 from .session import parse_int
-from .ui_kit import hint
+from .ui_kit import field, hint
 
 
 def run_text(project, settings: AppSettings, backend: str) -> str:
@@ -21,11 +21,26 @@ def run_text(project, settings: AppSettings, backend: str) -> str:
     return f"This machine · {count} MPI partition{'' if count == 1 else 's'} per case"
 
 
+def select_partition(frame, name: str, current: str, on_change: Callable[[], None]) -> None:
+    """Make `name` the study's partition (each partition has its own default tasks) and redraw."""
+    if name == current:
+        return
+
+    def change(p) -> None:
+        p.run.slurm.partition = name
+        p.run.slurm.ntasks = None  # each partition has its own default
+
+    message = frame.save(change)
+    if message is not None:
+        ui.notify(message, type="negative")
+    on_change()
+
+
 def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], mark: str,
-                 columns: bool = False, compact: bool = False) -> None:
+                 columns: bool = False, compact: bool = False, over: bool = False) -> None:
     """The three fields with a hint under each; `on_change` runs after a value is saved (redraw); `columns` lays them
-    out side by side (as-grid-3) instead of one under another. `compact`: only partition and tasks, side by side with
-    one line under them (the time limit is shown by the caller)."""
+    out side by side (as-grid-3) instead of one under another. `compact`: only partition and tasks, side by side
+    (`over`: the partition's box is red, the estimate is over its memory limit)."""
     project = frame.session.project
     options = slurm_options(project, settings)
     partition = settings.slurm.partition(options.partition)
@@ -34,17 +49,7 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
         names.append(options.partition)
 
     def set_partition(name: str) -> None:
-        if name == options.partition:
-            return
-
-        def change(p) -> None:
-            p.run.slurm.partition = name
-            p.run.slurm.ntasks = None  # each partition has its own default
-
-        message = frame.save(change)
-        if message is not None:
-            ui.notify(message, type="negative")
-        on_change()
+        select_partition(frame, name, options.partition, on_change)
 
     def set_ntasks(text: str) -> Optional[str]:
         message = frame.save(lambda p: setattr(p.run.slurm, "ntasks", parse_int(text, "Tasks per case")))
@@ -53,7 +58,7 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
         return message
 
     if compact:
-        _compact(options, partition, names, set_partition, set_ntasks, mark)
+        partition_row(names, options.partition, options.ntasks, partition, set_partition, set_ntasks, mark, over=over)
         return
     box = ui.element("div").classes("as-grid-3 w-full") if columns else ui.column().classes("w-full gap-2")
     with box:
@@ -82,18 +87,19 @@ def slurm_fields(frame, settings: AppSettings, on_change: Callable[[], None], ma
                  "longer (TIMEOUT)").mark(f"{mark}-time-note")
 
 
-def _compact(options, partition, names, set_partition, set_ntasks, mark: str) -> None:
-    """Partition and tasks in one row, then one line: the memory limit and nodes per case (or the warning)."""
+def partition_row(names, value: str, ntasks: int, partition, set_partition: Callable[[str], None],
+                  set_ntasks: Callable[[str], Optional[str]], mark: str, over: bool = False,
+                  ntasks_label: str = "Tasks per case") -> None:
+    """Partition and tasks side by side in the same outlined style, with a line under them when the partition is not
+    in the settings or gains nothing from that many tasks. `over`: the partition's box is red."""
     with ui.element("div").classes("as-grid-2 w-full"):
-        ui.select(names, value=options.partition, label="Partition", on_change=lambda e: set_partition(e.value)
-                  ).classes("w-full").props("dense").mark(f"{mark}-partition")
-        text_field("Tasks per case", options.ntasks, set_ntasks, mark=f"{mark}-ntasks")
+        box = field(ui.select(names, value=value, label="Partition", on_change=lambda e: set_partition(e.value))
+                    ).classes("w-full").mark(f"{mark}-partition")
+        if over:
+            box.classes("as-field-over")
+        text_field(ntasks_label, ntasks, set_ntasks, mark=f"{mark}-ntasks")
     if partition is None:
         hint("Not in the settings: choose another partition").classes("as-hint-warning").mark(f"{mark}-partition-note")
-        return
-    hint(f"{partition.memory_limit_mb / 1024:.0f} GB limit · {partition.default_ntasks} tasks by default · 1 node "
-         "per case" + (", exclusive" if options.exclusive else "")
-         + (f" · time limit {options.time_limit}" if options.time_limit else "")).mark(f"{mark}-partition-note")
-    if partition.ntasks_warn_above and options.ntasks > partition.ntasks_warn_above:
+    elif partition.ntasks_warn_above and ntasks > partition.ntasks_warn_above:
         hint(f"{partition.name} gains nothing above about {partition.ntasks_warn_above} tasks").classes(
             "as-hint-warning").mark(f"{mark}-node-note")

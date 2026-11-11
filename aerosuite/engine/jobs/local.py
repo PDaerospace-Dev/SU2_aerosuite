@@ -11,18 +11,19 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
 import psutil
 
+from ..attempts import archive_before_rerun, settle_attempts
 from ..cfg import RUN_CONTROL_FILE
 from ..errors import JobError
 from ..models import Project
 from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
-from ..attempts import archive_before_rerun, settle_attempts
 from .plan import drop_kept, prepare_job, prune_restarts
 from .rerun import describe
 from .runner import (
@@ -32,11 +33,22 @@ from .runner import (
     JobState,
     new_job_id,
     resolve_sweep_python,
+    serialized,
     sweep_environment,
     sweep_script_path,
     unfinished,
 )
-from .store import JOBS_DIR, active_lock, clear_lock, kill_tree, load_job, process_alive, save_job, write_lock
+from .store import (
+    JOBS_DIR,
+    active_lock,
+    annotate_job,
+    clear_lock,
+    kill_tree,
+    load_job,
+    process_alive,
+    save_job,
+    write_lock,
+)
 
 BANNER_RE = re.compile(r"Running Case\s+\d+/\d+:\s+(\S+?)\.cfg")
 TAIL_LINES = 50
@@ -105,14 +117,15 @@ class LocalRunner:
         self._procs: dict[tuple[Path, str], subprocess.Popen] = {}
         # -> (bytes of the log already scanned, case names whose banner was seen)
         self._scan: dict[tuple[Path, str], tuple[int, list[str]]] = {}
+        self._lock = threading.RLock()  # job records change under it: a refresh and an edited note
 
     # -- Runner interface ---------------------------------------------------
 
     def submit(self, project_dir: Path, project: Project, cases: Optional[Sequence[str]] = None,
                continue_cases: Iterable[str] = (), changes: Optional[Mapping[str, Mapping[str, str]]] = None,
-               starts: Optional[Mapping[str, Optional[str]]] = None) -> JobRecord:
+               starts: Optional[Mapping[str, Optional[str]]] = None, note: str = "") -> JobRecord:
         """Run `cases` (default: every case) from the job's own configs (see jobs/plan.py); `changes` are config
-        lines for this job only, `starts` how cases start (jobs/plan.py)."""
+        lines for this job only, `starts` how cases start (jobs/plan.py); `note`: what the run is for."""
         project_dir = Path(project_dir).resolve()
         if active_lock(project_dir):
             raise JobError("A job is already running for this project")
@@ -140,6 +153,7 @@ class LocalRunner:
             case_status={name: CaseState.PENDING for name in names},
             changes={name: dict(lines) for name, lines in (changes or {}).items() if name in names and lines},
             attempts=archived,
+            note=note.strip(),
         )
         exit_file = f"{JOBS_DIR}/{job_id}.exit"
         sweep = [
@@ -192,6 +206,13 @@ class LocalRunner:
         save_job(project_dir, job)
         return job
 
+    @serialized
+    def annotate(self, project_dir: Path, job_id: str, note: Optional[str] = None, outcome: Optional[str] = None,
+                 append: bool = False) -> tuple[str, JobRecord]:
+        """Set the job's note and/or outcome (see annotate_job); under the lock refresh() saves the record under."""
+        return annotate_job(Path(project_dir).resolve(), job_id, note, outcome, append)
+
+    @serialized
     def refresh(self, project_dir: Path, job: JobRecord) -> JobRecord:
         if not job.is_active:
             return job

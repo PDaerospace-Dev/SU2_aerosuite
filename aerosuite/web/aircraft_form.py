@@ -69,7 +69,8 @@ def _template_options(frame: ProjectFrame) -> dict[str, str]:
 
 
 def solver_tab(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], None]) -> Callable[[], None]:
-    """Scheme, iterations and CFL; with Adaptive CFL on, CFL_ADAPT_PARAM's numbers. Returns its redraw."""
+    """Scheme and CFL; with Adaptive CFL on, CFL_ADAPT_PARAM's numbers (the iterations are on the Convergence tab).
+    Returns its redraw."""
     box = ui.column().classes("w-full gap-3")
 
     def both() -> None:
@@ -87,10 +88,8 @@ def solver_tab(frame: ProjectFrame, hints: dict[str, str], after: Callable[[], N
                 for label, name, options in SCHEME:
                     with ui.column().classes("gap-1"):
                         dropdown(frame, label, name, options, after)
-            ui.label("Iterations and CFL").classes("as-subhead")
+            ui.label("CFL").classes("as-subhead")
             with ui.element("div").classes("as-grid-3"):
-                with ui.column().classes("gap-1"):
-                    number_field(frame, hints, "Iterations", "numerics", "iter", "int", after)
                 with ui.column().classes("gap-1"):
                     number_field(frame, hints, "CFL number" + (" (start)" if adaptive else ""), "numerics", "cfl",
                                  "float", after)

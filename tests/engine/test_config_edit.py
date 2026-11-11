@@ -64,7 +64,7 @@ def test_a_line_the_form_writes_changes_the_form_not_the_template():
     assert edit.changes == {"REF_AREA": "12.5", "ITER": "900"}
     done, notes = apply_changes(project, project.cases[0], TEMPLATE, edit.changes)
     assert (project.settings.reference.ref_area, project.settings.numerics.iter) == (12.5, 900)
-    assert done == ["REF_AREA (Reference)", "ITER (Solver)"] and not notes
+    assert done == ["REF_AREA (Reference)", "ITER (Convergence)"] and not notes
 
 
 def test_a_removed_form_line_stays_with_a_note():

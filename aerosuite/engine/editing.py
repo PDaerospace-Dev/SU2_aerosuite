@@ -81,6 +81,33 @@ def parse_key_value(text: str) -> tuple[str, str]:
     return key, value
 
 
+# CONV_FIELD's history fields: residuals reach CONV_RESIDUAL_MINVAL; coefficients settle (Cauchy). Field -> its column.
+RESIDUAL_FIELDS = ("RMS_DENSITY", "RMS_MOMENTUM-X", "RMS_MOMENTUM-Y", "RMS_MOMENTUM-Z", "RMS_ENERGY", "RMS_NU_TILDE",
+                   "RMS_TKE", "RMS_DISSIPATION")
+COEFFICIENT_FIELDS = {"LIFT": "CL", "DRAG": "CD", "MOMENT_Y": "CMy", "SIDEFORCE": "CSF", "MOMENT_X": "CMx",
+                      "MOMENT_Z": "CMz", "EFFICIENCY": "CEff"}
+
+
+def conv_fields(text: str) -> list[str]:
+    """CONV_FIELD's fields: '( LIFT, DRAG )' -> ['LIFT', 'DRAG']."""
+    return [token.upper() for token in _SPLIT_RE.split(text.strip().strip("()")) if token]
+
+
+def parse_conv_field(text: str) -> str:
+    """'lift drag' -> '( LIFT, DRAG )', one field bare ('RMS_DENSITY'). Raises ValueError for a field SU2's flow
+    solver does not monitor, or a mix of residuals and coefficients (SU2 would wait for both)."""
+    fields = conv_fields(text)
+    if not fields:
+        raise ValueError("CONV_FIELD needs a field, e.g. RMS_DENSITY or LIFT, DRAG")
+    unknown = [f for f in fields if f not in RESIDUAL_FIELDS and f not in COEFFICIENT_FIELDS]
+    if unknown:
+        raise ValueError(f"CONV_FIELD: {', '.join(unknown)} is not a residual ({', '.join(RESIDUAL_FIELDS[:2])}, …) "
+                         f"or a coefficient ({', '.join(COEFFICIENT_FIELDS)})")
+    if any(f in RESIDUAL_FIELDS for f in fields) and any(f in COEFFICIENT_FIELDS for f in fields):
+        raise ValueError("CONV_FIELD mixes residuals and coefficients: SU2 would stop only when both are met")
+    return fields[0] if len(fields) == 1 else "( " + ", ".join(fields) + " )"
+
+
 CFL_ADAPT_PARAM_HELP = "factor down, factor up, min CFL, max CFL[, linear solver tolerance, start iteration]"
 
 

@@ -39,10 +39,32 @@ def install(
 def status() -> None:
     """Whether the service runs, and how to open it."""
     typer.echo(service.status_text())
+    live = service.live_text()
+    if live:
+        typer.echo("")
+        typer.echo(live)
     port = service.installed_port()
     if port is not None:
         typer.echo("")
         _how_to_open(port)
+
+
+@service_app.command()
+@engine_errors
+def release(
+    ref: Annotated[str, typer.Argument(help="The commit, tag or branch to run (default: this checkout's HEAD)")]
+    = "HEAD",
+    root: Annotated[Optional[Path], typer.Option(help="Folder the file picker starts in (default: as installed)")]
+    = None,
+    port: Annotated[Optional[int], typer.Option(min=1, max=65535, help="Port (default: as installed)")] = None,
+    no_restart: Annotated[bool, typer.Option(
+        "--no-restart", help="Prepare the live copy and its environment; leave the running server alone")] = False,
+) -> None:
+    """Run the server from a copy of its own, at one commit: <repository>-live beside this checkout, with its own
+    environment. Later work in this checkout, finished or not, cannot reach the running server; run this again to
+    move the live copy to a newer commit. Running sweeps and Slurm jobs go on."""
+    for line in service.release(ref, root, port, restart=not no_restart):
+        typer.echo(line)
 
 
 @service_app.command()

@@ -13,16 +13,24 @@ from typing import TYPE_CHECKING, Optional, Union
 import pandas as pd
 
 from .atmosphere import ISACalculator
-from .cfg import CONFIGS_DIR, CASE_INDEX_FILE, case_mach, read_template
+from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, case_mach, read_template
 from .errors import AeroSuiteError
 from .formula import FormulaError, Missing, curve_axes, evaluate, evaluate_curve, parse
 from .freestream import altitude_error, case_altitude
+from .jobs.slurm import STATS_FILE
 from .models import Case, Project
 from .project import PROJECT_FILE, open_project
 from .restarts import RUNS_DIR
-from .jobs.slurm import STATS_FILE
-from .results import (RESULTS_DIR, case_histories, convergence_columns, history_columns, imported_case_index,
-                      load_case_index, summarize, write_summary)
+from .results import (
+    RESULTS_DIR,
+    case_histories,
+    convergence_columns,
+    history_columns,
+    imported_case_index,
+    load_case_index,
+    summarize,
+    write_summary,
+)
 
 if TYPE_CHECKING:
     from .packages import Definitions

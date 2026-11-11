@@ -160,8 +160,8 @@ def _old_runs(root):
 def test_an_imported_study_reads_its_case_folders(tmp_path):
     from aerosuite.engine.imported import create_imported_study
     from aerosuite.engine.models import ResultsSettings
-    from aerosuite.engine.results import history_columns
     from aerosuite.engine.project import open_project
+    from aerosuite.engine.results import history_columns
 
     runs = _old_runs(tmp_path)
     create_imported_study(tmp_path / "study", runs)

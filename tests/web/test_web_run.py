@@ -86,12 +86,17 @@ async def test_rerun_failed_and_unconverged_cases(user: User, ready_project, su2
 
     user.find(marker="select-failed").click()
     assert _element(user, f"tick-{A2}").value and not _element(user, f"tick-{A4}").value
-    assert not _element(user, "continue").enabled  # A2 failed before writing a solution
-    await user.should_see(marker="continue-missing")
+    assert _element(user, "start-mode").value == "sweep"  # as the sweep says until changed
+    with user:
+        _element(user, "start-mode").set_value("last")
+    assert not _element(user, "submit").enabled  # A2 failed before writing a solution
+    assert "no solution to start from" in _text(user, "submit-blocked")
+    await user.should_see(marker=f"start-{A2}")
 
     user.find(marker="select-unconverged").click()
     assert _element(user, f"tick-{A4}").value and not _element(user, f"tick-{A0}").value
-    assert _element(user, "continue").value is True  # UNCONVERGED with a solution: on by default
+    assert _element(user, "start-mode").value == "last"  # the choice stays as the selection changes
+    assert _element(user, "submit").enabled
     user.find(marker="submit").click()
     await eventually(lambda: _text(user, f"status-{A4}") == "CONVERGED", timeout=20)
     latest = list_jobs(project_dir)[0]
@@ -236,7 +241,7 @@ async def test_warnings_are_folded_and_errors_stay_in_view(user: User, ready_pro
 
 async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User, ready_project, monkeypatch,
                                                                      eventually):
-    import aerosuite.web.pages.run as page
+    import aerosuite.web.pages.run_panel as page  # where the machine strip is read
     from aerosuite.engine.machine import Machine
 
     project_dir, project = ready_project
@@ -315,6 +320,7 @@ async def test_a_grid_of_cases_is_a_board(user: User, ready_project, su2_env):
     assert _element(user, "run-tabs").value == "board"
     await user.should_see(marker=f"tile-{first}")
     assert _text(user, "run-what") == "14"  # nothing has run: every case is selected
+    assert "Ctrl-click" in _text(user, "board-help")  # how to select several tiles
     user.find(marker="board-row-|0-0.6").click()  # a row's name: all selected, so unselect them
     assert _text(user, "run-what") == "7"
     user.find(marker="board-col-|0-3").click()  # a column: select its cases
@@ -385,6 +391,10 @@ async def test_an_altitude_head_names_only_its_failed_cases(user: User, ready_pr
     pills = [child.text for child in head.default_slot.children if "as-pill" in child.classes]
     assert pills == ["1 failed"]  # the other counts are in the bar only
     assert _text(user, "count-converged") == "1"
-    user.find(marker="run-density-compact").click()
-    await user.should_see(marker="run-density-compact")
-    assert "as-icon-toggle-on" in _element(user, "run-density-compact").classes
+    assert "as-icon-toggle-on" in _element(user, "run-density-compact").classes  # small tiles at first
+    tile = _element(user, f"tile-{names[0]}")
+    assert [child.text for child in tile.default_slot.children] == ["! failed"]  # the small line only
+    user.find(marker="run-density-large").click()
+    assert "as-icon-toggle-on" in _element(user, "run-density-large").classes
+    tile = _element(user, f"tile-{names[0]}")
+    assert [child.text for child in tile.default_slot.children] == ["Failed", "! failed"]
