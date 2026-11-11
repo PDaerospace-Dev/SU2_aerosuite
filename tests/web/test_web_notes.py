@@ -7,7 +7,6 @@ from aerosuite.engine import tags
 from aerosuite.engine.jobs.plan import prepare_job
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
 from aerosuite.engine.jobs.store import list_jobs, save_job
-from aerosuite.engine.settings import AppSettings, save_settings, set_value
 from aerosuite.web.layout import project_url
 
 A0, A2, A4 = "M0p8_a0_b0", "M0p8_a2_b0", "M0p8_a4_b0"

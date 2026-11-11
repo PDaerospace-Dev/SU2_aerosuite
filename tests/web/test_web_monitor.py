@@ -106,7 +106,7 @@ async def test_open_file_plots_a_history_file_and_choosing_a_case_switches_back(
     project_dir, project = ready_project
     runner, job = _start(project_dir, project)
     _wait(runner, project_dir, job, lambda j: not j.is_active)
-    external = history_writer(tmp_path / "external_run", [0.5, 0.6, 0.7])
+    history_writer(tmp_path / "external_run", [0.5, 0.6, 0.7])
     await _open(user, project_dir)
     assert _element(user, "monitor-case").value == A4  # the case shown before Open file is used
     user.find(marker="monitor-open-file").click()

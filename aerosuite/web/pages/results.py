@@ -34,7 +34,7 @@ from ..results_view import (COST_HEADINGS, SWEEP_LABELS, SWEEP_UNITS, add_parame
                             remove_parameter, shown_plot, shown_values, status_counts, sweep_values, table_text, toggle_filter,
                             variable_text, varying)
 from ..theme import SERIES_COLORS
-from ..ui_kit import (banner, chip_button, field, hint, html_table, html_td, html_th, pill, pill_text, pill_tone,
+from ..ui_kit import (banner, chip_button, field, hint, html_table, html_td, html_th, pill_text, pill_tone,
                       primary_button, secondary_button, table, td, td_box, th, titled)
 
 POLL_SECONDS = 5.0  # how often the page checks whether a job started or ended

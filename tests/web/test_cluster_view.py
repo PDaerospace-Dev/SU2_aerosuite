@@ -129,7 +129,9 @@ def test_sort_jobs_by_each_column():
 
     rows = [_dated("1", "b", "M0p8_a2", "FAILED", "10:00", 300.0), _dated("2", "a", "M0p8_a0", "CONVERGED", "1:02:00", 100.0),
             _dated("3", "c", "M0p8_a4", "UNCONVERGED", "", None)]
-    ids = lambda key, descending: [r.slurm_id for r in sort_jobs(rows, key, descending)]
+    def ids(key, descending):
+        return [r.slurm_id for r in sort_jobs(rows, key, descending)]
+
     assert SORT_KEYS == ("submitted", "study", "case", "state", "elapsed")
     assert ids("submitted", True) == ["1", "2", "3"]  # newest first; unknown dates last either way
     assert ids("submitted", False) == ["2", "1", "3"]

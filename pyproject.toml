@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "pytest-xdist>=3.6", "ruff>=0.9"]
 
 [project.scripts]
 aerosuite = "aerosuite.cli:main"
@@ -39,3 +39,18 @@ addopts = "-p nicegui.testing.user_plugin"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 main_file = "tests/web/main_app.py"
+
+[tool.ruff]
+line-length = 120
+# The PyQt5 desktop app (retired in a later phase) and the sweep script, which must stay Python 3.7 compatible
+extend-exclude = ["aerosuite/ui", "aerosuite/core", "aerosuite/utils", "aerosuite/main.py", "aerosuite/resources",
+                  "run_aerosuite.py", "tests/legacy"]
+
+[tool.ruff.lint]
+# Mistakes, not style: names that do not exist, imports and variables nothing uses, stray whitespace. Line length is
+# kept to 120 by hand (some sixty lines are a few characters over).
+select = ["E4", "E7", "E9", "F", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+# a fixture imported from another test module and then asked for by name; imports after pytest.importorskip
+"tests/**" = ["F811", "E402"]

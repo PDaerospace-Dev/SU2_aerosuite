@@ -8,7 +8,7 @@ from aerosuite.engine.cfg import generate_configs
 from aerosuite.engine.jobs.executors import runner_for
 from aerosuite.engine.jobs.runner import CaseState, JobState
 from aerosuite.engine.jobs.store import list_jobs
-from aerosuite.engine.project import open_project, save_project, set_mesh
+from aerosuite.engine.project import open_project, save_project
 from aerosuite.engine.settings import AppSettings, load_settings, save_settings, set_value
 from aerosuite.web.layout import project_url
 from aerosuite.web.slurm_watch import WATCH

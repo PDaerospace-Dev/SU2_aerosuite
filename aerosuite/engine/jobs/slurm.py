@@ -30,7 +30,7 @@ from ..errors import JobError
 from ..models import Project
 from ..restarts import DEFAULT_RESTART_NAME, RUNS_DIR, su2_solution_path
 from ..results import HISTORY_FILE, check_convergence, read_history
-from ..settings import AppSettings, SlurmSettings, current_settings, env_pairs
+from ..settings import SlurmSettings, current_settings, env_pairs
 from .. import slurm as sl
 from .executors import SlurmOptions, slurm_options
 from ..attempts import archive_before_rerun, keep_aside, settle_attempts

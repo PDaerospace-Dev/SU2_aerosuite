@@ -1,4 +1,4 @@
-from aerosuite.engine.models import Case, Project
+from aerosuite.engine.models import Project
 from aerosuite.engine.preflight import sweep_problems
 
 

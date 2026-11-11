@@ -10,18 +10,18 @@ from typing import Dict
 
 class ISACalculator:
     """Calculator for ISA atmospheric properties."""
-    
+
     # Physical constants
     G = 9.80665  # m/s² - gravitational acceleration
     R = 287.0528  # J/(kg·K) - gas constant for dry air
     GAMMA = 1.4  # ratio of specific heats
-    
+
     # Sutherland's Law constants (US76 / SU2 defaults): 1.789e-5 Pa·s at 288.15 K.
     # The desktop app paired the sea-level 1.7894e-5 with a 273.11 K reference, 4% too high.
     MU_0 = 1.716e-5  # kg/(m·s) - reference dynamic viscosity at T_0
     T_0 = 273.15  # K - reference temperature
     S = 110.4  # K - Sutherland constant
-    
+
     # ISA atmospheric layers: (h_base [km], lapse_rate [K/km], T_base [K], P_base [Pa])
     LAYERS = [
         (0, -6.5, 288.15, 101325.0),      # Troposphere
@@ -33,17 +33,17 @@ class ISACalculator:
         (71, -2.0, 214.65, 3.96),         # Mesosphere 2
         (84.85, 0, 186.95, 0.37)          # Mesopause
     ]
-    
+
     @staticmethod
     def calculate(altitude_km: float, mach: float, length_m: float) -> Dict[str, float]:
         """
         Calculate ISA atmospheric properties.
-        
+
         Args:
             altitude_km: Altitude in kilometers (0-100)
             mach: Mach number
             length_m: Characteristic length in meters
-            
+
         Returns:
             Dictionary containing:
                 - temperature: Temperature [K]
@@ -57,16 +57,16 @@ class ISACalculator:
         """
         if not 0 <= altitude_km <= 100:
             raise ValueError("Altitude must be between 0 and 100 km")
-        
+
         # Find the appropriate atmospheric layer
         h_b, L_rate, T_b, P_b = ISACalculator.LAYERS[0]
         for layer in ISACalculator.LAYERS:
             if altitude_km >= layer[0]:
                 h_b, L_rate, T_b, P_b = layer
-        
+
         # Calculate temperature
         temperature = T_b + L_rate * (altitude_km - h_b)
-        
+
         # Calculate pressure
         if L_rate != 0:
             pressure = P_b * (temperature / T_b) ** (
@@ -76,30 +76,30 @@ class ISACalculator:
             pressure = P_b * math.exp(
                 -ISACalculator.G * (altitude_km - h_b) * 1000 / (ISACalculator.R * T_b)
             )
-        
+
         # Calculate density
         density = pressure / (ISACalculator.R * temperature)
-        
+
         # Calculate true airspeed
         speed_of_sound = math.sqrt(ISACalculator.GAMMA * ISACalculator.R * temperature)
         true_airspeed = speed_of_sound * mach
-        
+
         # Calculate dynamic viscosity using Sutherland's Law
         dynamic_viscosity = (
-            ISACalculator.MU_0 * 
-            (temperature / ISACalculator.T_0) ** 1.5 * 
+            ISACalculator.MU_0 *
+            (temperature / ISACalculator.T_0) ** 1.5 *
             (ISACalculator.T_0 + ISACalculator.S) / (temperature + ISACalculator.S)
         )
-        
+
         # Calculate kinematic viscosity
         kinematic_viscosity = dynamic_viscosity / density
-        
+
         # Calculate Reynolds number
         reynolds_number = (true_airspeed * length_m) / kinematic_viscosity
-        
+
         # Calculate dynamic pressure
         dynamic_pressure = 0.5 * density * true_airspeed ** 2
-        
+
         return {
             'temperature': temperature,
             'pressure': pressure,
@@ -111,12 +111,12 @@ class ISACalculator:
             'dynamic_pressure': dynamic_pressure,
             'reynolds_number': reynolds_number
         }
-    
+
     @staticmethod
     def get_formulas() -> str:
         """
         Get formatted string of ISA formulas.
-        
+
         Returns:
             HTML formatted string of formulas
         """
@@ -133,12 +133,12 @@ class ISACalculator:
             "<p><b>Dynamic Pressure:</b><br>"
             "q = 0.5 × ρ × V²</p>"
         )
-    
+
     @staticmethod
     def get_constants() -> str:
         """
         Get formatted string of physical constants.
-        
+
         Returns:
             HTML formatted string of constants
         """

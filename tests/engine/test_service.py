@@ -41,7 +41,7 @@ def test_the_unit_runs_this_python_in_a_login_shell_and_never_stops_a_sweep(tmp_
 
 def test_percent_and_dollar_reach_bash_as_written(tmp_path):
     root = tmp_path / "50%_$HOME"
-    line = next(l for l in service.unit_text(root, 8080).splitlines() if l.startswith("ExecStart="))
+    line = next(text for text in service.unit_text(root, 8080).splitlines() if text.startswith("ExecStart="))
     assert "50%%_$$HOME" in line
 
 

@@ -7,7 +7,7 @@ from nicegui.testing import User
 from aerosuite.engine.cfg import CONFIGS_DIR, generate_configs
 from aerosuite.engine.errors import AeroSuiteError
 from aerosuite.engine.jobs.local import LocalRunner
-from aerosuite.engine.project import open_project, save_project
+from aerosuite.engine.project import save_project
 from aerosuite.web import layout
 from aerosuite.web.guide import app_version
 from aerosuite.web.layout import badge_color, initials, project_url

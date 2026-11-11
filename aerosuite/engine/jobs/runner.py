@@ -6,7 +6,6 @@ import os
 import re
 import shutil
 import sys
-import threading
 from datetime import datetime
 from enum import Enum
 from pathlib import Path

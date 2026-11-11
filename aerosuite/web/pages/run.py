@@ -28,7 +28,7 @@ from ...engine.packages import effective
 from ...engine.preflight import has_errors, preflight
 from ...engine.restarts import RUNS_DIR, restart_file
 from ...engine.results import HISTORY_FILE, history_columns
-from ...engine.settings import AppSettings, load_settings
+from ...engine.settings import load_settings
 from ...engine.slurm_checks import memory_summary, outside_load_problems
 from ...engine.study_results import study_results
 from ..cluster_view import (can_resubmit, case_slurm_text, fitting_partition, full_note, node_groups, partition_nodes,
