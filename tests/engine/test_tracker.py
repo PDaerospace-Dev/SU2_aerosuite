@@ -1,6 +1,6 @@
 """Run-matrix workbooks: reading the matrix, the statuses jobs give, and writing them without losing the rest."""
 import zipfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -8,8 +8,8 @@ from openpyxl import Workbook, load_workbook
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
 from aerosuite.engine.jobs.store import load_job, save_job
-from aerosuite.engine.tracker import (collect_statuses, elevator_of, has_tag, job_counts, key, plan_changes,
-                                      read_matrix, solver_order, write_statuses)
+from aerosuite.engine.tracker import (backups_dir, collect_statuses, daily_backups, elevator_of, has_tag, job_counts,
+                                      key, plan_changes, read_matrix, solver_order, write_statuses)
 
 RUN_ID = '=IF(ROW()-4>$D$14,"","RUN-"&TEXT(ROW()-4,"0000"))'
 EXTRA_PART = "customXml/item1.xml"
@@ -229,6 +229,32 @@ def test_writing_changes_only_the_status_cells(tmp_path):
         assert archive.read(EXTRA_PART) == EXTRA_BYTES
         assert 'fullCalcOnLoad="1"' in archive.read("xl/workbook.xml").decode()
     assert read_matrix(path, "Study").rows[0].status == "Converged"
+
+
+def test_a_copy_per_day_is_kept_for_a_week(tmp_path, monkeypatch):
+    """The copy is the workbook before the day's first write; later writes that day leave it; a week of them stays."""
+    import aerosuite.engine.tracker as tracker
+
+    class Day(date):
+        now = date(2026, 11, 1)
+
+        @classmethod
+        def today(cls):
+            return cls.now
+
+    monkeypatch.setattr(tracker, "date", Day)
+    book = make_workbook(tmp_path / "m.xlsx")
+    for day in range(1, 11):
+        Day.now = date(2026, 11, day)
+        write_statuses(book, "Study", "M", {5: f"day {day}"})
+        write_statuses(book, "Study", "M", {5: f"day {day}, again"})
+    copies = daily_backups(book)
+    assert [day.isoformat() for day, _ in copies] == [f"2026-11-{d:02d}" for d in range(10, 3, -1)]  # 7 kept
+    assert all(path.parent == backups_dir(book) == tmp_path / "m.backups" for _, path in copies)
+    assert load_workbook(copies[0][1])["Study"]["M5"].value == "day 9, again"  # before the 10th's first write
+    assert load_workbook(tmp_path / "m.bak.xlsx")["Study"]["M5"].value == "day 10"  # the previous write, as before
+    (backups_dir(book) / "m.notes.xlsx").write_bytes(b"")  # a file of yours there is not counted or removed
+    assert len(daily_backups(book)) == 7
 
 
 def test_a_workbook_open_in_excel_is_left_alone(tmp_path):

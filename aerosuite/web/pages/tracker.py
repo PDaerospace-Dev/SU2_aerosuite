@@ -15,8 +15,9 @@ from nicegui import run, ui
 
 from ...engine.errors import AeroSuiteError, TrackerError
 from ...engine.naming import format_value
-from ...engine.tracker import (ORDERS, Template, detail_value, elevator_of, outside_reason, parse_values,
-                               project_levels, read_template, sheet_name_problem, sheet_names, template_sheets)
+from ...engine.tracker import (BACKUPS_KEPT, ORDERS, Template, backups_dir, daily_backups, detail_value, elevator_of,
+                               outside_reason, parse_values, project_levels, read_template, sheet_name_problem,
+                               sheet_names, template_sheets)
 from ...engine.tracker_links import (Link, LinkedProject, LinkReport, candidate_projects, create_sheet, find_link,
                                      last_write, load_tracker, remove_link, report, save_link, saved_links,
                                      set_auto, set_completed, write_link)
@@ -292,6 +293,7 @@ class Overview:
                           on_change=lambda e, ids=ids: self._set_auto(ids, e.value)).mark("tracker-auto")
                 secondary_button("Download", lambda: ui.download.file(path), icon="download").mark(
                     "tracker-download").set_enabled(path.is_file())
+                self._backups(path)
             with ui.element("div").classes("as-table-scroll w-full"):
                 with table("minmax(190px, 1.2fr) minmax(170px, 1fr) minmax(240px, 1.7fr) minmax(130px, .8fr) "
                            "auto").classes("as-matrix-table"):
@@ -300,6 +302,19 @@ class Overview:
                     for item in items:
                         self._sheet_row(item)
             legend()
+
+    def _backups(self, workbook: Path) -> None:
+        """The workbook's daily copies (each from before that day's first write), to download."""
+        copies = daily_backups(workbook)
+        if not copies:
+            return
+        with ui.button(icon="history").props("flat round dense").mark("tracker-backups") as button:
+            titled(button, f"Backups: the workbook before each day's first write, {BACKUPS_KEPT} kept")
+            with ui.menu():
+                ui.label("Before the first write of…").classes("as-menu-title")
+                for day, copy in copies:
+                    ui.menu_item(f"{day:%a %d %b %Y}", lambda copy=copy: ui.download.file(copy)).mark(
+                        f"tracker-backup-{day:%Y-%m-%d}")
 
     def _sheet_row(self, item: LinkReport) -> None:
         link = item.link
@@ -712,7 +727,8 @@ class Preview:
             with ui.row().classes("w-full items-center gap-2"):
                 workbook = Path(self.link.workbook)
                 hint(f"Only the Status cells (and a blank Completed on) change. The previous file is kept as "
-                     f"{workbook.stem}.bak{workbook.suffix}.").classes("grow")
+                     f"{workbook.stem}.bak{workbook.suffix}, and a copy per day for a week in "
+                     f"{backups_dir(workbook).name}.").classes("grow")
                 flat_button("Coverage", lambda: ui.navigate.to(coverage_url(self.link.id)), icon="grid_view").mark(
                     "preview-coverage")
                 flat_button("Change the link", lambda: ui.navigate.to(edit_url(self.link.id))).mark("preview-edit")

@@ -852,6 +852,7 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
 .as-cov-line { display: flex; gap: 8px; align-items: center; break-inside: avoid; padding: 1px 0; }
 .as-cov-chip { padding: 3px 10px; text-decoration: none; }
 .as-cov-legend { border-top: none; padding: 0; }
+.as-menu-title { font-size: 11.5px; color: var(--as-muted); padding: 8px 16px 2px; }
 /* a note that names a tag without its # */
 .as-tag-hint { font-size: 12px; color: #9a6700; padding-top: 4px; align-items: flex-start; }
 .as-tag-hint > .q-icon { margin-top: 2px; flex: none; }

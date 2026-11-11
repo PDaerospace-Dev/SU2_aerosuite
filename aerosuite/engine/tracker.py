@@ -15,6 +15,7 @@ import shutil
 import threading
 import uuid
 import zipfile
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime
 from math import prod
@@ -29,6 +30,7 @@ from .jobs.diagnose import diagnose
 from .jobs.executors import runner_of
 from .jobs.runner import CaseState, JobRecord
 from .jobs.store import JOBS_DIR, scan_jobs
+from .locking import file_lock
 from .restarts import RUNS_DIR
 from .results import HISTORY_FILE, check_convergence, load_case_index, read_history
 
@@ -582,11 +584,52 @@ def _bytes(data: Union[str, bytes]) -> bytes:
     return data.encode("utf-8") if isinstance(data, str) else data
 
 
+BACKUPS_KEPT = 7  # daily copies of a workbook: a week of the days it was written on
+
+
+def backups_dir(workbook: Path) -> Path:
+    """Where a workbook's daily copies are kept: <name>.backups beside it."""
+    workbook = Path(workbook)
+    return workbook.with_name(f"{workbook.stem}.backups")
+
+
+def daily_backups(workbook: Path) -> list[tuple[date, Path]]:
+    """The workbook's daily copies, newest first: each is the workbook as it was before that day's first write."""
+    workbook = Path(workbook)
+    found = []
+    for path in backups_dir(workbook).glob(f"{workbook.stem}.*{workbook.suffix}"):
+        try:
+            found.append((date.fromisoformat(path.name[len(workbook.stem) + 1:-len(workbook.suffix)]), path))
+        except ValueError:
+            continue  # not one of ours
+    return sorted(found, reverse=True)
+
+
+def _keep_daily(workbook: Path) -> None:
+    """Before the day's first write: a copy of the workbook in backups_dir, named by the day. The .bak beside the
+    workbook is only one write old, and automatic writes come often; these go back a week. Older ones are removed."""
+    folder = backups_dir(workbook)
+    today = folder / f"{workbook.stem}.{date.today():%Y-%m-%d}{workbook.suffix}"
+    if today.exists():
+        return
+    folder.mkdir(exist_ok=True)
+    shutil.copy2(workbook, today)
+    for _day, old in daily_backups(workbook)[BACKUPS_KEPT:]:
+        old.unlink(missing_ok=True)
+
+
 def _rewrite(workbook: Path, edit: Callable[[zipfile.ZipFile], dict[str, Union[str, bytes]]], again: str) -> Path:
     """Save the workbook with the parts `edit` returns ({zip entry: XML or bytes}, new ones added at the end), every
     other entry copied byte for byte. The previous file is kept as <name>.bak.xlsx (still a workbook Excel opens), which
-    is returned. `again` ends the message when Excel has it open."""
+    is returned, and the day's first write keeps a daily copy (_keep_daily). `again` ends the message when Excel has
+    it open. One program writes a workbook at a time (the lock is in its backups folder)."""
     workbook = Path(workbook)
+    with file_lock(backups_dir(workbook) / ".write") if workbook.is_file() else nullcontext():
+        return _rewrite_locked(workbook, edit, again)
+
+
+def _rewrite_locked(workbook: Path, edit: Callable[[zipfile.ZipFile], dict[str, Union[str, bytes]]],
+                    again: str) -> Path:
     lock = _office_lock(workbook)
     if lock is not None:
         raise TrackerError(f"{workbook.name} is open in {lock[0]} ({lock[1].name} exists); close it and {again}")
@@ -604,6 +647,7 @@ def _rewrite(workbook: Path, edit: Callable[[zipfile.ZipFile], dict[str, Union[s
                     info.compress_type = zipfile.ZIP_DEFLATED
                     out.writestr(info, _bytes(data))
         shutil.copymode(workbook, tmp)
+        _keep_daily(workbook)
         shutil.copy2(workbook, backup)
         os.replace(tmp, workbook)
     except (zipfile.BadZipFile, KeyError, ElementTree.ParseError) as exc:
