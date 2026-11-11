@@ -10,6 +10,7 @@ from typing import Optional
 import psutil
 
 from ..errors import JobError
+from ..locking import file_lock
 from .runner import JobRecord
 
 JOBS_DIR = "jobs"
@@ -20,15 +21,30 @@ def _job_file(project_dir: Path, job_id: str) -> Path:
     return Path(project_dir) / JOBS_DIR / f"{job_id}.json"
 
 
-def save_job(project_dir: Path, job: JobRecord) -> None:
+def records_lock(project_dir: Path):
+    """The lock every program takes to save one of the project's job records (jobs/.records.lock)."""
+    return file_lock(Path(project_dir) / JOBS_DIR / ".records")
+
+
+def save_job(project_dir: Path, job: JobRecord, notes: bool = False) -> None:
+    """Save the record. Its note and outcome are the user's and are changed only through annotate_job (`notes`): any
+    other save keeps the ones on disk, so a runner that read the record before a note was edited in another program
+    (the command line, a second server) does not put the old note back."""
     path = _job_file(project_dir, job.id)
     tmp = path.with_name(path.name + ".tmp")
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(job.model_dump_json(indent=2), encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError as exc:
-        raise JobError(f"Cannot save job record {path}: {exc}") from exc
+    with records_lock(project_dir):
+        if not notes:
+            try:
+                saved = JobRecord.model_validate_json(path.read_text(encoding="utf-8"))
+                job.note, job.outcome = saved.note, saved.outcome
+            except (OSError, ValueError):
+                pass  # a new record, or one that cannot be read: nothing to keep
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(job.model_dump_json(indent=2), encoding="utf-8")
+            os.replace(tmp, path)
+        except OSError as exc:
+            raise JobError(f"Cannot save job record {path}: {exc}") from exc
 
 
 def load_job(project_dir: Path, job_id: str) -> JobRecord:
@@ -44,16 +60,18 @@ def load_job(project_dir: Path, job_id: str) -> JobRecord:
 def annotate_job(project_dir: Path, job_id: str, note: Optional[str] = None, outcome: Optional[str] = None,
                  append: bool = False) -> tuple[str, JobRecord]:
     """Set a job's note and/or outcome (None leaves it) on the record as it is on disk now; `append` adds `note` to
-    the note there (" · " between). Returns the note it had, and the record. Runners call this under their lock
-    (annotate), so a running job's record is not overwritten by its own poller or another note edit."""
-    job = load_job(project_dir, job_id)
-    before = job.note
-    if note is not None:
-        note = note.strip()
-        job.note = (f"{before} · {note}" if before and note else before or note) if append else note
-    if outcome is not None:
-        job.outcome = outcome.strip()
-    save_job(project_dir, job)
+    the note there (" · " between). Returns the note it had, and the record. Read, changed and saved under the
+    records lock, so no other program's save comes in between; runners also call it under their own lock (annotate),
+    for their poller's thread."""
+    with records_lock(project_dir):
+        job = load_job(project_dir, job_id)
+        before = job.note
+        if note is not None:
+            note = note.strip()
+            job.note = (f"{before} · {note}" if before and note else before or note) if append else note
+        if outcome is not None:
+            job.outcome = outcome.strip()
+        save_job(project_dir, job, notes=True)
     return before, job
 
 

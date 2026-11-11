@@ -13,13 +13,13 @@ from urllib.parse import quote
 
 from nicegui import run, ui
 
-from ...engine.errors import AeroSuiteError
+from ...engine.errors import AeroSuiteError, TrackerError
 from ...engine.naming import format_value
 from ...engine.tracker import (ORDERS, Template, detail_value, elevator_of, outside_reason, parse_values,
                                project_levels, read_template, sheet_name_problem, sheet_names, template_sheets)
 from ...engine.tracker_links import (Link, LinkedProject, LinkReport, candidate_projects, create_sheet, find_link,
-                                     last_write, load_tracker, remove_link, report, save_link, set_auto,
-                                     set_completed, write_link)
+                                     last_write, load_tracker, remove_link, report, save_link, saved_links,
+                                     set_auto, set_completed, write_link)
 from ..layout import header
 from ..picker import pick_path
 from .tracker_coverage import Coverage, coverage_url, sheet_chips
@@ -162,7 +162,7 @@ def register() -> None:
     @ui.page("/tracker/coverage")
     def coverage_page(link: str = "", view: str = "") -> None:
         header("tracker")
-        links = load_tracker().links
+        links = saved_links()
         ongoing = [item for item in links if item.completed is not True]
         found = find_link(link) if link else next(iter(ongoing or links), None)
         with ui.column().classes("as-page w-full").mark("tracker-coverage-page"):
@@ -207,7 +207,13 @@ class Overview:
         ui.timer(0, self.load, once=True)
 
     async def load(self) -> None:
-        data = load_tracker()
+        try:
+            data = load_tracker()
+        except TrackerError as exc:  # never shown as "no sheets linked": a save then would lose the links
+            self.holder.clear()
+            with self.holder:
+                banner("error", str(exc)).mark("tracker-unreadable")
+            return
         reports = await run.io_bound(lambda: [report(link) for link in data.links])
         if self.holder.is_deleted:
             return
@@ -418,7 +424,7 @@ class LinkForm:
 
     @staticmethod
     def _last_workbook() -> str:
-        links = load_tracker().links
+        links = saved_links()
         return links[-1].workbook if links else ""
 
     def _form(self) -> None:
@@ -922,7 +928,7 @@ class NewSheetForm:
             names, templates, problem = [], [], str(exc)
         if self.template_select.is_deleted:
             return
-        for linked in load_tracker().links:  # the projects that already track this workbook's other sheets
+        for linked in saved_links():  # the projects that already track this workbook's other sheets
             if linked.workbook == workbook:
                 self.extra += [p.path for p in linked.projects if p.path not in self.extra]
         options = templates + [name for name in names if name not in templates]

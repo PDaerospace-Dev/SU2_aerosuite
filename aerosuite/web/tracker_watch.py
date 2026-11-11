@@ -7,7 +7,7 @@ import logging
 from typing import Optional
 
 from ..engine.errors import AeroSuiteError
-from ..engine.tracker_links import link_stamp, load_tracker, write_link
+from ..engine.tracker_links import link_stamp, saved_links, write_link
 
 log = logging.getLogger("aerosuite.tracker")
 INTERVAL = 20.0  # seconds between looks
@@ -20,7 +20,7 @@ class TrackerWatch:
 
     async def check_once(self) -> int:
         """Write every automatic link whose stamp changed since the last look; returns how many were written."""
-        links = [link for link in load_tracker().links if link.auto]
+        links = [link for link in saved_links() if link.auto]  # an unreadable file: the Run matrix page says so
         ids = {link.id for link in links}
         self._seen = {link_id: stamp for link_id, stamp in self._seen.items() if link_id in ids}
         written = 0

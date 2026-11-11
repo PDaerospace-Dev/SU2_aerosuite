@@ -16,6 +16,7 @@ from .errors import JobError
 from .home import aerosuite_home, load_recent
 from .jobs.runner import note_tags
 from .jobs.store import scan_jobs
+from .locking import file_lock
 
 _lock = threading.Lock()
 _cache: dict = {"stamp": None, "index": {}}  # the file as last read, by (mtime, size)
@@ -79,7 +80,7 @@ def rebuild(projects: list[Path]) -> dict:
 
 def load_index(project_dir: Optional[Path] = None) -> dict:
     """The index, built from the recent projects (and `project_dir`) when there is none yet."""
-    with _lock:
+    with _lock, file_lock(tags_file()):
         index = _read()
         if index is None:
             index = rebuild(load_recent() + ([Path(project_dir)] if project_dir is not None else []))
@@ -92,7 +93,7 @@ def note_changed(project_dir: Path, old: str, new: str) -> None:
     if before == after:
         return
     directory = str(Path(project_dir).resolve())
-    with _lock:
+    with _lock, file_lock(tags_file()):
         index = _read()
         if index is None:  # first use: the job files, which hold the new note already, are the truth
             rebuild(load_recent() + [Path(directory)])
@@ -148,8 +149,8 @@ def likely_tags(project_dir: Optional[Path] = None) -> list[str]:
     missing # there puts a run in the wrong sheet), and the tags in use that are not an everyday word (a digit, _ or
     - in them: "fine" in "fine mesh" is left alone)."""
     from .tracker import ORDER_TAG
-    from .tracker_links import load_tracker
-    filtered = [ORDER_TAG] + [tag for link in load_tracker().links for tag in link.tags + link.skip_tags]
+    from .tracker_links import saved_links
+    filtered = [ORDER_TAG] + [tag for link in saved_links() for tag in link.tags + link.skip_tags]
     used = [tag for tag in load_index(project_dir) if re.search(r"[\d_-]", tag)]
     return list(dict.fromkeys(tag.lstrip("#").lower() for tag in filtered + used if tag.strip("#")))
 

@@ -2,19 +2,22 @@
 jobs, and a log of what was written. What a link would write now (its report) and writing it."""
 from __future__ import annotations
 
+import shutil
 import threading
 import uuid
 from collections import Counter
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, Iterator, Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .errors import AeroSuiteError, TrackerError
 from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
+from .locking import file_lock
 from .tracker import (VERDICTS, CaseStatus, CellValue, Change, Key, Matrix, Plan, collect_statuses, completion_date,
                       job_counts, lock_files, new_sheet, plan_changes, read_matrix, verdict_reason, write_statuses)
 
@@ -24,12 +27,18 @@ REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
 _lock = threading.Lock()
 
 
-class LinkedProject(BaseModel):
+class _Kept(BaseModel):
+    """A part of tracker.json. What this version does not know (a setting a newer AeroSuite wrote) is kept on a save,
+    not dropped."""
+    model_config = ConfigDict(extra="allow")
+
+
+class LinkedProject(_Kept):
     path: str
     elevator: float
 
 
-class Link(BaseModel):
+class Link(_Kept):
     id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
     workbook: str
     sheet: str
@@ -42,7 +51,7 @@ class Link(BaseModel):
     completed: Optional[bool] = None  # None: done once every run has a verdict; True / False: set by hand
 
 
-class LogEntry(BaseModel):
+class LogEntry(_Kept):
     at: datetime = Field(default_factory=datetime.now)
     link: str
     workbook: str
@@ -54,7 +63,7 @@ class LogEntry(BaseModel):
     error: str = ""
 
 
-class TrackerFile(BaseModel):
+class TrackerFile(_Kept):
     links: list[Link] = Field(default_factory=list)
     log: list[LogEntry] = Field(default_factory=list)  # newest first
 
@@ -63,12 +72,47 @@ def tracker_file() -> Path:
     return aerosuite_home() / "tracker.json"
 
 
+def backup_file() -> Path:
+    """The tracker file as it was before its last save."""
+    return tracker_file().with_name("tracker.json.bak")
+
+
 def load_tracker() -> TrackerFile:
-    """The saved links and log; an empty one when there is no file or it cannot be read."""
+    """The saved links and log; an empty one when there is no file yet. A file that is there but cannot be read is an
+    error, never an empty tracker: a save after it would replace every link with nothing."""
+    path = tracker_file()
     try:
-        return TrackerFile.model_validate_json(tracker_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError, ValidationError):
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         return TrackerFile()
+    except OSError as exc:
+        raise TrackerError(f"Cannot read the run-matrix links in {path}: {exc}") from exc
+    try:
+        return TrackerFile.model_validate_json(text)
+    except (ValueError, ValidationError) as exc:
+        reason = str(exc).splitlines()[0]
+        raise TrackerError(f"The run-matrix links in {path} cannot be read ({reason}). Nothing was changed. Repair "
+                           f"the file, or put back its last good copy: {backup_file()}") from exc
+
+
+def saved_links() -> list[Link]:
+    """The links, for a list that is only a convenience (chips, suggestions): none when the file cannot be read (the
+    Run matrix page reports that)."""
+    try:
+        return load_tracker().links
+    except TrackerError:
+        return []
+
+
+@contextmanager
+def _changing() -> Iterator[TrackerFile]:
+    """The tracker file to change in the block; saved after it. Under the thread lock and the file's own lock, so the
+    server, a second server and `aerosuite tracker` cannot undo each other's saves. The file before the save is
+    kept as tracker.json.bak."""
+    with _lock, file_lock(tracker_file()):
+        data = load_tracker()
+        yield data
+        _save(data)
 
 
 def _save(data: TrackerFile) -> None:
@@ -77,6 +121,8 @@ def _save(data: TrackerFile) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(data.model_dump_json(indent=2), encoding="utf-8")
+        if path.is_file():
+            shutil.copy2(path, backup_file())
         tmp.replace(path)
     except OSError as exc:
         raise TrackerError(f"Cannot save {path}: {exc}") from exc
@@ -84,51 +130,41 @@ def _save(data: TrackerFile) -> None:
 
 def save_link(link: Link) -> Link:
     """Add the link, or replace the one with its id."""
-    with _lock:
-        data = load_tracker()
+    with _changing() as data:
         data.links = [link if old.id == link.id else old for old in data.links]
         if all(old.id != link.id for old in data.links):
             data.links.append(link)
-        _save(data)
     return link
 
 
 def remove_link(link_id: str) -> None:
-    with _lock:
-        data = load_tracker()
+    with _changing() as data:
         data.links = [link for link in data.links if link.id != link_id]
-        _save(data)
 
 
 def set_completed(link_id: str, completed: Optional[bool]) -> None:
     """Mark a linked sheet completed or ongoing by hand (None: by its runs again)."""
-    with _lock:
-        data = load_tracker()
+    with _changing() as data:
         for link in data.links:
             if link.id == link_id:
                 link.completed = completed
-        _save(data)
 
 
 def set_auto(link_ids: Iterable[str], auto: bool) -> None:
     ids = set(link_ids)
-    with _lock:
-        data = load_tracker()
+    with _changing() as data:
         for link in data.links:
             if link.id in ids:
                 link.auto = auto
-        _save(data)
 
 
 def find_link(link_id: str) -> Optional[Link]:
-    return next((link for link in load_tracker().links if link.id == link_id), None)
+    return next((link for link in saved_links() if link.id == link_id), None)
 
 
 def log_write(entry: LogEntry) -> None:
-    with _lock:
-        data = load_tracker()
+    with _changing() as data:
         data.log = [entry] + data.log[:LOG_LENGTH - 1]
-        _save(data)
 
 
 @dataclass

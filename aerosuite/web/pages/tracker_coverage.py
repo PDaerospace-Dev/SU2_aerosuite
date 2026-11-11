@@ -19,7 +19,7 @@ from nicegui import run, ui
 from ...engine.errors import AeroSuiteError
 from ...engine.naming import format_value
 from ...engine.tracker import VERDICTS, Key, verdict_reason
-from ...engine.tracker_links import Link, LinkReport, RunEdit, edit_runs, load_tracker, report
+from ...engine.tracker_links import Link, LinkReport, RunEdit, edit_runs, report, saved_links
 from ..layout import project_url
 from ..ui_kit import banner, card, flat_button, hint, primary_button, secondary_button
 
@@ -559,7 +559,7 @@ def _percent(runs: list[Run]) -> str:
 def sheet_chips(current: Link, view: str) -> None:
     """The linked sheets, to switch to in the same view."""
     with ui.row().classes("gap-2"):
-        for link in load_tracker().links:
+        for link in saved_links():
             on = link.id == current.id
             ui.link(link.sheet, coverage_url(link.id, view)).classes(
                 "as-chip as-cov-chip" + (" as-chip-on" if on else "")).mark(f"coverage-sheet-{link.id}")

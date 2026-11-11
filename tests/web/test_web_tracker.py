@@ -12,7 +12,7 @@ from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
 from aerosuite.engine.jobs.store import save_job
 from aerosuite.engine.models import Project
 from aerosuite.engine.project import save_project
-from aerosuite.engine.tracker_links import Link, LinkedProject, find_link, load_tracker, save_link
+from aerosuite.engine.tracker_links import Link, LinkedProject, find_link, load_tracker, save_link, tracker_file
 from aerosuite.web.tracker_watch import TrackerWatch
 
 RUN_ID = '=IF(ROW()-4>$D$14,"","RUN-"&TEXT(ROW()-4,"0000"))'
@@ -236,6 +236,16 @@ async def test_a_label_selects_its_row_and_a_plain_click_edits_again(user: User,
     await _pick(user, ["RUN-0004"])  # a plain click: the selection goes, the run opens
     await user.should_see(marker="run-edit")
     await user.should_not_see(marker="coverage-bar")
+
+
+async def test_an_unreadable_tracker_file_is_reported_not_shown_as_empty(user: User, matrix):
+    book, folder = matrix
+    _link(book, folder)
+    tracker_file().write_text("{ not json")
+    await user.open("/tracker")
+    await user.should_see(marker="tracker-unreadable")
+    await user.should_not_see(marker="tracker-empty")
+    assert "tracker.json.bak" in _element(user, "tracker-unreadable").text
 
 
 async def test_sheets_are_ongoing_or_completed(user: User, matrix):

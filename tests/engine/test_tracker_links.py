@@ -1,4 +1,5 @@
 """Linked run-matrix sheets: saving them, what each would write, writing it and the log."""
+import json
 from datetime import datetime
 
 import pytest
@@ -8,9 +9,10 @@ from test_tracker import add_job, make_workbook
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.tracker import read_matrix
-from aerosuite.engine.tracker_links import (Link, LinkedProject, RunEdit, candidate_projects, create_sheet, edit_runs,
-                                            find_link, link_stamp, load_tracker, remove_link, report, save_link,
-                                            set_auto, set_completed, write_link)
+from aerosuite.engine.tracker_links import (Link, LinkedProject, LogEntry, RunEdit, backup_file, candidate_projects,
+                                            create_sheet, edit_runs, find_link, link_stamp, load_tracker, log_write,
+                                            remove_link, report, save_link, saved_links, set_auto, set_completed,
+                                            tracker_file, write_link)
 
 
 def _link(tmp_path, **changes):
@@ -210,3 +212,36 @@ def test_an_edit_waits_for_excel_to_close(tmp_path):
     with pytest.raises(TrackerError, match="open in Excel"):
         edit_runs(link, {"RUN-0001": RunEdit(status="Diverged")})
     assert load_tracker().log[0].trigger == "edit"
+
+
+def test_a_tracker_file_that_cannot_be_read_is_never_saved_over(tmp_path):
+    link = save_link(_link(tmp_path))
+    good = tracker_file().read_text()
+    tracker_file().write_text(good[:len(good) // 2])  # cut short: a full disk, a bad copy
+    with pytest.raises(TrackerError, match="cannot be read"):
+        load_tracker()
+    for change in (lambda: save_link(link), lambda: remove_link(link.id), lambda: set_auto([link.id], False),
+                   lambda: log_write(LogEntry(link=link.id, workbook="m.xlsx", sheet="Study"))):
+        with pytest.raises(TrackerError, match="tracker.json.bak"):
+            change()
+    assert tracker_file().read_text() == good[:len(good) // 2]  # left for repair, not replaced by an empty tracker
+    assert saved_links() == [] and find_link(link.id) is None  # conveniences go without
+
+
+def test_the_file_before_a_save_is_kept_as_a_backup(tmp_path):
+    link = save_link(_link(tmp_path))
+    before = tracker_file().read_text()
+    set_auto([link.id], False)
+    assert backup_file().read_text() == before and find_link(link.id).auto is False
+
+
+def test_settings_a_newer_aerosuite_wrote_survive_a_save(tmp_path):
+    link = save_link(_link(tmp_path))
+    data = json.loads(tracker_file().read_text())
+    data["links"][0]["from_the_future"] = {"a": 1}
+    data["shared"] = True
+    tracker_file().write_text(json.dumps(data))
+    set_completed(link.id, True)
+    saved = json.loads(tracker_file().read_text())
+    assert saved["links"][0]["from_the_future"] == {"a": 1} and saved["shared"] is True
+    assert saved["links"][0]["completed"] is True
