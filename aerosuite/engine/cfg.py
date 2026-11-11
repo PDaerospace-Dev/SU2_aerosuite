@@ -8,8 +8,7 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 from .errors import GenerationError, ProjectError, TemplateError
-from .freestream import (CaseFreestream, case_altitude, freestream_for, freestream_values, label_for,
-                         sweeps_altitude)
+from .freestream import CaseFreestream, case_altitude, freestream_for, freestream_values, label_for, sweeps_altitude
 from .jobs.store import active_lock
 from .models import Case, Project, Settings
 from .naming import case_name, find_collisions, format_value

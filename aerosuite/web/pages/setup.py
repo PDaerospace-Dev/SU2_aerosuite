@@ -1,12 +1,13 @@
 """Setup: four steps in one card (mesh, config template, study, run settings — on this machine or on Slurm), each
 showing what is set, and a panel on the right that stays in view: the project, what is ready and the next page."""
 import os
+import shutil
 from contextlib import contextmanager
 from pathlib import Path
-import shutil
 from typing import Callable, Iterator, Optional, Sequence
 
-from nicegui import run as background, ui
+from nicegui import run as background
+from nicegui import ui
 
 from ...engine import project as engine_project
 from ...engine.errors import ProjectError

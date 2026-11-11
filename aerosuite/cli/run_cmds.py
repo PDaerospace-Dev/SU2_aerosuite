@@ -5,12 +5,12 @@ from typing import Annotated, Optional
 
 import typer
 
-from ..engine.jobs.diagnose import diagnose
 from ..engine import project as engine_project
 from ..engine import results as engine_results
 from ..engine.cfg import CONFIGS_DIR, generate_configs
+from ..engine.jobs.diagnose import diagnose
 from ..engine.jobs.executors import backend_of, runner_for, runner_of, slurm_options
-from ..engine.jobs.local import LocalRunner, RUNS_DIR
+from ..engine.jobs.local import RUNS_DIR, LocalRunner
 from ..engine.jobs.runner import CaseState, JobRecord, JobState
 from ..engine.jobs.store import list_jobs, load_job
 from ..engine.preflight import has_errors, preflight

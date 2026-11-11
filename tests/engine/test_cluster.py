@@ -1,9 +1,9 @@
 import shutil
 
+from slurm_helpers import A0, A2, slurm_study  # noqa: F401  (fixture)
+
 from aerosuite.engine.cluster import MAX_ROWS, RecordIndex, aerosuite_case, my_jobs, study_of
 from aerosuite.engine.slurm import HistoryRow, QueueRow
-
-from slurm_helpers import A0, A2, slurm_study  # noqa: F401  (fixture)
 
 ME = "pdas-hpc1"
 

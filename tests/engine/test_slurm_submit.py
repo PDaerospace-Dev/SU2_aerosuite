@@ -1,4 +1,5 @@
 import pytest
+from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
 
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
@@ -7,8 +8,6 @@ from aerosuite.engine.jobs.slurm import job_name, job_script
 from aerosuite.engine.jobs.store import active_lock, list_jobs, load_job, read_lock
 from aerosuite.engine.project import save_project
 from aerosuite.engine.settings import SlurmSettings
-
-from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
 
 OPTIONS = SlurmOptions(partition="node1", ntasks=96, time_limit="", exclusive=True, account="pdas")
 

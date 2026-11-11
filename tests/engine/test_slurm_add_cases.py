@@ -1,12 +1,11 @@
 import pytest
+from slurm_helpers import A0, A2, A4, STEADY, slurm_study  # noqa: F401  (fixture)
 
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
 from aerosuite.engine.jobs.runner import CaseState, JobState
 from aerosuite.engine.jobs.store import active_lock, list_jobs, load_job
 from aerosuite.engine.project import save_project
-
-from slurm_helpers import A0, A2, A4, STEADY, slurm_study  # noqa: F401  (fixture)
 
 NODE2 = SlurmOptions(partition="node2", ntasks=48, time_limit="", exclusive=True, account="pdas")
 

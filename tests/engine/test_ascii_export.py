@@ -2,14 +2,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from slurm_helpers import A0, slurm_study  # noqa: F401  (fixture)
 
-from aerosuite.engine.ascii_export import (ASCII_CFG, ascii_config, ascii_script, local_script, sol_launch,
-                                           write_ascii)
+from aerosuite.engine.ascii_export import ASCII_CFG, ascii_config, ascii_script, local_script, sol_launch, write_ascii
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
 from aerosuite.engine.settings import AppSettings, SlurmSettings
-
-from slurm_helpers import A0, slurm_study  # noqa: F401  (fixture)
 
 CFG = """MESH_FILENAME= /data/mesh/wing.su2
 SOLUTION_FILENAME= /data/s/runs/M0p6_0km_a5/restart_flow

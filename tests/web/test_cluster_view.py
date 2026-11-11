@@ -5,10 +5,30 @@ from aerosuite.engine.jobs.runner import CaseState, JobRecord, SlurmCase
 from aerosuite.engine.settings import PartitionSettings, SlurmSettings
 from aerosuite.engine.slurm import ClusterInfo, QueueRow, Snapshot, parse_sinfo_nodes
 from aerosuite.web.cluster_view import (
-    can_resubmit, case_slurm_text, cluster_status, expected_ends, filter_jobs, glance, job_groups, job_state_text,
-    job_studies, moved, when_text,
-    node_groups, node_jobs, ordered_nodes, partition_nodes, queue_starts, queue_text, running_count, state_words,
-    suggested_partition, summary_line, summary_parts, full_note, fitting_partition,
+    can_resubmit,
+    case_slurm_text,
+    cluster_status,
+    expected_ends,
+    filter_jobs,
+    fitting_partition,
+    full_note,
+    glance,
+    job_groups,
+    job_state_text,
+    job_studies,
+    moved,
+    node_groups,
+    node_jobs,
+    ordered_nodes,
+    partition_nodes,
+    queue_starts,
+    queue_text,
+    running_count,
+    state_words,
+    suggested_partition,
+    summary_line,
+    summary_parts,
+    when_text,
 )
 
 NODES = ("hpc1|node1*|alloc|192/0/0/192|125000|20000|96.1|none\n"

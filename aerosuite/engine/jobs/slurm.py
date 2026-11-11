@@ -25,20 +25,29 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Mapping, Optional, Sequence
 
+from .. import slurm as sl
+from ..attempts import archive_before_rerun, keep_aside, settle_attempts
 from ..cfg import CONFIGS_DIR, RUN_CONTROL_FILE, apply_parameters
 from ..errors import JobError
 from ..models import Project
 from ..restarts import DEFAULT_RESTART_NAME, RUNS_DIR, su2_solution_path
 from ..results import HISTORY_FILE, check_convergence, read_history
 from ..settings import SlurmSettings, current_settings, env_pairs
-from .. import slurm as sl
-from .executors import SlurmOptions, slurm_options
-from ..attempts import archive_before_rerun, keep_aside, settle_attempts
 from .diagnose import diagnose
-from .rerun import describe
+from .executors import SlurmOptions, slurm_options
 from .plan import _batches, _referenced_case, drop_kept, prepare_job, prune_restarts
-from .runner import (FINAL_CASE_STATES, CaseState, JobRecord, JobState, SlurmCase, new_job_id, serialized,
-                     sweep_environment, unfinished)
+from .rerun import describe
+from .runner import (
+    FINAL_CASE_STATES,
+    CaseState,
+    JobRecord,
+    JobState,
+    SlurmCase,
+    new_job_id,
+    serialized,
+    sweep_environment,
+    unfinished,
+)
 from .store import JOBS_DIR, active_lock, annotate_job, clear_lock, load_job, save_job, write_lock
 
 JOB_SCRIPT = "su2_job.sh"

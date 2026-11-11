@@ -5,8 +5,14 @@ import pytest
 from typer.testing import CliRunner
 
 from aerosuite.cli import app
-from aerosuite.engine.cfg import (CASE_INDEX_FILE, CONFIGS_DIR, build_cases, generate_configs, render_case,
-                                  stale_case_name)
+from aerosuite.engine.cfg import (
+    CASE_INDEX_FILE,
+    CONFIGS_DIR,
+    build_cases,
+    generate_configs,
+    render_case,
+    stale_case_name,
+)
 from aerosuite.engine.editing import set_altitudes, set_freestream
 from aerosuite.engine.errors import GenerationError
 from aerosuite.engine.preflight import sweep_problems

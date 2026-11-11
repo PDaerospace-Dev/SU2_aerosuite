@@ -8,8 +8,19 @@ from openpyxl import Workbook, load_workbook
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
 from aerosuite.engine.jobs.store import load_job, save_job
-from aerosuite.engine.tracker import (backups_dir, collect_statuses, daily_backups, elevator_of, has_tag, job_counts,
-                                      key, plan_changes, read_matrix, solver_order, write_statuses)
+from aerosuite.engine.tracker import (
+    backups_dir,
+    collect_statuses,
+    daily_backups,
+    elevator_of,
+    has_tag,
+    job_counts,
+    key,
+    plan_changes,
+    read_matrix,
+    solver_order,
+    write_statuses,
+)
 
 RUN_ID = '=IF(ROW()-4>$D$14,"","RUN-"&TEXT(ROW()-4,"0000"))'
 EXTRA_PART = "customXml/item1.xml"

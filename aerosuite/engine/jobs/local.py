@@ -18,12 +18,12 @@ from typing import Iterable, Mapping, Optional, Sequence
 
 import psutil
 
+from ..attempts import archive_before_rerun, settle_attempts
 from ..cfg import RUN_CONTROL_FILE
 from ..errors import JobError
 from ..models import Project
 from ..restarts import RUNS_DIR
 from ..results import HISTORY_FILE, check_convergence, read_history
-from ..attempts import archive_before_rerun, settle_attempts
 from .plan import drop_kept, prepare_job, prune_restarts
 from .rerun import describe
 from .runner import (
@@ -38,8 +38,17 @@ from .runner import (
     sweep_script_path,
     unfinished,
 )
-from .store import (JOBS_DIR, active_lock, annotate_job, clear_lock, kill_tree, load_job, process_alive, save_job,
-                    write_lock)
+from .store import (
+    JOBS_DIR,
+    active_lock,
+    annotate_job,
+    clear_lock,
+    kill_tree,
+    load_job,
+    process_alive,
+    save_job,
+    write_lock,
+)
 
 BANNER_RE = re.compile(r"Running Case\s+\d+/\d+:\s+(\S+?)\.cfg")
 TAIL_LINES = 50

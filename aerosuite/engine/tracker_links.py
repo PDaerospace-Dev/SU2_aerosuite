@@ -18,9 +18,25 @@ from .errors import AeroSuiteError, TrackerError
 from .home import aerosuite_home
 from .jobs.store import JOBS_DIR
 from .locking import file_lock
-from .tracker import (VERDICTS, CaseStatus, CellValue, Change, Key, Matrix, Plan, collect_statuses, completion_date,
-                      job_counts, lock_files, new_sheet, open_in, plan_changes, read_matrix, verdict_reason,
-                      write_statuses)
+from .tracker import (
+    VERDICTS,
+    CaseStatus,
+    CellValue,
+    Change,
+    Key,
+    Matrix,
+    Plan,
+    collect_statuses,
+    completion_date,
+    job_counts,
+    lock_files,
+    new_sheet,
+    open_in,
+    plan_changes,
+    read_matrix,
+    verdict_reason,
+    write_statuses,
+)
 
 LOG_LENGTH = 50
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason

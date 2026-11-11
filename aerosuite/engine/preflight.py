@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Iterable, Literal, Optional, Sequence
 
 from .cfg import CASE_INDEX_FILE, CONFIGS_DIR, RUN_CONTROL_FILE, STALE_NAME, case_freestream, stale_case_name
 from .config_rules import config_problems
-from .su2_check import check_cases
 from .freestream import FREESTREAM_KEYS, freestream_setup_errors
 from .jobs.runner import (
     resolve_sweep_python,
@@ -25,6 +24,7 @@ from .models import Case, Project
 from .naming import NAME_CHARACTERS, find_collisions, unsafe_names
 from .project import template_warnings
 from .restarts import find_restart_file, own_case_of
+from .su2_check import check_cases
 
 if TYPE_CHECKING:
     from .jobs.executors import SlurmOptions

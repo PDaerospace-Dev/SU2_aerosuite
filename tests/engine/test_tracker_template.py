@@ -10,8 +10,18 @@ from test_tracker import RUN_ID, add_job, make_workbook
 
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
-from aerosuite.engine.tracker import (Detail, _listed, detail_value, new_sheet, parse_values, project_levels,
-                                      read_matrix, read_template, sheet_name_problem, template_sheets)
+from aerosuite.engine.tracker import (
+    Detail,
+    _listed,
+    detail_value,
+    new_sheet,
+    parse_values,
+    project_levels,
+    read_matrix,
+    read_template,
+    sheet_name_problem,
+    template_sheets,
+)
 
 TEMPLATE = "Case Template_v1"
 DRAWING = ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats'

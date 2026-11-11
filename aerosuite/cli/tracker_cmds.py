@@ -8,9 +8,21 @@ import typer
 from ..engine import project as engine_project
 from ..engine.errors import TrackerError
 from ..engine.naming import format_value
-from ..engine.tracker import (ORDERS, collect_statuses, completion_date, detail_value, elevator_of, parse_values,
-                              plan_changes, project_levels, read_matrix, read_template, sheet_name_problem,
-                              template_sheets, write_statuses)
+from ..engine.tracker import (
+    ORDERS,
+    collect_statuses,
+    completion_date,
+    detail_value,
+    elevator_of,
+    parse_values,
+    plan_changes,
+    project_levels,
+    read_matrix,
+    read_template,
+    sheet_name_problem,
+    template_sheets,
+    write_statuses,
+)
 from ..engine.tracker_links import Link, LinkedProject, create_sheet
 from .app import app, engine_errors
 

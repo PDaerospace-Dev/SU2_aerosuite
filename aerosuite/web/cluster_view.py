@@ -7,11 +7,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Mapping, NamedTuple, Optional, Sequence
 
-from ..engine.jobs.runner import FINAL_CASE_STATES, JobRecord
 from ..engine.cluster import MyJob
+from ..engine.jobs.runner import FINAL_CASE_STATES, JobRecord
 from ..engine.settings import SlurmSettings
-from ..engine.slurm import (FAILED_STATES, QUEUED_STATES, RESUBMITTABLE, RUNNING_STATES, ClusterInfo,
-                             Snapshot, parse_duration)
+from ..engine.slurm import (
+    FAILED_STATES,
+    QUEUED_STATES,
+    RESUBMITTABLE,
+    RUNNING_STATES,
+    ClusterInfo,
+    Snapshot,
+    parse_duration,
+)
 from .run_view import about_text, case_seconds, job_left
 
 

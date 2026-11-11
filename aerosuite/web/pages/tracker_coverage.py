@@ -21,18 +21,14 @@ from ...engine.naming import format_value
 from ...engine.tracker import VERDICTS, Key, verdict_reason
 from ...engine.tracker_links import Link, LinkReport, RunEdit, discard_queued, edit_or_queue, report, saved_links
 from ..layout import project_url
+from ..tracker_view import SQUARE_TONES, STATUS_CHOICES, bar_html, bar_text
 from ..ui_kit import banner, card, flat_button, hint, primary_button, secondary_button
+from .tracker_parts import status_pill
 
 VIEWS = {"panels": "Panels", "table": "Table", "pivot": "Pivot"}
 AXES = [("Mach", ""), ("Altitude", " km"), ("AoA", "°"), ("Elevator δe", "°"), ("Sideslip β", "°")]
 MACH, ALT, AOA, ELEV, BETA = range(5)
 RUNS_LISTED = 60  # runs a pivot box lists
-# the sheet's Status -> the square's colour (the overview bar's segments, failures apart)
-TONES = {"Converged": "converged", "Not Converged": "not", "Failed": "failed", "Diverged": "failed",
-         "Running": "live", "Pending": "live", "Hold": "hold"}
-# what a run's Status can be set to by hand (the sheet's text: its label), "" blanking it
-STATUS_CHOICES = {"Converged": "Converged", "Not Converged": "Not converged", "Diverged": "Diverged",
-                  "Failed": "Failed", "Hold": "Hold", "": "Blank"}
 PICK_EVENT = "as-cov-pick"
 # A click on a run (or a Mach / AoA label: its runs) sends its run IDs; shift / Ctrl / ⌘ adds to the selection, and a
 # drag across runs selects them all.
@@ -104,7 +100,7 @@ def run_text(run: Run) -> str:
 def square(run: Run, size: str = "", chosen: bool = False) -> str:
     """A run as a coloured square (a ring when a write is waiting, a tick when selected); a click opens it below the
     view (PICK_JS)."""
-    tone = TONES.get(run.status, "none")
+    tone = SQUARE_TONES.get(run.status, "none")
     waiting = "queued: the workbook is open" if run.queued else "to write"
     tip = f"{run.run_id} · {run_text(run)}\n{run.status or 'no status'}" + (
         f" → {run.new or 'blank'} ({waiting})" if run.new is not None else "")
@@ -122,11 +118,6 @@ def picker(text: str, runs: list[Run], tag: str = "div", classes: str = "") -> s
         return f'<{tag} class="{classes}">{text}</{tag}>'
     return (f'<{tag} class="{classes} as-cov-pickable" data-runs="{ids}" '
             f'title="Select these {len(runs)} runs">{text}</{tag}>')
-
-
-def bar(counts: Counter, total: int) -> str:
-    from .tracker import bar_html  # the overview's bar
-    return bar_html(counts, total)
 
 
 def legend() -> None:
@@ -206,8 +197,7 @@ class Coverage:
                 with ui.row().classes("w-full items-center no-wrap gap-3"):
                     with ui.column().classes("grow gap-1 min-w-0"):
                         ui.label(f"{self.link.sheet} — {len(self.runs)} runs").classes("as-card-title")
-                        ui.html(bar(counts, len(self.runs)), sanitize=False).classes("w-full")
-                        from .tracker import bar_text
+                        ui.html(bar_html(counts, len(self.runs)), sanitize=False).classes("w-full")
                         hint(bar_text(counts, len(self.runs))).mark("coverage-progress")
                     ui.toggle(VIEWS, value=self.view, on_change=lambda e: self.set_view(e.value)).props(
                         "dense no-caps unelevated toggle-color=primary").classes("as-toggle").mark("coverage-view")
@@ -360,7 +350,7 @@ class Coverage:
                             box.mark(f"coverage-box-{format_value(row)}-{format_value(column)}")
                             box.on("click", lambda _, pick=(row, column): self._pick_box(pick))
                             with box:
-                                ui.html(bar(counts, len(inside)), sanitize=False)
+                                ui.html(bar_html(counts, len(inside)), sanitize=False)
                                 ui.html(f'<div class="as-cov-count"><b>{counts["Converged"]}</b>/{len(inside)} '
                                         f"conv.</div>", sanitize=False)
         if self.picked is not None:
@@ -381,7 +371,6 @@ class Coverage:
     # --- the runs listed below the view ----------------------------------------------------------------------------------
 
     def show_runs(self, runs: list[Run], title: str) -> None:
-        from .tracker import bar_text
         self.detail.clear()
         with self.detail:
             counts = Counter(found.status for found in runs)
@@ -425,7 +414,6 @@ class Coverage:
 
     async def edit(self, found: Run) -> None:
         """The run below the view: its Status and Notes to set, beside what the jobs say about it."""
-        from .tracker import status_pill
         source = self.result.statuses.get(found.key)
         notes_column = self.result.matrix.notes_column
         queued = found.queued
@@ -529,7 +517,7 @@ class Coverage:
             ui.element("span").classes("as-cov-bar-sep")
             ui.label("Mark as").classes("as-cov-bar-text")
             for value, label in STATUS_CHOICES.items():
-                tone = TONES.get(value, "none")
+                tone = SQUARE_TONES.get(value, "none")
                 ui.button(label, on_click=lambda value=value: self.mark_selected(value), color=None).props(
                     "flat dense no-caps text-color=white").classes(f"as-cov-bar-btn as-cov-bar-{tone}").mark(
                     f"coverage-bar-{(value or 'blank').lower().replace(' ', '-')}")

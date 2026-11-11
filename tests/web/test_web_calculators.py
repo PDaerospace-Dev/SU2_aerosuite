@@ -1,8 +1,7 @@
 from nicegui.testing import User
 
-from aerosuite.engine.cfg import build_cases
-
 from aerosuite.engine.atmosphere import yplus as engine_yplus
+from aerosuite.engine.cfg import build_cases
 from aerosuite.web.calculators.yplus import first_cell_text
 from aerosuite.web.layout import calculators_url, project_url
 

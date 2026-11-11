@@ -1,5 +1,14 @@
-from aerosuite.web.guide import (GUIDE, MISSING, SECTION_OF_PAGE, app_version, guide_groups, guide_sections,
-                                 search_sections, section_for, web_ui_guide)
+from aerosuite.web.guide import (
+    GUIDE,
+    MISSING,
+    SECTION_OF_PAGE,
+    app_version,
+    guide_groups,
+    guide_sections,
+    search_sections,
+    section_for,
+    web_ui_guide,
+)
 
 
 def test_the_guide_is_the_file_without_its_title(tmp_path):

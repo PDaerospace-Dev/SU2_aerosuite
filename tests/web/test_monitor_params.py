@@ -8,8 +8,16 @@ from nicegui.testing import User
 from aerosuite.engine.project import PROJECT_FILE
 from aerosuite.web import monitor_params
 from aerosuite.web.layout import project_url
-from aerosuite.web.monitor_params import (Window, param_options, plottable_columns, thinned_indices, window_of,
-                                          window_range, window_stats, zoom_percent)
+from aerosuite.web.monitor_params import (
+    Window,
+    param_options,
+    plottable_columns,
+    thinned_indices,
+    window_of,
+    window_range,
+    window_stats,
+    zoom_percent,
+)
 
 A0, A2 = "M0p8_a0_b0", "M0p8_a2_b0"
 

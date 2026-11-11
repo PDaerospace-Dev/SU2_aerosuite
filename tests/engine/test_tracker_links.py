@@ -9,11 +9,32 @@ from test_tracker import add_job, make_workbook
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState
 from aerosuite.engine.tracker import read_matrix
-from aerosuite.engine.tracker_links import (Link, LinkedProject, LogEntry, RunEdit, apply_queued, backup_file,
-                                            candidate_projects, create_sheet, discard_queued, edit_or_queue, edit_runs,
-                                            find_link, link_stamp, load_tracker, log_write, queued_edits, remove_link,
-                                            report, save_link, saved_links, set_auto, set_completed, tracker_file,
-                                            write_link)
+from aerosuite.engine.tracker_links import (
+    Link,
+    LinkedProject,
+    LogEntry,
+    RunEdit,
+    apply_queued,
+    backup_file,
+    candidate_projects,
+    create_sheet,
+    discard_queued,
+    edit_or_queue,
+    edit_runs,
+    find_link,
+    link_stamp,
+    load_tracker,
+    log_write,
+    queued_edits,
+    remove_link,
+    report,
+    save_link,
+    saved_links,
+    set_auto,
+    set_completed,
+    tracker_file,
+    write_link,
+)
 
 
 def _link(tmp_path, **changes):

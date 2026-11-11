@@ -11,9 +11,9 @@ from nicegui import ui
 
 from ..engine.errors import AeroSuiteError
 from ..engine.jobs.store import active_lock
-from .guide import app_version, guide_groups, guide_sections, search_sections, section_for
 from .calc_panel import CalcPanel
 from .command_bar import Command, CommandBar
+from .guide import app_version, guide_groups, guide_sections, search_sections, section_for
 from .jobs import WATCHER, job_progress
 from .log_panel import LogPanel
 from .paraview_menu import ParaViewMenu
@@ -213,10 +213,10 @@ def _app_menu(guide: Guide) -> None:
 def _shell_commands(guide: Guide, panel: CalcPanel, frame: Optional["ProjectFrame"] = None) -> list[Command]:
     """What the search finds: the places, the calculators, the recent projects, the run-matrix sheets, the guide;
     in a project also its steps, its job's log, its cases and its flow files."""
+    from ..engine.tracker_links import load_tracker
     from . import slurm_watch
     from .calculators import calculators
     from .pages.tracker_coverage import coverage_url
-    from ..engine.tracker_links import load_tracker
 
     go = ui.navigate.to
     commands = [Command("projects", "Go to", "Projects", "folder_open", lambda: go("/"), words="all home"),

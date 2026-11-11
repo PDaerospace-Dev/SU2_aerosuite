@@ -20,8 +20,22 @@ from ..naming_fields import base_name_field, naming_checkboxes
 from ..picker import pick_path
 from ..run_view import case_groups, layout
 from ..sweep_view import case_formula, detect_rule, restart_text, rule_restarts, values_text
-from ..ui_kit import (banner, card, card_head, field, flat_button, hint, pascals, sci, secondary_button, table, td, td_box,
-                      th, titled)
+from ..ui_kit import (
+    banner,
+    card,
+    card_head,
+    field,
+    flat_button,
+    hint,
+    pascals,
+    sci,
+    secondary_button,
+    table,
+    td,
+    td_box,
+    th,
+    titled,
+)
 
 RESTART_OPTIONS = ["none", "previous", "custom"]
 RULE_TEXT = [  # (rule, marker, what the tile says, the small print)

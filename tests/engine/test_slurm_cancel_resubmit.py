@@ -1,14 +1,13 @@
 from pathlib import Path
 
 import pytest
+from slurm_helpers import A0, A2, A4, STEADY, as_afterok, slurm_study  # noqa: F401  (fixture)
 
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.executors import SlurmOptions
 from aerosuite.engine.jobs.runner import CaseState, JobState
 from aerosuite.engine.jobs.store import active_lock, load_job, save_job
 from aerosuite.engine.project import save_project
-
-from slurm_helpers import A0, A2, A4, STEADY, as_afterok, slurm_study  # noqa: F401  (fixture)
 
 
 def test_cancel_scancels_every_unfinished_case_in_one_call(slurm_study, history_writer):

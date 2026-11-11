@@ -10,10 +10,10 @@ from nicegui import ui
 from ..engine.cfg import case_layers, read_template, render_case
 from ..engine.config_edit import apply_changes
 from ..engine.errors import AeroSuiteError, ProjectError
+from ..engine.jobs.plan import last_solution, preview_starts
 from ..engine.jobs.rerun import describe, rerun_changes
 from ..engine.models import Project
 from ..engine.naming import format_value
-from ..engine.jobs.plan import last_solution, preview_starts
 from .layout import ProjectFrame
 from .session import parse_optional_int, parse_optional_number
 from .starts_view import MODE_LABELS, SINGLE_LABELS, start_text

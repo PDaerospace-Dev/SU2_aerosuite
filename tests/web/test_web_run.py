@@ -241,7 +241,7 @@ async def test_warnings_are_folded_and_errors_stay_in_view(user: User, ready_pro
 
 async def test_the_machine_strip_shows_cores_and_what_the_study_asks(user: User, ready_project, monkeypatch,
                                                                      eventually):
-    import aerosuite.web.pages.run as page
+    import aerosuite.web.pages.run_panel as page  # where the machine strip is read
     from aerosuite.engine.machine import Machine
 
     project_dir, project = ready_project

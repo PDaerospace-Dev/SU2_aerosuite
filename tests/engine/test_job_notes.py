@@ -1,6 +1,8 @@
 """A job's note and outcome, the #tags in them, the tag index and the config changes since the last run."""
 import json
 
+from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
+
 from aerosuite.engine import tags
 from aerosuite.engine.cfg import read_template
 from aerosuite.engine.home import aerosuite_home
@@ -9,8 +11,6 @@ from aerosuite.engine.jobs.rerun import rerun_changes
 from aerosuite.engine.jobs.runner import JobRecord, note_tags
 from aerosuite.engine.jobs.store import JOBS_DIR, list_jobs, load_job, save_job
 from aerosuite.web.recent import add_recent
-
-from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
 
 
 def _job(job_id="20261102-1002", **values):

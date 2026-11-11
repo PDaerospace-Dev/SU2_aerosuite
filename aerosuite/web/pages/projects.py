@@ -11,8 +11,24 @@ from ...engine.profiles import list_profiles
 from ...engine.study import create_study
 from ..layout import header, project_url
 from ..recent import add_recent, recent_projects
-from ..ui_kit import (banner, card, card_head, field, help_tip, hint, node_pills, ok_line, path_field, pill,
-                      primary_button, secondary_button, table, td, th, warning_group)
+from ..ui_kit import (
+    banner,
+    card,
+    card_head,
+    field,
+    help_tip,
+    hint,
+    node_pills,
+    ok_line,
+    path_field,
+    pill,
+    primary_button,
+    secondary_button,
+    table,
+    td,
+    th,
+    warning_group,
+)
 
 
 def register() -> None:

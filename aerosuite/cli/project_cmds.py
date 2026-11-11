@@ -11,8 +11,17 @@ import typer
 
 from ..engine import project as engine_project
 from ..engine.cfg import build_cases, case_freestream, read_template, settings_parameters, template_or_none
-from ..engine.editing import (KEEP, parse_key_value, parse_value_list, rebuild_if_changed, set_altitudes,
-                              set_freestream, set_parameter, unset_parameter, update_sweep)
+from ..engine.editing import (
+    KEEP,
+    parse_key_value,
+    parse_value_list,
+    rebuild_if_changed,
+    set_altitudes,
+    set_freestream,
+    set_parameter,
+    unset_parameter,
+    update_sweep,
+)
 from ..engine.errors import AeroSuiteError, ProjectError, TemplateError
 from ..engine.freestream import naming_altitude, pressure_text, sweeps_altitude
 from ..engine.jobs.runner import BUNDLED_SWEEP_SCRIPT

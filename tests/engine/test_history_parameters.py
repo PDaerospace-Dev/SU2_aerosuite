@@ -3,8 +3,18 @@ from pathlib import Path
 
 import pytest
 
-from aerosuite.engine.results import (GROUP_CONVERGENCE, GROUP_FLOW, GROUP_RESIDUALS, GROUP_SOLVER, GROUP_TOTALS,
-                                      convergence_columns, group_of, history_columns, ordered_groups, summarize)
+from aerosuite.engine.results import (
+    GROUP_CONVERGENCE,
+    GROUP_FLOW,
+    GROUP_RESIDUALS,
+    GROUP_SOLVER,
+    GROUP_TOTALS,
+    convergence_columns,
+    group_of,
+    history_columns,
+    ordered_groups,
+    summarize,
+)
 
 REAL_NAMES = ["Time_Iter", "Outer_Iter", "Inner_Iter", "Cur_Time", "rms[Rho]", "max[RhoE]", "bgs[k]", "LinSolRes",
               "LinSolIter", "Avg_CFL", "CL", "CD", "CMy", "CEff", "CL(Wing)", "CMy(HT)", "Avg_Massflow(outlet)",

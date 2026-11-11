@@ -14,7 +14,6 @@ from typing import Iterable, NamedTuple, Optional
 
 from .errors import GenerationError
 
-
 _NAME_PART_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 _CASE_NAME_RE = re.compile(r"[A-Za-z0-9_.-]+")
 NAME_CHARACTERS = "letters, digits, '.', '-' and '_'"

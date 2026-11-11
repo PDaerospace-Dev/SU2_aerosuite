@@ -1,12 +1,11 @@
 """What each case of a run about to start begins from (plan.preview_starts), and the Run page's words for it."""
 import pytest
+from slurm_helpers import A0, A2, A4
 
 from aerosuite.engine.errors import JobError
 from aerosuite.engine.jobs.plan import Start, mode_starts, preview_starts
 from aerosuite.engine.restarts import RUNS_DIR
 from aerosuite.web.starts_view import start_groups, start_text, summary
-
-from slurm_helpers import A0, A2, A4
 
 
 def _solution(project_dir, name, text="solution"):

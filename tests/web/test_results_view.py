@@ -4,8 +4,16 @@ import pytest
 
 from aerosuite.engine.models import ResultsSettings
 from aerosuite.engine.packages import effective
-from aerosuite.web.results_view import (add_parameter, filter_rows, pin, remove_parameter, shown_values,
-                                        status_counts, sweep_values, toggle_filter)
+from aerosuite.web.results_view import (
+    add_parameter,
+    filter_rows,
+    pin,
+    remove_parameter,
+    shown_values,
+    status_counts,
+    sweep_values,
+    toggle_filter,
+)
 
 COLUMNS = ["rms[Rho]", "CL", "CD", "CMy", "CL(Wing)"]
 

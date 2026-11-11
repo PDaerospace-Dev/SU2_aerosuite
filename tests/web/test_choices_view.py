@@ -1,7 +1,7 @@
 """The Sweep page's "Your choices" without NiceGUI: the values, which the project changes from the template and which
 differ from what the cases last ran with."""
 from aerosuite.engine.models import Case, Project
-from aerosuite.web.choices_view import last_run_options, folded_line, project_choices
+from aerosuite.web.choices_view import folded_line, last_run_options, project_choices
 
 TEMPLATE = """\
 SOLVER= RANS

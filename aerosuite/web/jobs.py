@@ -20,8 +20,8 @@ from ..engine.jobs.executors import SlurmOptions, backend_of, runner_for
 from ..engine.jobs.local import RUNS_DIR, LocalRunner
 from ..engine.jobs.overview import CaseOverview, case_overview
 from ..engine.jobs.runner import FINAL_CASE_STATES, CaseState, JobRecord
-from ..engine.models import Project
 from ..engine.jobs.store import load_job
+from ..engine.models import Project
 from ..engine.results import HISTORY_FILE, HistoryBuffer
 from ..engine.tags import note_changed
 from .cluster_view import where_text

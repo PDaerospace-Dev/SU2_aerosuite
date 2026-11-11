@@ -5,7 +5,7 @@ import pytest
 from aerosuite.engine.cfg import build_cases, case_freestream, render_case
 from aerosuite.engine.editing import set_altitudes, set_freestream, update_sweep
 from aerosuite.engine.errors import ProjectError
-from aerosuite.engine.freestream import (altitude_label, freestream_for, freestream_setup_errors, naming_altitude)
+from aerosuite.engine.freestream import altitude_label, freestream_for, freestream_setup_errors, naming_altitude
 from aerosuite.engine.models import SCHEMA_VERSION, Freestream, Project, Settings
 from aerosuite.engine.profiles import apply_profile, load_profile, save_profile
 from aerosuite.engine.project import PROJECT_FILE, create_project, open_project, save_project

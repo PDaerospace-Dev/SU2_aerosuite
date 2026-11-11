@@ -186,8 +186,14 @@ def test_fake_scancel_and_sinfo(fake_slurm, tmp_path):
 
 
 from aerosuite.engine.slurm import (  # noqa: E402  (next to the other imports when tidying)
-    current_user, parse_sacct_recent, parse_sinfo_nodes, recent_async, nodes_async, sacct_recent_args,
-    sinfo_nodes_args, squeue_args,
+    current_user,
+    nodes_async,
+    parse_sacct_recent,
+    parse_sinfo_nodes,
+    recent_async,
+    sacct_recent_args,
+    sinfo_nodes_args,
+    squeue_args,
 )
 
 # hpc1, 2026-10-20: sinfo -h -N -o "%N|%P|%t|%C|%m|%e|%O|%E"

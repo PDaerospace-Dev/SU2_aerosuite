@@ -7,8 +7,14 @@ from typing import Callable
 
 from nicegui import ui
 
-from ...engine.cfg import (case_freestream, read_template, render_case, stale_case_name, template_case_values,
-                           template_or_none)
+from ...engine.cfg import (
+    case_freestream,
+    read_template,
+    render_case,
+    stale_case_name,
+    template_case_values,
+    template_or_none,
+)
 from ...engine.editing import MARKER_PREFIX, set_parameter, update_sweep
 from ...engine.errors import AeroSuiteError, ProjectError
 from ...engine.models import Project

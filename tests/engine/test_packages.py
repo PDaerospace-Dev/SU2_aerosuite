@@ -3,8 +3,18 @@ import pytest
 
 from aerosuite.engine.errors import ProjectError
 from aerosuite.engine.models import DerivedValue, PlotSpec, ResultsSettings
-from aerosuite.engine.packages import (AERO, Package, delete_package, disable_package, effective, enable_package,
-                                       history_needs, list_packages, load_package, save_package)
+from aerosuite.engine.packages import (
+    AERO,
+    Package,
+    delete_package,
+    disable_package,
+    effective,
+    enable_package,
+    history_needs,
+    list_packages,
+    load_package,
+    save_package,
+)
 
 AERO_COLUMNS = ["rms[Rho]", "CL", "CD", "CMy", "CL(Wing)"]
 DUCT_COLUMNS = ["rms[Rho]", "Avg_Massflow(outlet)", "Avg_TotalPress(inlet)", "Avg_TotalPress(outlet)"]

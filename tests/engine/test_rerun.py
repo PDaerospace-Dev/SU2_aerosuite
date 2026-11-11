@@ -1,12 +1,12 @@
 """Rerun with changes: config lines for one job only, in its own copy of the case's config."""
 from pathlib import Path
 
+from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
+
 from aerosuite.engine.cfg import generate_configs
 from aerosuite.engine.jobs.plan import prepare_job
 from aerosuite.engine.jobs.rerun import describe, rerun_changes
 from aerosuite.engine.project import save_project
-
-from slurm_helpers import A0, A2, A4, slurm_study  # noqa: F401  (fixture)
 
 LOWER = rerun_changes(cfl=0.5, first_order=True, iterations=3000)
 
@@ -64,10 +64,10 @@ def test_adding_a_case_with_changes_to_a_running_job(slurm_study):
 
 
 def test_a_failed_rerun_keeps_the_solution_it_started_from_and_a_finished_one_not(slurm_study, history_writer):
+    from slurm_helpers import STEADY
+
     from aerosuite.engine.jobs.plan import started_from
     from aerosuite.engine.restarts import RUNS_DIR
-
-    from slurm_helpers import STEADY
 
     project_dir, project, runner, fake = slurm_study
     for name in (A0, A2):
@@ -97,10 +97,10 @@ def test_a_rerun_can_start_from_a_given_solution(ready_project, tmp_path):
 
 
 def test_a_kept_solution_goes_once_the_case_has_one_of_its_own(slurm_study, history_writer):
+    from slurm_helpers import STEADY
+
     from aerosuite.engine.jobs.plan import started_from
     from aerosuite.engine.restarts import RUNS_DIR
-
-    from slurm_helpers import STEADY
 
     project_dir, project, runner, fake = slurm_study
     (project_dir / RUNS_DIR / A0).mkdir(parents=True)

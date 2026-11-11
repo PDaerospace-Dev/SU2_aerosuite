@@ -16,18 +16,50 @@ from ...engine.errors import AeroSuiteError
 from ...engine.jobs.store import load_job
 from ...engine.project import open_project
 from ...engine.settings import SettingsError, load_settings, save_settings
-from ..cluster_view import (JOB_KINDS, JobGroup, NodeJob, cluster_status, expected_ends, filter_jobs, glance,
-                            job_groups, job_nodes_text, job_state_text, job_studies, moved, node_groups, node_jobs, ordered_nodes,
-                            partition_nodes, queue_starts, queue_text, sort_jobs, started_at, submitted_text,
-                            when_text)
+from .. import slurm_watch
+from ..cluster_view import (
+    JOB_KINDS,
+    JobGroup,
+    NodeJob,
+    cluster_status,
+    expected_ends,
+    filter_jobs,
+    glance,
+    job_groups,
+    job_nodes_text,
+    job_state_text,
+    job_studies,
+    moved,
+    node_groups,
+    node_jobs,
+    ordered_nodes,
+    partition_nodes,
+    queue_starts,
+    queue_text,
+    sort_jobs,
+    started_at,
+    submitted_text,
+    when_text,
+)
 from ..jobs import WATCHER
 from ..layout import header, project_url
 from ..notes import edit_note, note_label
 from ..resubmit_dialog import resubmit_case
 from ..run_view import about_text, duration_text
-from .. import slurm_watch
 from ..slurm_watch import WATCH
-from ..ui_kit import banner, chip_button, danger_button, flat_button, hint, pill, secondary_button, table, td, td_box, th
+from ..ui_kit import (
+    banner,
+    chip_button,
+    danger_button,
+    flat_button,
+    hint,
+    pill,
+    secondary_button,
+    table,
+    td,
+    td_box,
+    th,
+)
 
 POLL_SECONDS = 2.0
 LOG_LINES = 200
