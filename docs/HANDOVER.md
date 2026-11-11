@@ -1,9 +1,36 @@
 # Handover: continuing AeroSuite on the workstation
 
 Started 2026-09-28 when development moved from the Windows dev PC to the Linux workstation; last updated
-2026-09-30. It holds what the code and git history do not: the machine setup, where the branch stands, the
+2026-11-11. It holds what the code and git history do not: the machine setup, where the branch stands, the
 decisions taken along the way and what is still open. Read it first in a new session; keep it current or fold it
 into a CLAUDE.md.
+
+## Where things stand (2026-11-11)
+
+- **Development** is on hpc1 in `/data/software/templates/aerosuite/SU2_aerosuite`, branch `feat/run-page-redesign`
+  (everything since the Slurm backend is merged into it: the run matrix, convergence stopping, the search bar, the
+  coverage page). Feature work goes in a git worktree beside it (`SU2_aerosuite-<topic>`, its own branch), is merged
+  back, and the worktree is removed.
+- **The running server** (systemd user service `aerosuite`, port 8080) runs from `SU2_aerosuite-live`, a worktree at
+  one commit with its own `.venv`. It moves only with `uv run aerosuite service release [commit]`, which also says
+  how to go back. Never edit the live copy; never restart the service to "pick up" work in progress.
+- **Pushing**: this machine has no GitHub login (HTTPS asks for a user; the SSH key is not on GitHub), so the user
+  pushes (`git push origin feat/run-page-redesign`) and opens the pull request into `main` in the browser.
+- **Tests**: `uv run pytest -n 8` (1,661 tests, about 2 minutes; the shared machine is often at load 90+), and
+  `uv run ruff check .`. Scratch servers for screenshots go on port 8096 and are stopped by PID.
+- **State files** under `~/.aerosuite` (`tracker.json`, `tags.json`) and each project's job records are changed
+  under `engine/locking.file_lock`, which the server and the `aerosuite` command both take. `tracker.json.bak` is
+  the links file before its last save; a workbook keeps `<name>.bak.xlsx` and a week of daily copies in
+  `<name>.backups/`.
+- **Run matrix**: sheets are kept to 1st or 2nd order by the solver order read from each job's own config
+  (`Link.order`, `MUSCL_FLOW`), not by a `#2nd_order` note. See docs/RUN_MATRIX.md.
+- **The Run and Run matrix pages** are split by part: `web/pages/run.py` + `run_board.py`, `run_panel.py`,
+  `run_cases.py`, `run_parts.py`; `web/pages/tracker.py` + `tracker_link.py`, `tracker_preview.py`,
+  `tracker_new.py`, `tracker_coverage.py`, `tracker_parts.py`; the statuses' colours are one table in
+  `web/tracker_view.py`.
+
+The sections below are older and kept for their decisions; where they name a branch or a way of starting the
+server, this section is the current one.
 
 ## hpc1 and the Slurm backend (2026-10-19)
 
@@ -59,7 +86,7 @@ into a CLAUDE.md.
 - The user writes briefly and wants short, plain summaries with what to try next.
 - Studies are not only external aerodynamics (ducts, internal flow): nothing may assume CL/CD exist.
 
-## Branch
+## Branch (September 2026; since merged into `main`, see the top)
 
 Everything is on **`feat/web-ui-refresh`**, stacked on `feat/engine-phase-0-1` → `feat/cli-phase-2` →
 `feat/web-phase-3a` → `feat/web-run-monitor`. `origin/main` was merged into it on 2026-09-29 (`3417955`: main's

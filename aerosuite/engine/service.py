@@ -4,6 +4,10 @@
 keeps a user's services running while the user is logged out (and starts them at boot). The service runs
 `aerosuite serve` through a login shell, so it sees the same PATH, modules and environment as a terminal.
 KillMode=process: stopping or restarting it stops the server only, never a local sweep it started.
+
+The service runs from a copy of its own (`aerosuite service release`): <repository>-live beside the development
+checkout, a git worktree at one commit with its own environment. Work in the development checkout, finished or not,
+never reaches the running server (not at a restart, not after a crash); the live copy moves only on a release.
 """
 from __future__ import annotations
 
@@ -14,6 +18,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -28,16 +33,16 @@ def unit_path() -> Path:
     return Path(config) / "systemd" / "user" / SERVICE
 
 
-def serve_command(root: Path, port: int) -> str:
+def serve_command(root: Path, port: int, python: Optional[Path] = None) -> str:
     """The command the service runs: this environment's Python (not resolved: the venv's python is a link out of
-    the venv), so it runs the AeroSuite installed here."""
-    python = os.path.abspath(sys.executable)
+    the venv), so it runs the AeroSuite installed here; or `python`, the live copy's."""
+    python = os.path.abspath(python or sys.executable)
     return " ".join(shlex.quote(part) for part in
-                    (python, "-m", "aerosuite.cli", "serve", "--root", str(root), "--port", str(port)))
+                    (str(python), "-m", "aerosuite.cli", "serve", "--root", str(root), "--port", str(port)))
 
 
-def unit_text(root: Path, port: int) -> str:
-    command = serve_command(root, port)
+def unit_text(root: Path, port: int, python: Optional[Path] = None) -> str:
+    command = serve_command(root, port, python)
     return "\n".join([
         "# Written by `aerosuite service install`; change it with that command (or edit, then",
         "# `systemctl --user daemon-reload` and `aerosuite service restart`).",
@@ -63,7 +68,8 @@ def unit_text(root: Path, port: int) -> str:
 
 def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     if shutil.which(args[0]) is None:
-        raise ServiceError(f"{args[0]} was not found: the always-on service needs systemd")
+        raise ServiceError(f"{args[0]} was not found" + (
+            ": the always-on service needs systemd" if args[0] in ("systemctl", "journalctl") else ""))
     done = subprocess.run(args, capture_output=True, text=True)
     if check and done.returncode != 0:
         raise ServiceError(f"{' '.join(args)} failed: {(done.stderr or done.stdout).strip()}")
@@ -135,17 +141,21 @@ def install(root: Path, port: int) -> list[str]:
     return done
 
 
-def link_command() -> Optional[str]:
-    """Make `aerosuite` work in any terminal: link ~/.local/bin/aerosuite to this environment's script. Returns what
-    was done, or None when there was nothing to do; never replaces a file that is not that link."""
-    script = Path(os.path.abspath(sys.executable)).parent / "aerosuite"
+def link_command(python: Optional[Path] = None, move: bool = False) -> Optional[str]:
+    """Make `aerosuite` work in any terminal: link ~/.local/bin/aerosuite to this environment's script (or the one
+    beside `python`). Returns what was done, or None when there was nothing to do; never replaces a file that is not
+    that link, except, with `move`, a link to another environment's aerosuite script (a release moves it to the
+    live copy, so the command and the server run the same code)."""
+    script = Path(os.path.abspath(python or sys.executable)).parent / "aerosuite"
     if not script.is_file():
         return None
     folder = Path.home() / ".local" / "bin"
     link = folder / "aerosuite"
     if link.is_symlink() and Path(os.readlink(link)) == script:
         return None
-    if link.exists() or link.is_symlink():
+    if move and link.is_symlink() and Path(os.readlink(link)).name == "aerosuite":
+        link.unlink()
+    elif link.exists() or link.is_symlink():
         return f"Left {link} as it is (it is not a link to {script}); `aerosuite` may run another copy"
     try:
         folder.mkdir(parents=True, exist_ok=True)
@@ -192,6 +202,143 @@ def installed_port() -> Optional[int]:
         return int(inner[inner.index("--port") + 1])
     except (OSError, IndexError, ValueError):
         return None
+
+
+def installed_root() -> Optional[Path]:
+    """The --root in the installed unit, or None."""
+    try:
+        words = shlex.split(unit_path().read_text(encoding="utf-8").split("ExecStart=", 1)[1].splitlines()[0])
+        inner = shlex.split(words[-1])
+        return Path(inner[inner.index("--root") + 1])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+def installed_python() -> Optional[Path]:
+    """The Python the installed unit runs, or None."""
+    try:
+        words = shlex.split(unit_path().read_text(encoding="utf-8").split("ExecStart=", 1)[1].splitlines()[0])
+        inner = shlex.split(words[-1])
+        return Path(inner[1] if inner[0] == "exec" else inner[0])
+    except (OSError, IndexError, ValueError):
+        return None
+
+
+# --- the live copy -----------------------------------------------------------------------------------------------
+
+LIVE_SUFFIX = "-live"
+START_SECONDS = 60  # how long a release waits for the restarted server to answer
+
+
+def source_dir() -> Path:
+    """The checkout this code runs from."""
+    return Path(__file__).resolve().parents[2]
+
+
+def _git(folder: Path, *args: str) -> str:
+    done = _run(["git", "-C", str(folder), *args], check=False)
+    if done.returncode != 0:
+        raise ServiceError(f"git {' '.join(args)} failed in {folder}: {(done.stderr or done.stdout).strip()}")
+    return done.stdout.strip()
+
+
+def live_dir(source: Optional[Path] = None) -> Path:
+    """Where the live copy is: <repository>-live beside the repository's main checkout (whichever of its worktrees
+    `source` is)."""
+    source = Path(source or source_dir())
+    common = Path(_git(source, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+    main = common.parent
+    return main.with_name(main.name + LIVE_SUFFIX)
+
+
+def _describe(folder: Path, commit: str = "HEAD") -> str:
+    return _git(folder, "log", "-1", "--format=%h %cd %s", "--date=format:%Y-%m-%d %H:%M", commit)
+
+
+def sync_environment(live: Path) -> None:
+    """The live copy's own environment (.venv), exactly as uv.lock says, without the development tools."""
+    if shutil.which("uv") is None:
+        raise ServiceError("uv was not found on PATH: the live copy's environment is made with `uv sync`")
+    done = subprocess.run(["uv", "sync", "--frozen", "--no-dev"], cwd=live, capture_output=True, text=True)
+    if done.returncode != 0:
+        raise ServiceError(f"uv sync failed in {live}: {(done.stderr or done.stdout).strip()[-600:]}")
+
+
+def live_python(live: Path) -> Path:
+    return live / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+
+
+def live_text() -> str:
+    """What the service runs, in a line: the live copy and its commit, or the checkout it runs straight from."""
+    python = installed_python()
+    if python is None:
+        return ""
+    checkout = python.parent.parent.parent  # <checkout>/.venv/bin/python
+    try:
+        what = _describe(checkout)
+        branch = _git(checkout, "rev-parse", "--abbrev-ref", "HEAD")
+    except ServiceError:
+        return f"Runs {python}"
+    if checkout.name.endswith(LIVE_SUFFIX):
+        return f"Live copy {checkout} at {what}"
+    return (f"Runs straight from {checkout} ({branch}, at {what}): edits there go live at the next restart. "
+            f"`aerosuite service release` gives the server a copy of its own.")
+
+
+def release(ref: str = "HEAD", root: Optional[Path] = None, port: Optional[int] = None,
+            restart: bool = True) -> list[str]:
+    """Put commit `ref` of this checkout into the live copy, bring its environment up to date and (with `restart`)
+    run the service from it. Returns what was done, one line each; the last names the commit to release to go back.
+    Only commits are released: uncommitted changes stay where they are."""
+    source = source_dir()
+    commit = _git(source, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    live = live_dir(source)
+    done = []
+    if _git(source, "status", "--porcelain"):
+        done.append(f"Note: {source} has uncommitted changes; they are not part of the release")
+    previous = ""
+    if (live / ".git").exists():
+        if _git(live, "status", "--porcelain", "--untracked-files=no"):  # its .venv is not a change
+            raise ServiceError(f"The live copy {live} has changes of its own; look at them (git -C {live} status) "
+                               f"and undo them before a release")
+        previous = _git(live, "rev-parse", "HEAD")
+        if previous != commit:
+            _git(live, "checkout", "--detach", commit)
+    elif live.exists():
+        raise ServiceError(f"{live} exists and is not the live copy: move it away first")
+    else:
+        _git(source, "worktree", "add", "--detach", str(live), commit)
+    done.append(f"Live copy {live} is at {_describe(live)}")
+    sync_environment(live)
+    python = live_python(live)
+    if not python.is_file():
+        raise ServiceError(f"{python} is missing after uv sync")
+    root = Path(root or installed_root() or Path.home()).expanduser().resolve()
+    port = port or installed_port() or 8080
+    path = unit_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(unit_text(root, port, python), encoding="utf-8")
+    except OSError as exc:
+        raise ServiceError(f"Cannot write {path}: {exc}") from exc
+    _systemctl("daemon-reload")
+    if restart:
+        _systemctl("enable", SERVICE)
+        _systemctl("restart", SERVICE)
+        deadline = time.monotonic() + START_SECONDS
+        while not port_in_use(port) and time.monotonic() < deadline:
+            time.sleep(0.5)
+        done.append(f"Restarted: http://127.0.0.1:{port} runs the live copy" if port_in_use(port) else
+                    f"Restarted, but nothing answers on port {port} after {START_SECONDS} s: see "
+                    f"`aerosuite service logs`")
+        linked = link_command(python, move=True)
+        if linked:
+            done.append(linked)
+    else:
+        done.append("Not restarted: the server keeps running what it runs until `aerosuite service restart`")
+    if previous and previous != commit:
+        done.append(f"It was at {_describe(live, previous)}. To go back: aerosuite service release {previous[:10]}")
+    return done
 
 
 def _require() -> None:

@@ -1,5 +1,6 @@
 """The always-on service (systemctl faked) and the PC launcher."""
 import os
+import subprocess
 import sys
 
 import pytest
@@ -133,3 +134,93 @@ def test_the_link_never_replaces_another_file(home):
     (folder / "aerosuite").write_text("#!/bin/sh\necho mine\n")
     assert service.link_command().startswith(f"Left {folder / 'aerosuite'} as it is")
     assert (folder / "aerosuite").read_text() == "#!/bin/sh\necho mine\n"
+
+
+# --- the live copy ---------------------------------------------------------------------------------------------------
+
+def _git(folder, *args):
+    subprocess.run(["git", "-C", str(folder), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True,
+                   capture_output=True)
+
+
+@pytest.fixture
+def checkout(tmp_path, monkeypatch, systemd):
+    """A development checkout with one commit; `uv sync` replaced by a python and an aerosuite script appearing."""
+    source = tmp_path / "repo"
+    source.mkdir()
+    _git(source, "init", "-q", "-b", "main")
+    (source / "code.py").write_text("version = 1\n")
+    _git(source, "add", ".")
+    _git(source, "commit", "-q", "-m", "first")
+
+    def sync(live):
+        folder = live / ".venv" / "bin"
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in ("python", "aerosuite"):
+            (folder / name).write_text("")
+
+    monkeypatch.setattr(service, "source_dir", lambda: source)
+    monkeypatch.setattr(service, "sync_environment", sync)
+    monkeypatch.setattr(service, "port_in_use", lambda port: True)  # the restarted server answers
+    return source
+
+
+def _commit(source, text, message):
+    (source / "code.py").write_text(text)
+    _git(source, "commit", "-q", "-am", message)
+
+
+def test_a_release_runs_the_service_from_a_copy_of_its_own(checkout, tmp_path, systemd):
+    lines = service.release(root=tmp_path, port=8081)
+    live = tmp_path / "repo-live"
+    assert service.live_dir(checkout) == live and (live / "code.py").read_text() == "version = 1\n"
+    assert service.installed_python() == live / ".venv" / "bin" / "python"
+    assert (service.installed_port(), service.installed_root()) == (8081, tmp_path)
+    assert systemd[-3:] == [["daemon-reload"], ["enable", "aerosuite.service"], ["restart", "aerosuite.service"]]
+    assert any("first" in line and "Live copy" in line for line in lines)
+    assert any("runs the live copy" in line for line in lines)
+    assert "Live copy" in service.live_text() and "first" in service.live_text()
+    link = tmp_path / "home" / ".local" / "bin" / "aerosuite"
+    assert os.readlink(link) == str(live / ".venv" / "bin" / "aerosuite")  # the command is the live copy's too
+
+
+def test_work_in_the_checkout_reaches_the_server_only_on_a_release(checkout, tmp_path):
+    service.release(root=tmp_path, port=8081)
+    live = tmp_path / "repo-live"
+    _commit(checkout, "version = 2\n", "second")
+    (checkout / "code.py").write_text("half an edit")  # and unfinished work on top
+    assert (live / "code.py").read_text() == "version = 1\n"
+    lines = service.release()  # the root and port as installed
+    assert (live / "code.py").read_text() == "version = 2\n" and service.installed_port() == 8081
+    assert any("uncommitted changes" in line for line in lines)
+    back = lines[-1]
+    assert "It was at" in back and "first" in back and "To go back: aerosuite service release " in back
+    service.release(back.rsplit(" ", 1)[1])  # going back
+    assert (live / "code.py").read_text() == "version = 1\n"
+
+
+def test_a_release_can_leave_the_running_server_alone(checkout, tmp_path, systemd):
+    lines = service.release(root=tmp_path, port=8081, restart=False)
+    assert ["restart", "aerosuite.service"] not in systemd
+    assert any("Not restarted" in line for line in lines)
+
+
+def test_a_live_copy_that_was_edited_is_not_released_over(checkout, tmp_path):
+    service.release(root=tmp_path, port=8081)
+    (tmp_path / "repo-live" / "code.py").write_text("patched in place")
+    with pytest.raises(ServiceError, match="has changes of its own"):
+        service.release()
+    with pytest.raises(ServiceError, match="rev-parse"):
+        service.release("no-such-commit")
+
+
+def test_a_service_running_from_the_checkout_is_told_so(systemd, tmp_path, monkeypatch):
+    checkout_python = tmp_path / "repo" / ".venv" / "bin" / "python"
+    service.unit_path().parent.mkdir(parents=True)
+    service.unit_path().write_text(service.unit_text(tmp_path, 8080, checkout_python))
+    (tmp_path / "repo").mkdir()
+    _git(tmp_path / "repo", "init", "-q", "-b", "dev")
+    (tmp_path / "repo" / "a").write_text("")
+    _git(tmp_path / "repo", "add", ".")
+    _git(tmp_path / "repo", "commit", "-q", "-m", "work")
+    assert "Runs straight from" in service.live_text() and "aerosuite service release" in service.live_text()

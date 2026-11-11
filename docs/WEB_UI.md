@@ -391,12 +391,17 @@ the study's folder; add `--help` to any command for all its options.
 ```
 uv run aerosuite service install --root /data   # start it, now and at every boot
 aerosuite service status                        # running? how to open it
-aerosuite service restart                       # after an update; jobs go on
+aerosuite service release                       # put this checkout's HEAD live (a copy of its own); jobs go on
+aerosuite service restart                       # restart what is live; jobs go on
 aerosuite service logs -n 100                   # its latest output
 aerosuite service stop                          # until the next restart or boot
 aerosuite service uninstall
 aerosuite service launcher --for windows -o AeroSuite.bat   # --for mac too
 ```
+
+`service release` runs the server from a copy of its own: `SU2_aerosuite-live` beside the checkout, at one commit,
+with its own environment. Work in the checkout cannot reach the running server until the next release, which also
+names the commit that was live and the command to go back to it. `service status` says what is live.
 
 `service install` also links `~/.local/bin/aerosuite`, so `aerosuite` works in any terminal without `uv run`. If it
 stops when you log out, ask an admin for `sudo loginctl enable-linger <user>`. To run it in a terminal instead (it

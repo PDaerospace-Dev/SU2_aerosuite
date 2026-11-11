@@ -81,10 +81,24 @@ export AEROSUITE_SWEEP_PYTHON=/usr/bin/python3
 
 The install steps are under *Quick start* above.
 
-### Tests
+### Tests and checks
 ```bash
-uv run pytest
+uv run pytest -n 8      # the suite on 8 cores: about 2 minutes (20 on one)
+uv run ruff check .     # mistakes, not style: undefined names, unused imports and variables
 ```
+GitHub runs both on every pull request (`.github/workflows/checks.yml`).
+
+### Updating the running server
+The service does not run from this checkout but from a copy of its own, `SU2_aerosuite-live` beside it, at one
+commit and with its own environment. Edits here, finished or not, never reach the running server. To put a commit
+live:
+
+```bash
+uv run aerosuite service release            # this checkout's HEAD; or: ... release <commit, tag or branch>
+uv run aerosuite service status             # what is live
+```
+A release says which commit was live before, and the command that goes back to it. Running sweeps and Slurm jobs
+go on through a release.
 
 ## Documentation
 - [docs/WEB_UI.md](docs/WEB_UI.md): the web UI page by page. The **?** in the top bar shows this file.
