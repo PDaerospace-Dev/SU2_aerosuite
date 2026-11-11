@@ -92,12 +92,12 @@ class JobRecord(BaseModel):
         return note_tags(self.note)
 
 
-TAG_RE = re.compile(r"#([a-z][\w-]*)")
+TAG_RE = re.compile(r"#(\d*[a-z][\w-]*)", re.IGNORECASE)  # a letter in it: #2nd_order is a tag, #12 is not
 
 
 def note_tags(note: str) -> list[str]:
     """The #tags in a note, lower case, each once, in order of appearance: "#wing-v2 mesh #fine" -> [wing-v2, fine]."""
-    return list(dict.fromkeys(TAG_RE.findall(note)))
+    return list(dict.fromkeys(tag.lower() for tag in TAG_RE.findall(note)))
 
 
 def serialized(method):

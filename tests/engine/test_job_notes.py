@@ -35,7 +35,8 @@ def test_a_record_from_before_notes_still_loads(tmp_path):
 
 
 def test_tags_are_the_hash_words_of_a_note_once_each_in_order():
-    assert note_tags("fine mesh #wing-v2, retry #fine #wing-v2 and #Big #9lives #a_b") == ["wing-v2", "fine", "a_b"]
+    assert note_tags("fine mesh #wing-v2, retry #fine #wing-v2 and #Big #a_b #12") == ["wing-v2", "fine", "big", "a_b"]
+    assert note_tags("#2nd_order run, not #1st_Order or job #3") == ["2nd_order", "1st_order"]
     assert note_tags("") == [] and note_tags("no tags # here") == []
     assert _job(note="try #cfl-low").tags == ["cfl-low"]
 
