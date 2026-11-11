@@ -143,6 +143,17 @@ async def test_coverage_shows_the_sheet_in_three_views(user: User, matrix):
     assert "AoA 0° · Mach 0.3" in _element(user, "coverage-detail-title").text
 
 
+async def eventually_text(user, marker, text, tries=40):
+    for _ in range(tries):
+        try:
+            if _element(user, marker).text == text:
+                return
+        except AssertionError:  # not drawn yet
+            pass
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"{marker} never read {text!r}")
+
+
 async def _pick(user, ids, **flags):
     """What the page's script sends for a click (or shift-click, or drag) on runs; its handler runs as a task."""
     UserInteraction(user, {user.client.layout}, None).trigger("asCovPick", {"ids": ids, **flags})
@@ -299,6 +310,28 @@ async def test_a_project_without_a_deflection_must_be_given_one(user: User, matr
         _element(user, "link-project-baseline-on").set_value(True)
     user.find(marker="link-save").click()
     await user.should_see("Give the elevator deflection of baseline in degrees.")
+
+
+async def test_a_sheet_can_be_kept_to_one_solver_order(user: User, matrix):
+    """The job's config says 2nd order, its note says nothing: a 1st-order sheet leaves the job out."""
+    book, folder = matrix
+    for case in ("M0p3_0km_a0", "M0p3_0km_a5"):
+        config = folder / "jobs" / "j1" / "configs" / f"{case}.cfg"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text("MUSCL_FLOW= YES\n")
+    link = _link(book, folder)
+    await user.open(f"/tracker/link?link={link.id}")
+    await user.should_see(marker="link-order")
+    await eventually_text(user, "link-changes", "1")
+    _element(user, "link-order").set_value("1st")
+    await eventually_text(user, "link-changes", "0")
+    _element(user, "link-order").set_value("2nd")
+    await eventually_text(user, "link-changes", "1")
+    user.find(marker="link-save").click()
+    await user.should_see(marker="tracker-preview-page")
+    assert find_link(link.id).order == "2nd"
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}-order")
 
 
 async def test_changing_and_removing_a_link(user: User, matrix):

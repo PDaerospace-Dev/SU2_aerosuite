@@ -25,9 +25,10 @@ from xml.etree import ElementTree
 from .cfg import CONFIGS_DIR
 from .errors import AeroSuiteError, TrackerError
 from .imported import read_name
+from .jobs.diagnose import diagnose
 from .jobs.executors import runner_of
 from .jobs.runner import CaseState, JobRecord
-from .jobs.store import scan_jobs
+from .jobs.store import JOBS_DIR, scan_jobs
 from .restarts import RUNS_DIR
 from .results import HISTORY_FILE, check_convergence, load_case_index, read_history
 
@@ -47,7 +48,13 @@ _NEVER_RAN = {CaseState.CANCELLED, CaseState.BLOCKED}  # shown only when no job 
 _LIVE = {CaseState.RUNNING, CaseState.PENDING}  # true only while the job is active
 NOT_CONVERGED, FAILED, HOLD = (STATUS_TEXT[state] for state in (CaseState.UNCONVERGED, CaseState.FAILED,
                                                                  CaseState.CANCELLED))
-DIVERGED = "Diverged"  # set by hand: AeroSuite cannot tell divergence from non-convergence
+DIVERGED = "Diverged"  # a failed case whose output says SU2 found NaN (diagnose), or set by hand
+# The solver order a sheet can be kept to: read from the config each job ran a case with (MUSCL_FLOW), so a note with a
+# missing or mistyped tag cannot put a run in the wrong sheet.
+ORDERS = {"1st": "1st order", "2nd": "2nd order"}
+ORDER_TAG = "2nd_order"  # decides for a job that kept no config: 2nd order with this #tag in its note, else 1st
+_MUSCL_RE = re.compile(r"^[ \t]*MUSCL_FLOW[ \t]*=[ \t]*(\w+)", re.MULTILINE | re.IGNORECASE)
+_orders: dict[tuple[str, str], Optional[str]] = {}  # by (job folder, case): a job's own configs never change
 VERDICTS = {STATUS_TEXT[CaseState.CONVERGED], NOT_CONVERGED, DIVERGED, FAILED}
 
 _SWEEP_HEADERS = (("mach",), ("alt",), ("aoa", "alpha"), ("elev",), ("beta", "sideslip"))
@@ -107,6 +114,40 @@ def has_tag(note: str, tag: str) -> bool:
     return re.search(rf"#{re.escape(tag.lstrip('#'))}(?![\w-])", note, re.IGNORECASE) is not None
 
 
+def solver_order(project_dir: Path, job_id: str, case: str) -> Optional[str]:
+    """The order the job ran the case at, from its own config: "2nd" with MUSCL_FLOW on (SU2's default when the config
+    does not say), "1st" with it off; None when the job kept no config for the case. A case added to the job later has
+    its config in the newest add-N folder."""
+    folder = Path(project_dir) / JOBS_DIR / job_id
+    known = (str(folder), case)
+    if known in _orders:
+        return _orders[known]
+    added = sorted(folder.glob(f"add-*/{CONFIGS_DIR}/{case}.cfg"),
+                   key=lambda path: int(path.parts[-3][4:]) if path.parts[-3][4:].isdigit() else 0, reverse=True)
+    order = None
+    for path in added + [folder / CONFIGS_DIR / f"{case}.cfg"]:
+        try:
+            found = _MUSCL_RE.findall(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+        order = "1st" if found and found[-1].upper() == "NO" else "2nd"
+        break
+    _orders[known] = order
+    return order
+
+
+def case_order(project_dir: Path, job: JobRecord, case: str) -> str:
+    """solver_order, or what the job's note says (ORDER_TAG) when it kept no config."""
+    return solver_order(project_dir, job.id, case) or ("2nd" if has_tag(job.note, ORDER_TAG) else "1st")
+
+
+def _diverged(job: JobRecord, case: str) -> bool:
+    """A failed case whose output ends in SU2's divergence message."""
+    tail = job.failure_tail.get(case, "")
+    slurm = job.slurm.get(case)
+    return bool(tail) and diagnose(tail, getattr(slurm, "state", None)).kind == "diverged"
+
+
 def _refreshed(project_dir: Path, job: JobRecord) -> JobRecord:
     """An active job as its runner sees it now (as `aerosuite status` does); the record on disk if that fails."""
     try:
@@ -120,11 +161,14 @@ def collect_statuses(
     tags: Iterable[str] = (),
     skip_tags: Iterable[str] = (),
     refresh: bool = True,
+    order: str = "",
 ) -> tuple[dict[Key, CaseStatus], list[str]]:
     """Each case's status from the newest job that ran it, over (project folder, elevator) pairs, and warnings.
 
-    With `tags`, only jobs whose note has one of them count; jobs with any of `skip_tags` never do. A case a newer
-    job cancelled (or never started) keeps an older job's result; Hold is shown only when no job has one."""
+    With `tags`, only jobs whose note has one of them count; jobs with any of `skip_tags` never do. With `order`
+    ("1st" or "2nd"), only cases a job ran at that solver order count (case_order). A case a newer job cancelled (or
+    never started) keeps an older job's result; Hold is shown only when no job has one. A failed case that diverged
+    reads Diverged."""
     tags, skip_tags = list(tags), list(skip_tags)
     jobs: list[tuple[datetime, Path, float, JobRecord, dict]] = []
     warnings: list[str] = []
@@ -147,6 +191,8 @@ def collect_statuses(
             state = job.case_status.get(case)
             if state is None or (state in _LIVE and not job.is_active):
                 continue
+            if order and case_order(project_dir, job, case) != order:
+                continue
             values = _case_values(case, index)
             if values is None:
                 names = unknown.setdefault(project_dir.name, [])
@@ -155,8 +201,8 @@ def collect_statuses(
                 continue
             mach, altitude, alpha, beta = values
             case_key = key(mach, altitude, alpha, elevator, beta)
-            entry = CaseStatus(STATUS_TEXT[state], project_dir.name, job.id, case, str(project_dir), case_key,
-                               job.finished)
+            text = DIVERGED if state is CaseState.FAILED and _diverged(job, case) else STATUS_TEXT[state]
+            entry = CaseStatus(text, project_dir.name, job.id, case, str(project_dir), case_key, job.finished)
             if state in _NEVER_RAN:
                 fallback.setdefault(case_key, entry)
             else:
@@ -169,12 +215,15 @@ def collect_statuses(
     return statuses, warnings
 
 
-def job_counts(project_dir: Path, tags: Iterable[str] = (), skip_tags: Iterable[str] = ()) -> tuple[int, int]:
-    """How many of a project's jobs the tags choose, and how many it has."""
+def job_counts(project_dir: Path, tags: Iterable[str] = (), skip_tags: Iterable[str] = (),
+               order: str = "") -> tuple[int, int]:
+    """How many of a project's jobs the tags and the order choose (a job with any case at that order), and how many
+    it has."""
     tags, skip_tags = list(tags), list(skip_tags)
     jobs, _ = scan_jobs(Path(project_dir))
     chosen = [job for job in jobs if (not tags or any(has_tag(job.note, t) for t in tags))
-              and not any(has_tag(job.note, t) for t in skip_tags)]
+              and not any(has_tag(job.note, t) for t in skip_tags)
+              and (not order or any(case_order(Path(project_dir), job, case) == order for case in job.cases))]
     return len(chosen), len(jobs)
 
 
@@ -365,7 +414,8 @@ def plan_changes(matrix: Matrix, statuses: dict[Key, CaseStatus], overwrite: boo
     """The Status cells to change. A verdict in the sheet (Converged, Not Converged, Diverged, Failed) is kept when a
     job gives another one, unless `overwrite`: it may be a judgement AeroSuite's convergence check does not make.
     Running and Pending always replace it (the case runs again); Hold (a job that never ran it) never does, and
-    Diverged stays when a job says Not Converged or Failed."""
+    Diverged stays when a job says Not Converged or Failed. Failed becomes Diverged when the job says so: the same
+    failure, said more exactly."""
     changes, kept, unchanged = [], [], 0
     for row in matrix.rows:
         entry = statuses.get(row.key)
@@ -375,7 +425,8 @@ def plan_changes(matrix: Matrix, statuses: dict[Key, CaseStatus], overwrite: boo
         if row.status == entry.status or (verdict and entry.status == HOLD) or (
                 row.status == DIVERGED and entry.status in (NOT_CONVERGED, FAILED)):
             unchanged += 1
-        elif verdict and entry.status in VERDICTS and not overwrite:
+        elif verdict and entry.status in VERDICTS and not overwrite and not (
+                row.status == FAILED and entry.status == DIVERGED):
             kept.append(Change(row, entry.status, entry))
         else:
             changes.append(Change(row, entry.status, entry))

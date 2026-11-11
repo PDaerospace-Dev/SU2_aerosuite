@@ -15,8 +15,8 @@ from nicegui import run, ui
 
 from ...engine.errors import AeroSuiteError
 from ...engine.naming import format_value
-from ...engine.tracker import (Template, detail_value, elevator_of, outside_reason, parse_values, project_levels,
-                               read_template, sheet_name_problem, sheet_names, template_sheets)
+from ...engine.tracker import (ORDERS, Template, detail_value, elevator_of, outside_reason, parse_values,
+                               project_levels, read_template, sheet_name_problem, sheet_names, template_sheets)
 from ...engine.tracker_links import (Link, LinkedProject, LinkReport, candidate_projects, create_sheet, find_link,
                                      last_write, load_tracker, remove_link, report, save_link, set_auto,
                                      set_completed, write_link)
@@ -98,6 +98,17 @@ def legend() -> None:
         with ui.row().classes("as-legend-item"):
             ui.element("span").classes("as-swatch as-mseg-none")
             ui.label("No status yet")
+
+
+def order_choice(value: str, on_change=None) -> ui.toggle:
+    """Which solver order a sheet takes: any, or only the cases a job ran at 1st or 2nd order."""
+    with ui.column().classes("w-full gap-1"):
+        ui.label("Solver order").classes("as-strong")
+        toggle = ui.toggle({"": "Any", **ORDERS}, value=value if value in ORDERS else "", on_change=on_change).props(
+            "dense no-caps unelevated toggle-color=primary").classes("as-toggle")
+        hint("Read from the config each job ran with (MUSCL_FLOW on is 2nd order), so it does not depend on the "
+             "note. A job that kept no config counts as 2nd order only with #2nd_order in its note.")
+    return toggle
 
 
 def stack_cell() -> ui.column:
@@ -298,6 +309,9 @@ class Overview:
             ui.label(f"{len(link.projects)} project{'' if len(link.projects) == 1 else 's'}")
             hint(f"δe {elevators}" if elevators else "")
             with ui.row().classes("gap-1"):
+                if link.order:
+                    ui.label(f"{ORDERS.get(link.order, link.order)} only").classes("as-tag as-tag-accent").mark(
+                        f"{mark}-order")
                 for tag in link.tags:
                     ui.label(f"#{tag.lstrip('#')} only").classes("as-tag as-tag-accent")
                 for tag in link.skip_tags:
@@ -426,10 +440,11 @@ class LinkForm:
                  "Change it where the name does not say.")
             self.projects = ui.element("div").classes("as-table-scroll as-link-projects w-full")
             flat_button("Add a project folder", self._add_project, icon="add").mark("link-add-project")
+        self.order = order_choice(self.link.order, lambda: self.recompute()).mark("link-order")
         with ui.row().classes("w-full gap-4"):
             self.tags = field(ui.input_chips("Only jobs tagged", value=list(self.link.tags),
                                              on_change=lambda: self.recompute()),
-                              help="Only jobs whose note has one of these #tags count, e.g. 2nd_order").classes(
+                              help="Only jobs whose note has one of these #tags count").classes(
                 "grow").mark("link-tags")
             self.skip_tags = field(ui.input_chips("Leave out jobs tagged", value=list(self.link.skip_tags),
                                                   on_change=lambda: self.recompute()),
@@ -540,6 +555,7 @@ class LinkForm:
             "workbook": workbook, "sheet": self.sheet.value, "projects": projects,
             "tags": [t.lstrip("#") for t in self.tags.value or []],
             "skip_tags": [t.lstrip("#") for t in self.skip_tags.value or []],
+            "order": self.order.value or "",
             "overwrite": bool(self.overwrite.value), "auto": bool(self.auto.value)}), ""
 
     async def recompute(self) -> None:
@@ -877,13 +893,15 @@ class NewSheetForm:
         with ui.column().classes("w-full gap-1"):
             self.link = ui.checkbox("Link it to these projects, so its Status follows their jobs", value=True,
                                     on_change=lambda e: self.link_box.set_visibility(e.value)).mark("new-link")
-            with ui.row().classes("w-full gap-4") as self.link_box:
-                self.tags = field(ui.input_chips("Only jobs tagged"),
-                                  help="Only jobs whose note has one of these #tags count, e.g. 2nd_order").classes(
-                    "grow").mark("new-tags")
-                self.skip_tags = field(ui.input_chips("Leave out jobs tagged"),
-                                       help="Jobs whose note has one of these #tags never count").classes("grow").mark(
-                    "new-skip-tags")
+            with ui.column().classes("w-full gap-3") as self.link_box:
+                self.order = order_choice("").mark("new-order")
+                with ui.row().classes("w-full gap-4"):
+                    self.tags = field(ui.input_chips("Only jobs tagged"),
+                                      help="Only jobs whose note has one of these #tags count").classes(
+                        "grow").mark("new-tags")
+                    self.skip_tags = field(ui.input_chips("Leave out jobs tagged"),
+                                           help="Jobs whose note has one of these #tags never count").classes(
+                        "grow").mark("new-skip-tags")
         self.error = ui.label("").classes("as-error-text").mark("new-error")
         with ui.row().classes("w-full justify-end gap-2 as-link-footer"):
             secondary_button("Cancel", lambda: ui.navigate.to("/tracker")).mark("new-cancel")
@@ -1084,7 +1102,7 @@ class NewSheetForm:
             return
         link = Link(workbook=self._book(), sheet=name, projects=projects,
                     tags=[t.lstrip("#") for t in self.tags.value or []],
-                    skip_tags=[t.lstrip("#") for t in self.skip_tags.value or []])
+                    skip_tags=[t.lstrip("#") for t in self.skip_tags.value or []], order=self.order.value or "")
         self.create.set_enabled(False)
         try:
             await run.io_bound(create_sheet, link, self.template.sheet, details, levels, bool(self.link.value))

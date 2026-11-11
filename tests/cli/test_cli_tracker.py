@@ -98,6 +98,20 @@ def test_hand_verdicts_are_listed_on_a_dry_run_and_replaced_with_overwrite(tmp_p
     assert load_workbook(book)["Study"]["M5"].value == "Not Converged"
 
 
+def test_order_takes_only_the_cases_run_at_that_order(tmp_path):
+    book = _workbook(tmp_path / "matrix.xlsx")
+    del0 = _project(tmp_path / "x_del0", {"M2p0_25km_a0": CaseState.CONVERGED, "M3p0_25km_a0": CaseState.CONVERGED})
+    configs = del0 / "jobs" / "j1" / "configs"
+    configs.mkdir(parents=True)
+    (configs / "M2p0_25km_a0.cfg").write_text("MUSCL_FLOW= NO\n")
+    (configs / "M3p0_25km_a0.cfg").write_text("MUSCL_FLOW= YES\n")
+    result = runner.invoke(app, ["tracker", "sync", str(book), "Study", str(del0), "--order", "2nd", "--dry-run"])
+    assert result.exit_code == 0, result.output
+    assert "M3p0_25km_a0" in result.output and "M2p0_25km_a0" not in result.output
+    bad = runner.invoke(app, ["tracker", "sync", str(book), "Study", str(del0), "--order", "3rd"])
+    assert bad.exit_code != 0 and "give 1st or 2nd" in bad.output
+
+
 def _with_template(path):
     """The workbook with a template sheet to copy: a case name in D4, rows for 10 runs, the sweep table empty."""
     _workbook(path)

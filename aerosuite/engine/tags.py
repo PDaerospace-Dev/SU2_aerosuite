@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import Iterable, NamedTuple, Optional
 
 from .errors import JobError
 from .home import aerosuite_home, load_recent
@@ -132,3 +133,35 @@ def matching_tags(prefix: str, project_dir: Path, limit: int = 6) -> list[TagMat
             found.append(TagMatch(tag, entry["count"], "this project" if only_here else "all projects"))
     found.sort(key=lambda match: (-match.count, match.tag))
     return found[:limit]
+
+
+# --- a tag written without its # -------------------------------------------------------------------------------------
+
+def _bare_pattern(tag: str) -> re.Pattern:
+    """`tag` as a word of its own with no # before it; a _ or - in it may be typed as a space ("2nd order")."""
+    words = r"[ _-]".join(re.escape(part) for part in re.split(r"[_-]", tag) if part)
+    return re.compile(rf"(?<![#\w-]){words}(?![\w-])", re.IGNORECASE)
+
+
+def likely_tags(project_dir: Optional[Path] = None) -> list[str]:
+    """The tags worth pointing out when a note has them without the #: the ones a run-matrix sheet filters on (a
+    missing # there puts a run in the wrong sheet), and the tags in use that are not an everyday word (a digit, _ or
+    - in them: "fine" in "fine mesh" is left alone)."""
+    from .tracker import ORDER_TAG
+    from .tracker_links import load_tracker
+    filtered = [ORDER_TAG] + [tag for link in load_tracker().links for tag in link.tags + link.skip_tags]
+    used = [tag for tag in load_index(project_dir) if re.search(r"[\d_-]", tag)]
+    return list(dict.fromkeys(tag.lstrip("#").lower() for tag in filtered + used if tag.strip("#")))
+
+
+def bare_tags(note: str, known: Iterable[str]) -> list[str]:
+    """The `known` tags a note names without the # (and does not also have as a #tag), in the order given."""
+    return [tag for tag in dict.fromkeys(known)
+            if not re.search(rf"#{re.escape(tag)}(?![\w-])", note, re.IGNORECASE) and _bare_pattern(tag).search(note)]
+
+
+def hashed(note: str, tags: Iterable[str]) -> str:
+    """The note with each of `tags` it names bare written as a #tag."""
+    for tag in tags:
+        note = _bare_pattern(tag).sub(f"#{tag}", note)
+    return note

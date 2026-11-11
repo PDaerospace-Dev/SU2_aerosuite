@@ -12,7 +12,7 @@ from nicegui import run, ui
 from ..engine.errors import AeroSuiteError
 from ..engine.jobs.changes import ConfigChange
 from ..engine.jobs.runner import TAG_RE
-from ..engine.tags import TagMatch, matching_tags
+from ..engine.tags import TagMatch, bare_tags, hashed, likely_tags, matching_tags
 from .jobs import WATCHER
 from .ui_kit import field, primary_button, secondary_button
 
@@ -44,6 +44,35 @@ def jobs_text(count: int) -> str:
     return f"{count} job{'' if count == 1 else 's'}"
 
 
+class TagHint:
+    """A line under a note that names a known tag without its #: "2nd_order is not a tag without the #", and a link
+    that writes the # in. Empty otherwise."""
+
+    def __init__(self, directory: Path, fix: Callable[[str], None], mark: str) -> None:
+        self.fix = fix
+        self.mark = mark
+        try:
+            self.known = likely_tags(directory)
+        except (AeroSuiteError, OSError):
+            self.known = []
+        self.box = ui.row().classes("as-tag-hint no-wrap gap-2").mark(f"{mark}-box")
+
+    def update(self, note: str) -> None:
+        found = bare_tags(note, self.known)
+        self.box.clear()
+        self.box.set_visibility(bool(found))
+        if not found:
+            return
+        tags = " and ".join(f"#{tag}" for tag in found)
+        with self.box:
+            ui.icon("info_outline", size="14px")
+            with ui.element("div").classes("as-tag-hint-text"):
+                ui.label(f"Without the #, {' and '.join(found)} {'is not a tag' if len(found) == 1 else 'are not tags'}"
+                         ": run-matrix sheets and the tag filter will miss this job.").mark(self.mark)
+                ui.label(f"Write {tags}").classes("as-link").mark(f"{self.mark}-fix").on(
+                    "click", lambda: self.fix(hashed(note, found)))
+
+
 class NoteField:
     """One line for what a run is for: no box, no label; wraps when long. Typing `#` lists the tags used before."""
 
@@ -61,6 +90,8 @@ class NoteField:
                     'autogrow underlined dense rows=1 input-class="as-note-input"').classes("as-note-field w-full")
                 self.box.mark(mark)
             self.menu = ui.column().classes("as-note-menu w-full gap-0")
+            self.hint = TagHint(directory, lambda text: self.box.set_value(text), f"{mark}-untagged")
+        self.hint.update(value)
         self.box.on_value_change(lambda e: self._changed(e.value or ""))
         self.box.on("keydown", lambda e: self._key((e.args or {}).get("key", "")), js_handler=_KEYS)
         self._suggest()
@@ -72,6 +103,7 @@ class NoteField:
         self.shown.content = note_html(text)
         self.on_change(text)
         self._suggest()
+        self.hint.update(text)
 
     def _suggest(self) -> None:
         found = _TRAILING_TAG.search(self.value)
@@ -140,6 +172,9 @@ async def edit_note(study: Path, job_id: str, note: str, outcome: str) -> bool:
         ui.label(f"Job {job_id}").classes("as-dialog-title")
         note_box = field(ui.textarea("Note", value=note, placeholder="What is this run for? Use #tags")).props(
             "autogrow").classes("w-full").mark("note-edit")
+        hint = TagHint(study, lambda text: note_box.set_value(text), "note-untagged")
+        hint.update(note)
+        note_box.on_value_change(lambda e: hint.update(e.value or ""))
         outcome_box = field(ui.input("Outcome", value=outcome, placeholder="What came of it")).classes(
             "w-full").mark("outcome-edit")
         error = ui.label("").classes("as-error-text").mark("note-error")

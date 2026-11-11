@@ -8,9 +8,9 @@ import typer
 from ..engine import project as engine_project
 from ..engine.errors import TrackerError
 from ..engine.naming import format_value
-from ..engine.tracker import (collect_statuses, completion_date, detail_value, elevator_of, parse_values, plan_changes,
-                              project_levels, read_matrix, read_template, sheet_name_problem, template_sheets,
-                              write_statuses)
+from ..engine.tracker import (ORDERS, collect_statuses, completion_date, detail_value, elevator_of, parse_values,
+                              plan_changes, project_levels, read_matrix, read_template, sheet_name_problem,
+                              template_sheets, write_statuses)
 from ..engine.tracker_links import Link, LinkedProject, create_sheet
 from .app import app, engine_errors
 
@@ -38,6 +38,12 @@ def _run(key) -> str:
     return f"M {mach}, {altitude} km, AoA {aoa}, elev {elevator}, beta {beta}"
 
 
+def _order(text: Optional[str]) -> str:
+    if text and text not in ORDERS:
+        raise TrackerError(f"--order {text!r}: give 1st or 2nd")
+    return text or ""
+
+
 def _line(change, arrow: str) -> str:
     source = change.source
     return (f"{change.row.run_id}  {_run(change.row.key)}: {change.row.status or '(blank)'} {arrow} {change.status}"
@@ -56,6 +62,9 @@ def sync(
         "--tag", help="Only jobs whose note has this #tag (repeatable: any of them)")] = None,
     skip_tag: Annotated[Optional[List[str]], typer.Option(
         "--skip-tag", help="Leave out jobs whose note has this #tag (repeatable)")] = None,
+    order: Annotated[Optional[str], typer.Option(
+        "--order", help="Only cases a job ran at this solver order, 1st or 2nd (its config's MUSCL_FLOW; a job that "
+                        "kept no config is 2nd order only with #2nd_order in its note)")] = None,
     overwrite: Annotated[bool, typer.Option(
         "--overwrite", help="Let a job's verdict replace one entered by hand (Converged, Not Converged, Failed)")]
     = False,
@@ -66,7 +75,7 @@ def sync(
     so is a verdict entered by hand that a job disagrees with (see --overwrite)."""
     pairs = [_project(text) for text in projects]
     matrix = read_matrix(workbook, sheet)
-    statuses, warnings = collect_statuses(pairs, tags=tag or (), skip_tags=skip_tag or ())
+    statuses, warnings = collect_statuses(pairs, tags=tag or (), skip_tags=skip_tag or (), order=_order(order))
     for warning in warnings:
         typer.echo(f"Warning: {warning}", err=True)
     plan = plan_changes(matrix, statuses, overwrite=overwrite)
@@ -125,6 +134,8 @@ def new_sheet_command(
         "--tag", help="The link counts only jobs whose note has this #tag (repeatable)")] = None,
     skip_tag: Annotated[Optional[List[str]], typer.Option(
         "--skip-tag", help="The link leaves out jobs whose note has this #tag (repeatable)")] = None,
+    order: Annotated[Optional[str], typer.Option(
+        "--order", help="The link counts only cases a job ran at this solver order, 1st or 2nd")] = None,
     link: Annotated[bool, typer.Option(
         "--link/--no-link", help="Link the new sheet to the projects, so the web UI writes its Status")] = True,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show the sheet it would make; leave the workbook "
@@ -165,6 +176,7 @@ def new_sheet_command(
         typer.echo("Dry run: the workbook was not changed.")
         return
     new_link = Link(workbook=str(workbook.resolve()), sheet=name, tags=tag or [], skip_tags=skip_tag or [],
+                    order=_order(order),
                     projects=[LinkedProject(path=str(folder.resolve()), elevator=value) for folder, value in pairs])
     backup = create_sheet(new_link, template, details, levels, keep=link)
     typer.echo(f"Saved {workbook} (the previous version is {backup.name})")

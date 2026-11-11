@@ -103,6 +103,18 @@ async def test_an_unknown_tag_is_allowed_and_enter_keeps_it(user: User, ready_pr
     await user.should_not_see(marker="note-menu-foot")  # a finished tag closes the list
 
 
+async def test_a_tag_typed_without_its_hash_is_pointed_out_and_fixed(user: User, ready_project, su2_env):
+    project_dir, _ = ready_project
+    await _open(user, project_dir)
+    await user.should_not_see(marker="run-note-untagged")
+    user.find(marker="run-note").type("finer mesh, 2nd order")
+    await user.should_see(marker="run-note-untagged")
+    assert "2nd_order is not a tag" in _text(user, "run-note-untagged")
+    user.find(marker="run-note-untagged-fix").click()
+    assert _element(user, "run-note").value == "finer mesh, #2nd_order"
+    await user.should_not_see(marker="run-note-untagged")
+
+
 async def test_the_changes_since_the_last_run_are_one_grey_line_that_opens(user: User, ready_project, su2_env):
     project_dir, project = ready_project
     _earlier_job(project_dir, project)

@@ -7,9 +7,9 @@ from openpyxl import Workbook, load_workbook
 
 from aerosuite.engine.errors import TrackerError
 from aerosuite.engine.jobs.runner import CaseState, JobRecord, JobState
-from aerosuite.engine.jobs.store import save_job
-from aerosuite.engine.tracker import (collect_statuses, elevator_of, has_tag, key, plan_changes, read_matrix,
-                                      write_statuses)
+from aerosuite.engine.jobs.store import load_job, save_job
+from aerosuite.engine.tracker import (collect_statuses, elevator_of, has_tag, job_counts, key, plan_changes,
+                                      read_matrix, solver_order, write_statuses)
 
 RUN_ID = '=IF(ROW()-4>$D$14,"","RUN-"&TEXT(ROW()-4,"0000"))'
 EXTRA_PART = "customXml/item1.xml"
@@ -112,6 +112,71 @@ def test_tags_choose_the_jobs(tmp_path):
     case = key(0.3, 0, 0, 0, 0)
     assert collect_statuses([(project, 0.0)], tags=["2nd_order"])[0][case].job_id == "second"
     assert collect_statuses([(project, 0.0)], skip_tags=["#2nd_order"])[0][case].job_id == "first"
+
+
+def _config(project, job_id, case, muscl, folder="configs"):
+    """The job's own config for a case, as a submit leaves it."""
+    path = project / "jobs" / job_id / folder / f"{case}.cfg"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("SOLVER= RANS\n" + (f"MUSCL_FLOW= {muscl}\n" if muscl else "") + "MUSCL_TURB= NO\n")
+
+
+def test_the_solver_order_is_read_from_the_jobs_own_config(tmp_path):
+    project = tmp_path / "wing_del0"
+    _config(project, "j", "a", "NO")
+    _config(project, "j", "b", "YES")
+    _config(project, "j", "c", "")  # SU2's default: on
+    _config(project, "j", "d", "NO")
+    _config(project, "j", "d", "YES", folder="add-2/configs")  # added to the job again later
+    assert [solver_order(project, "j", case) for case in "abcd"] == ["1st", "2nd", "2nd", "2nd"]
+    assert solver_order(project, "j", "none") is None and solver_order(project, "other", "a") is None
+
+
+def test_the_order_chooses_the_cases_whatever_the_note_says(tmp_path):
+    project = tmp_path / "wing_del0"
+    add_job(project, "first", {"M0p3_0km_a0": CaseState.CONVERGED, "M0p3_0km_a5": CaseState.CONVERGED}, age_hours=2)
+    add_job(project, "second", {"M0p3_0km_a0": CaseState.UNCONVERGED}, note="2nd_order")  # the # forgotten
+    for case in ("M0p3_0km_a0", "M0p3_0km_a5"):
+        _config(project, "first", case, "NO")
+    _config(project, "second", "M0p3_0km_a0", "YES")
+    a0, a5 = key(0.3, 0, 0, 0, 0), key(0.3, 0, 5, 0, 0)
+    second = collect_statuses([(project, 0.0)], order="2nd")[0]
+    assert second[a0].job_id == "second" and a5 not in second
+    first = collect_statuses([(project, 0.0)], order="1st")[0]
+    assert (first[a0].job_id, first[a5].job_id) == ("first", "first")
+    assert job_counts(project, order="2nd") == (1, 2) and job_counts(project, order="1st") == (1, 2)
+
+
+def test_a_job_that_kept_no_config_goes_by_its_tag(tmp_path):
+    project = tmp_path / "wing_del0"
+    add_job(project, "old", {"M0p3_0km_a0": CaseState.CONVERGED}, age_hours=2)
+    add_job(project, "new", {"M0p3_0km_a0": CaseState.UNCONVERGED}, note="#2nd_order")
+    case = key(0.3, 0, 0, 0, 0)
+    assert collect_statuses([(project, 0.0)], order="2nd")[0][case].job_id == "new"
+    assert collect_statuses([(project, 0.0)], order="1st")[0][case].job_id == "old"
+
+
+DIVERGED_TAIL = """Slurm: FAILED (exit 1:0) on hpc1.
+|         592|   -1.203394|   -0.544102|    0.091734|
+Error in "void CSolver::SetResidual_RMS(const CGeometry*, const CConfig*)":
+-------------------------------------------------------------------------
+SU2 has diverged (NaN detected).
+------------------------------ Error Exit -------------------------------
+"""
+
+
+def test_a_failed_case_that_diverged_reads_diverged(tmp_path):
+    project = tmp_path / "wing_del0"
+    add_job(project, "j", {"M0p3_0km_a0": CaseState.FAILED, "M0p3_0km_a5": CaseState.FAILED})
+    job = load_job(project, "j")
+    job.failure_tail = {"M0p3_0km_a0": DIVERGED_TAIL, "M0p3_0km_a5": "Slurm: FAILED\nSU2 exited with code 1"}
+    save_job(project, job)
+    statuses, _ = collect_statuses([(project, 0.0)])
+    assert statuses[key(0.3, 0, 0, 0, 0)].status == "Diverged" and statuses[key(0.3, 0, 5, 0, 0)].status == "Failed"
+    matrix = read_matrix(make_workbook(tmp_path / "m.xlsx", statuses={5: "Failed", 7: "Converged"}), "Study")
+    plan = plan_changes(matrix, statuses)
+    assert [(c.row.row, c.status) for c in plan.changes] == [(5, "Diverged")]  # Failed, said more exactly
+    assert [(c.row.row, c.status) for c in plan.kept] == [(7, "Failed")]  # a verdict of yours stays
 
 
 def test_cases_without_values_are_reported(tmp_path):

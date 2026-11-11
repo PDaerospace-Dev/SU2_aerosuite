@@ -36,6 +36,7 @@ class Link(BaseModel):
     projects: list[LinkedProject] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)  # only jobs whose note has one of these #tags
     skip_tags: list[str] = Field(default_factory=list)  # never jobs with one of these
+    order: str = ""  # "1st" / "2nd": only cases a job ran at that solver order (its config's MUSCL_FLOW); "" for any
     overwrite: bool = False  # a job's verdict replaces one entered by hand
     auto: bool = True  # written as cases start and finish
     completed: Optional[bool] = None  # None: done once every run has a verdict; True / False: set by hand
@@ -184,12 +185,13 @@ def report(link: Link, reasons: bool = False) -> LinkReport:
     pairs = []
     for project in result.projects:
         try:
-            project.jobs_chosen, project.jobs = job_counts(Path(project.path), link.tags, link.skip_tags)
+            project.jobs_chosen, project.jobs = job_counts(Path(project.path), link.tags, link.skip_tags, link.order)
             pairs.append((Path(project.path), project.elevator))
         except (AeroSuiteError, OSError) as exc:
             project.error = str(exc)
     try:
-        statuses, result.warnings = collect_statuses(pairs, link.tags, link.skip_tags, refresh=False)
+        statuses, result.warnings = collect_statuses(pairs, link.tags, link.skip_tags, refresh=False,
+                                                            order=link.order)
     except (AeroSuiteError, OSError) as exc:
         result.error = str(exc)
         return result

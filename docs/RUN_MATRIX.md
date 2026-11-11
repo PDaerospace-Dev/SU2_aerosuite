@@ -19,8 +19,8 @@ Open **Run matrix** from the top bar (or search for a sheet by name).
   chevron.
 - **Link a sheet** (`/tracker/link`) takes the workbook path and the sheet. It confirms the run matrix it found,
   lists the projects beside the workbook and your recent projects with their elevator deflection (read from the
-  folder name, editable), and has the tag filters, the choice for disagreeing verdicts and automatic writing. The side
-  panel counts what would be written as you change things. **Save and preview** opens the preview.
+  folder name, editable), and has **Solver order**, the tag filters, the choice for disagreeing verdicts and automatic
+  writing. The side panel counts what would be written as you change things. **Save and preview** opens the preview.
 - **New sheet from template** (`/tracker/new`) adds a sheet for a new case to the workbook, copied from its template
   sheet (by default the last visible sheet whose name has "template", e.g. *Case Template_v1*). Tick the projects
   whose cases it tracks and the sweep fills itself from their cases (`configs/cases.json`, the cases their jobs ran,
@@ -73,6 +73,7 @@ aerosuite tracker sync $BOOK X07-80E_supersonic_1st $X/supersonic_del* --skip-ta
 aerosuite tracker sync $BOOK X07-80E_supersonic_1st $X/supersonic_del* --skip-tag 2nd_order
 aerosuite tracker sync $BOOK X07-80E_subsonic_1st   $X/subsonic_del*   --skip-tag 2nd_order
 aerosuite tracker sync $BOOK X07-80E_subsonic_2nd   $X/subsonic_del*   --tag 2nd_order
+aerosuite tracker sync $BOOK X07-80E_subsonic_2nd   $X/subsonic_del*   --order 2nd   # from the configs, not the notes
 ```
 
 A new sheet from the template, linked to the projects (the sweep from their cases unless given; `--detail` sets a
@@ -91,10 +92,16 @@ aerosuite tracker new-sheet $BOOK X07-80E_transonic_1st $X/subsonic_del* --mach 
   AoA and β come from `configs/cases.json`, or else from its name (`M2p0_25km_a15_del0`). Sideslip defaults to 0.
 - **Which job**: the newest job that ran a case decides its status. A case that a newer job cancelled keeps the
   older job's result. **Hold** is written only when no job has a result for that case.
-- **Tags**: `--tag 2nd_order` counts only jobs whose note contains `#2nd_order`. `--skip-tag 2nd_order` leaves those
-  jobs out. Both can be repeated. A tag may start with a digit here, even though the Run page's tag list skips such
-  tags.
-- **Statuses**: CONVERGED → Converged, UNCONVERGED → Not Converged, FAILED → Failed, RUNNING → Running,
+- **Solver order**: `--order 1st` or `--order 2nd` (**Solver order** on the link) counts only the cases a job ran
+  at that order. It is read from the config the job kept for each case (`jobs/<id>/configs/<case>.cfg`):
+  `MUSCL_FLOW= NO` is 1st order; `YES`, or no such line (SU2's default), is 2nd order. The note plays no part, so a
+  forgotten or mistyped tag cannot put a run in the wrong sheet. Only a job that kept no config goes by its note:
+  2nd order with `#2nd_order`, else 1st.
+- **Tags**: `--tag fine` counts only jobs whose note contains `#fine`. `--skip-tag fine` leaves those jobs out. Both
+  can be repeated, and they apply on top of the solver order. The `#` matters: a note that says `fine` without it has
+  no tag (the Run page points this out for tags a sheet filters on).
+- **Statuses**: CONVERGED → Converged, UNCONVERGED → Not Converged, FAILED → Failed, or **Diverged** when the
+  case's output ends with SU2's divergence message (NaN detected); RUNNING → Running,
   PENDING → Pending, CANCELLED / BLOCKED → Hold. A running job's state is refreshed first, as `aerosuite status`
   does.
 
@@ -113,7 +120,8 @@ characters, none of `: \ / ? * [ ]`, and not one the workbook has.
   differs, the sheet keeps yours. AeroSuite's convergence check (CL, CD, CMy steady over the last 10%) is stricter
   than a look at the history, for example when CMy is close to zero. The summary line counts these rows, and
   `--dry-run` lists each one. `--overwrite` lets the job's verdict replace them. Running and Pending always replace
-  a verdict, because the case is running again. Diverged is kept when a job says Not Converged or Failed.
+  a verdict, because the case is running again. Diverged is kept when a job says Not Converged or Failed, and a
+  Failed in the sheet becomes Diverged when the job says so (the same failure, said more exactly).
 - **Completed on.** Once every run has a verdict (Converged, Not Converged, Diverged or Failed), a blank
   Completed on cell gets the day the last of the runs' jobs ended. A date already there, typed by you, stays.
 - **What you set on the coverage page.** A verdict you set there is kept, just like one typed in Excel. Hold or
