@@ -73,7 +73,9 @@ async def test_the_overview_shows_and_writes_a_sheet(user: User, matrix):
     link = _link(book, folder)
     await user.open("/tracker")
     await user.should_see(marker=f"tracker-sheet-{link.id}")
-    assert _element(user, f"tracker-sheet-{link.id}-pending").text == "1 to write"
+    assert _element(user, f"tracker-sheet-{link.id}-write").text == "Write 1"
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 1 project"
+    await user.should_see("1 verdict of yours the jobs disagree with · Review")
     assert _element(user, "tracker-kept").text == "1"
     assert _element(user, "tracker-runs").text == "4"
     user.find(marker=f"tracker-sheet-{link.id}-write").click()
@@ -82,6 +84,27 @@ async def test_the_overview_shows_and_writes_a_sheet(user: User, matrix):
     ws = load_workbook(book)["Study"]
     assert (ws["M5"].value, ws["M6"].value) == ("Converged", "Converged")  # the hand verdict stays
     assert load_tracker().log[0].written == 1
+
+
+async def test_a_sheet_row_says_what_it_takes_and_opens_its_coverage(user: User, matrix):
+    book, folder = matrix
+    projects = [LinkedProject(path=str(folder), elevator=0),
+                LinkedProject(path=str(folder.parent / "wing_del-20"), elevator=-20)]
+    link = save_link(Link(workbook=str(book), sheet="Study", projects=projects, tags=["fine"], skip_tags=["#coarse"]))
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}")
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · #fine · not #coarse · 2 projects · δe 0, -20"
+    user.find(marker=f"tracker-sheet-{link.id}-open").click()
+    await user.should_see(marker="tracker-coverage-page")
+
+
+async def test_the_kept_verdicts_line_opens_the_preview(user: User, matrix):
+    book, folder = matrix
+    link = _link(book, folder)
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}-kept")
+    user.find(marker=f"tracker-sheet-{link.id}-kept").trigger("click.stop")
+    await user.should_see(marker="tracker-preview-page")
 
 
 async def test_a_missing_workbook_is_shown_on_its_row(user: User, matrix, tmp_path):
@@ -294,7 +317,7 @@ async def test_sheets_are_ongoing_or_completed(user: User, matrix):
     await user.should_see(marker=f"tracker-sheet-{link.id}-ongoing")
     assert find_link(link.id).completed is True
     assert _element(user, "tracker-group-completed-count").text == "1"
-    assert _element(user, f"tracker-sheet-{link.id}-runs").text == "4 runs · marked completed"
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 1 project · marked completed"
     user.find(marker=f"tracker-sheet-{link.id}-ongoing").click()
     await user.should_see(marker=f"tracker-sheet-{link.id}-complete")
     assert find_link(link.id).completed is False
@@ -306,7 +329,9 @@ async def test_a_sheet_with_a_verdict_on_every_run_is_completed(user: User, tmp_
     await user.open("/tracker")
     await user.should_see(marker=f"tracker-sheet-{link.id}")
     assert _element(user, "tracker-groups").value == "completed"  # nothing ongoing
-    assert _element(user, f"tracker-sheet-{link.id}-runs").text == "4 runs · every run has a verdict"
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 1 project · every run has a verdict"
+    assert _element(user, "tracker-failed").text == "1"
+    await user.should_not_see(marker=f"tracker-sheet-{link.id}-write")  # nothing waits: no Write button
 
 
 async def test_removing_a_sheet_from_its_row(user: User, matrix):
@@ -376,7 +401,8 @@ async def test_a_sheet_can_be_kept_to_one_solver_order(user: User, matrix):
     await user.should_see(marker="tracker-preview-page")
     assert find_link(link.id).order == "2nd"
     await user.open("/tracker")
-    await user.should_see(marker=f"tracker-sheet-{link.id}-order")
+    await user.should_see(marker=f"tracker-sheet-{link.id}")
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 2nd order · 1 project"
 
 
 async def test_changing_and_removing_a_link(user: User, matrix):

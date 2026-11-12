@@ -9,16 +9,16 @@ from typing import Mapping
 STATUSES = {
     "Converged": ("done", "converged", "converged"),
     "Not Converged": ("unconverged", "not", "not"),
-    "Failed": ("failed", "failed", "not"),
-    "Diverged": ("failed", "failed", "not"),
+    "Failed": ("failed", "failed", "failed"),
+    "Diverged": ("failed", "failed", "failed"),
     "Running": ("running", "live", "live"),
     "Pending": ("pending", "live", "live"),
     "Hold": ("cancelled", "hold", "hold"),
 }
 PILL_TONES = {status: tones[0] for status, tones in STATUSES.items()}
 SQUARE_TONES = {status: tones[1] for status, tones in STATUSES.items()}
-_SEGMENT_LABELS = {"converged": "Converged", "not": "Not converged / failed", "live": "Running / queued",
-                   "hold": "Hold"}
+_SEGMENT_LABELS = {"converged": "Converged", "not": "Not converged", "failed": "Failed / diverged",
+                   "live": "Running / queued", "hold": "Hold"}
 # (key, label, the statuses it counts), in the bar's order
 SEGMENTS = [(key, label, tuple(status for status, tones in STATUSES.items() if tones[2] == key))
             for key, label in _SEGMENT_LABELS.items()]
@@ -33,7 +33,7 @@ def pill_html(status: str) -> str:
 
 
 def bar_html(counts: Mapping[str, int], total: int) -> str:
-    """A sheet's statuses as one bar: converged, not converged, running, hold; the rest (no job) is the track."""
+    """A sheet's statuses as one bar: converged, not converged, failed, running, hold; the rest is the track."""
     spans = []
     for key, _label, statuses in SEGMENTS:
         share = sum(counts.get(status, 0) for status in statuses) / total * 100 if total else 0

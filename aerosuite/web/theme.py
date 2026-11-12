@@ -181,7 +181,7 @@ html.as-mini .as-step-bar { margin: -2px 10px 4px; }
 .as-condition-label { font-size: 11px; color: var(--as-muted); }
 .as-condition-value { font-size: 15px; font-weight: 600; white-space: nowrap; }
 .as-conditions .as-pill { margin-left: 6px; }
-.as-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; width: 100%; }
+.as-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; width: 100%; }
 .as-tile { background: #fff; border: 1px solid var(--as-border); border-radius: 10px; padding: 10px 16px; gap: 0; }
 .as-tile-label { font-size: 12px; color: var(--as-muted); }
 .as-tile-value { font-size: 22px; font-weight: 600; }
@@ -802,12 +802,14 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
 .as-mbar > span { height: 100%; }
 .as-mseg-converged { background: #1a7f37; }
 .as-mseg-not { background: #d4a72c; }
+.as-mseg-failed { background: #cf222e; }
 .as-mseg-live { background: var(--as-accent); }
 .as-mseg-hold { background: #a8b1bb; }
 .as-mseg-none { background: var(--as-hairline); box-shadow: inset 0 0 0 1px #d0d7de; }
 .as-legend { gap: 16px; padding: 10px 14px; border-top: 1px solid var(--as-hairline); font-size: 12px;
   color: #57606a; }
 .as-legend-item { gap: 6px; align-items: center; flex-wrap: nowrap; }
+.as-legend-page { border-top: 0; padding: 0 2px; }
 /* the run matrix's coverage views */
 .as-cov-cell { width: 24px; height: 18px; border-radius: 3px; display: inline-block; position: relative; cursor: pointer;
   vertical-align: middle; }
@@ -895,7 +897,11 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
 .as-cov-bar-hold .q-btn__content::before { background: #a8b1bb; }
 .as-cov-bar-none .q-btn__content::before { background: #eaeef2; }
 .as-td-stack { flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; }
-.as-matrix-table { min-width: 900px; }
+.as-matrix-table { min-width: 640px; }
+.as-matrix-open { cursor: pointer; }
+.as-matrix-note { gap: 4px; align-items: center; flex-wrap: nowrap; font-size: 12px; color: #7a5200; }
+.as-matrix-note .q-icon { font-size: 14px; }
+.as-matrix-note-link:hover { text-decoration: underline; }
 .as-workbook-head { padding: 12px 14px; gap: 14px; align-items: center; flex-wrap: wrap;
   border-bottom: 1px solid var(--as-hairline); }
 .as-workbook-icon { font-size: 26px; color: #1a7f37; }

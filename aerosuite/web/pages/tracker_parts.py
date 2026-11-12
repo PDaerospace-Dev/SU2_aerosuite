@@ -47,8 +47,9 @@ def status_pill(status: str) -> ui.label:
     return ui.label(status).classes(f"as-pill as-pill-{PILL_TONES.get(status, 'pending')}")
 
 
-def legend() -> None:
-    with ui.row().classes("as-legend w-full"):
+def legend() -> ui.row:
+    """What the bar's colours mean."""
+    with ui.row().classes("as-legend w-full") as row:
         for key, label, _statuses in SEGMENTS:
             with ui.row().classes("as-legend-item"):
                 ui.element("span").classes(f"as-swatch as-mseg-{key}")
@@ -56,6 +57,7 @@ def legend() -> None:
         with ui.row().classes("as-legend-item"):
             ui.element("span").classes("as-swatch as-mseg-none")
             ui.label("No status yet")
+    return row
 
 
 def order_choice(value: str, on_change=None) -> ui.toggle:

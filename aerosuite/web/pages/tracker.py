@@ -108,6 +108,23 @@ def register() -> None:
             Preview(found)
 
 
+def _sheet_text(item: LinkReport) -> str:
+    """A sheet's line under its name: its runs, what it takes (solver order, tags), its projects and whether it is
+    completed. The elevator deflections are listed once any is not zero."""
+    link = item.link
+    words = [f"{len(item.matrix.rows)} runs"] if item.matrix else []
+    if link.order:
+        words.append(ORDERS.get(link.order, link.order))
+    words += [f"#{tag.lstrip('#')}" for tag in link.tags] + [f"not #{tag.lstrip('#')}" for tag in link.skip_tags]
+    count = len(link.projects)
+    words.append(f"{count} project{'' if count == 1 else 's'}")
+    if any(project.elevator for project in link.projects):
+        words.append("δe " + ", ".join(format_value(project.elevator) for project in link.projects))
+    if item.done:
+        words.append("marked completed" if link.completed else "every run has a verdict")
+    return " · ".join(words)
+
+
 # --- the linked sheets ---------------------------------------------------------------------------------------------
 
 class Overview:
@@ -168,6 +185,7 @@ class Overview:
                     for workbook, items in workbooks.items():
                         self._workbook(workbook, items, data.log)
         self._log(data.log)
+        legend().classes("as-legend-page")
 
     def _tiles(self, reports: list[LinkReport]) -> None:
         counts = sum((item.sheet_counts for item in reports), start=Counter())
@@ -177,6 +195,7 @@ class Overview:
             summary_tile("Runs in the matrices", f"{runs:,}").mark("tracker-runs")
             summary_tile("Converged", counts["Converged"]).mark("tracker-converged")
             summary_tile("Not converged", counts["Not Converged"]).mark("tracker-not-converged")
+            summary_tile("Failed / diverged", counts["Failed"] + counts["Diverged"]).mark("tracker-failed")
             with ui.column().classes("as-tile" + (" as-tile-attention" if kept else "")) as tile:
                 tile.mark("tracker-kept-tile")
                 ui.label("Your verdicts the jobs disagree with").classes("as-tile-label")
@@ -206,13 +225,11 @@ class Overview:
                     "tracker-download").set_enabled(path.is_file())
                 self._backups(path)
             with ui.element("div").classes("as-table-scroll w-full"):
-                with table("minmax(190px, 1.2fr) minmax(170px, 1fr) minmax(240px, 1.7fr) minmax(130px, .8fr) "
-                           "auto").classes("as-matrix-table"):
-                    for title in ("Sheet", "Projects", "Progress", "Waiting to write", ""):
+                with table("minmax(240px, 1fr) minmax(320px, 2.2fr) auto").classes("as-matrix-table"):
+                    for title in ("Sheet", "Progress", ""):
                         th(title)
                     for item in items:
                         self._sheet_row(item)
-            legend()
 
     def _backups(self, workbook: Path) -> None:
         """The workbook's daily copies (each from before that day's first write), to download."""
@@ -228,60 +245,58 @@ class Overview:
                         f"tracker-backup-{day:%Y-%m-%d}")
 
     def _sheet_row(self, item: LinkReport) -> None:
+        """A sheet in three cells: what it is, how far it is, and what can be done. The first two open its coverage.
+        Nothing is said while all is well: Write, and the amber lines, show only when something waits."""
         link = item.link
         mark = f"tracker-sheet-{link.id}"
-        with stack_cell():
+        pending = len(item.plan.changes) if item.plan else 0
+
+        def opens(cell):
+            if not item.error:
+                titled(cell.classes("as-matrix-open"), "Open the coverage").on(
+                    "click", lambda: ui.navigate.to(coverage_url(link.id)))
+            return cell
+
+        with opens(stack_cell()).mark(f"{mark}-open"):
             ui.label(link.sheet).classes("as-strong").mark(mark)
-            runs = f"{len(item.matrix.rows)} runs" if item.matrix else ""
-            if item.done:
-                runs += " · " + ("marked completed" if link.completed else "every run has a verdict")
-            hint(runs).mark(f"{mark}-runs")
-        with stack_cell():
-            elevators = ", ".join(format_value(p.elevator) for p in link.projects)
-            ui.label(f"{len(link.projects)} project{'' if len(link.projects) == 1 else 's'}")
-            hint(f"δe {elevators}" if elevators else "")
-            with ui.row().classes("gap-1"):
-                if link.order:
-                    ui.label(f"{ORDERS.get(link.order, link.order)} only").classes("as-tag as-tag-accent").mark(
-                        f"{mark}-order")
-                for tag in link.tags:
-                    ui.label(f"#{tag.lstrip('#')} only").classes("as-tag as-tag-accent")
-                for tag in link.skip_tags:
-                    ui.label(f"not #{tag.lstrip('#')}").classes("as-tag")
-        with stack_cell():
+            hint(_sheet_text(item)).mark(f"{mark}-meta")
+        with opens(stack_cell()):
             if item.error:
                 ui.label(item.error).classes("as-error-text").mark(f"{mark}-error")
             else:
                 total = len(item.matrix.rows)
                 ui.html(bar_html(item.sheet_counts, total), sanitize=False).classes("w-full")
                 hint(bar_text(item.sheet_counts, total)).mark(f"{mark}-progress")
-        with stack_cell():
-            if item.plan is not None:
-                pending = len(item.plan.changes)
-                ui.label(f"{pending} to write" if pending else "Up to date").classes(
-                    "as-strong" if pending else "as-ok-text").mark(f"{mark}-pending")
-                if item.plan.kept:
-                    ui.label(f"{len(item.plan.kept)} verdicts kept").classes("as-hint as-hint-warning")
+            if item.plan is not None and item.plan.kept:
+                count = len(item.plan.kept)
+                with ui.row().classes("as-matrix-note as-matrix-note-link").mark(f"{mark}-kept") as note:
+                    ui.icon("rule")
+                    ui.label(f"{count} verdict{'' if count == 1 else 's'} of yours the jobs disagree with · Review")
+                note.on("click.stop", lambda: ui.navigate.to(preview_url(link.id)))
             if item.queued:
                 count = len(item.queued)
-                titled(ui.label(f"{count} edit{'' if count == 1 else 's'} of yours queued").classes(
-                    "as-hint as-hint-warning").mark(f"{mark}-queued"),
-                    "Set on the coverage page while the workbook was open; written when it is closed")
-        with td_box():
-            secondary_button("Preview", lambda: ui.navigate.to(preview_url(link.id))).mark(f"{mark}-preview")
-            write = primary_button("Write", lambda: self._write(link)).mark(f"{mark}-write")
-            write.set_enabled(bool(item.plan and item.plan.changes))
+                with ui.row().classes("as-matrix-note").mark(f"{mark}-queued") as note:
+                    ui.icon("schedule")
+                    ui.label(f"{count} edit{'' if count == 1 else 's'} of yours queued until the workbook is closed")
+                titled(note, "Set on the coverage page while the workbook was open; written when it is closed")
+        with td_box() as box:
+            box.classes("justify-end no-wrap")
+            if pending:
+                titled(primary_button(f"Write {pending}", lambda: self._write(link)).mark(f"{mark}-write"),
+                       f"Write {pending} status{'' if pending == 1 else 'es'} into the sheet")
             with ui.button(icon="more_vert", color=None).props(
                     'flat round dense aria-label="More for this sheet"').tooltip("More").mark(f"{mark}-more"):
                 with ui.menu():
+                    ui.menu_item("Coverage", lambda: ui.navigate.to(coverage_url(link.id))).mark(f"{mark}-coverage")
+                    ui.menu_item("Preview a write", lambda: ui.navigate.to(preview_url(link.id))).mark(
+                        f"{mark}-preview")
+                    ui.menu_item("Change the link", lambda: ui.navigate.to(edit_url(link.id))).mark(f"{mark}-edit")
                     if item.done:
                         ui.menu_item("Move to ongoing", lambda: self._set_completed(link, False)).mark(
                             f"{mark}-ongoing")
                     else:
                         ui.menu_item("Mark as completed", lambda: self._set_completed(link, True)).mark(
                             f"{mark}-complete")
-                    ui.menu_item("Coverage", lambda: ui.navigate.to(coverage_url(link.id))).mark(f"{mark}-coverage")
-                    ui.menu_item("Change the link", lambda: ui.navigate.to(edit_url(link.id))).mark(f"{mark}-edit")
                     ui.separator()
                     ui.menu_item("Remove from the run matrix", lambda: self._confirm_remove(link)).classes(
                         "as-error-text").mark(f"{mark}-remove")
