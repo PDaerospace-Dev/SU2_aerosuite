@@ -216,7 +216,7 @@ class LinkReport:
     projects: list[ProjectReport] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     error: str = ""  # the workbook or sheet cannot be used: nothing else is known
-    reasons: dict[int, str] = field(default_factory=dict)  # kept verdicts: sheet row -> the convergence check's words
+    reasons: dict[int, str] = field(default_factory=dict)  # kept verdicts: sheet row -> why the job says so
     queued: dict[str, "RunEdit"] = field(default_factory=dict)  # hand edits waiting for the workbook to close, by run
     open_in: str = ""  # the office program that has the workbook open now
     statuses: dict[Key, CaseStatus] = field(default_factory=dict)  # what the jobs say, by run
@@ -275,7 +275,7 @@ def report(link: Link, reasons: bool = False) -> LinkReport:
             by_folder[entry.folder].matched += 1
     if reasons:
         for change in result.plan.kept[:REASONS_AT_MOST]:
-            result.reasons[change.row.row] = verdict_reason(Path(change.source.folder), change.source.case)
+            result.reasons[change.row.row] = verdict_reason(change.source)
     return result
 
 

@@ -474,7 +474,7 @@ class Coverage:
                     save.on_click(lambda: self._save({found.run_id: RunEdit(
                         status=status.value, notes=notes.value if notes is not None else None)}, found.run_id))
         if source is not None and source.status in VERDICTS:
-            text = await run.io_bound(verdict_reason, Path(source.folder), source.case)
+            text = await run.io_bound(verdict_reason, source)
             if not reason.is_deleted:  # still open
                 reason.set_text(text)
 

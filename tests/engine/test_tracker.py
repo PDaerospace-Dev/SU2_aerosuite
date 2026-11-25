@@ -19,6 +19,7 @@ from aerosuite.engine.tracker import (
     plan_changes,
     read_matrix,
     solver_order,
+    verdict_reason,
     write_statuses,
 )
 
@@ -188,6 +189,35 @@ def test_a_failed_case_that_diverged_reads_diverged(tmp_path):
     plan = plan_changes(matrix, statuses)
     assert [(c.row.row, c.status) for c in plan.changes] == [(5, "Diverged")]  # Failed, said more exactly
     assert [(c.row.row, c.status) for c in plan.kept] == [(7, "Failed")]  # a verdict of yours stays
+
+
+def test_a_diverged_case_reads_why_from_the_job_then_its_forces_before_the_stop(tmp_path, history_writer):
+    # SU2 can stop on a local NaN after the forces have settled: the check alone would say "Converged" beside the
+    # job's "Diverged", so the reason leads with the job's diagnosis and labels the check.
+    project = tmp_path / "wing_del0"
+    add_job(project, "j", {"M0p3_0km_a0": CaseState.FAILED, "M0p3_0km_a5": CaseState.FAILED})
+    job = load_job(project, "j")
+    job.failure_tail = {"M0p3_0km_a0": DIVERGED_TAIL, "M0p3_0km_a5": DIVERGED_TAIL}
+    save_job(project, job)
+    history_writer(project / "runs" / "M0p3_0km_a0", [0.5] * 40)
+    history_writer(project / "runs" / "M0p3_0km_a5", [0.5 + 0.01 * i for i in range(40)])
+    statuses, _ = collect_statuses([(project, 0.0)])
+    assert verdict_reason(statuses[key(0.3, 0, 0, 0, 0)]) == (
+        "Diverged at iteration 592 (SU2 found NaN). Forces before it stopped: steady")
+    assert verdict_reason(statuses[key(0.3, 0, 5, 0, 0)]).startswith(
+        "Diverged at iteration 592 (SU2 found NaN). Forces before it stopped: CL not converged")
+
+
+def test_a_converged_case_reads_the_check_and_a_failure_without_output_reads_its_history(tmp_path, history_writer):
+    project = tmp_path / "wing_del0"
+    add_job(project, "j", {"M0p3_0km_a0": CaseState.CONVERGED, "M0p3_0km_a5": CaseState.FAILED})
+    history_writer(project / "runs" / "M0p3_0km_a0", [0.5] * 40)
+    history_writer(project / "runs" / "M0p3_0km_a5", [0.5] * 40)
+    statuses, _ = collect_statuses([(project, 0.0)])
+    assert verdict_reason(statuses[key(0.3, 0, 0, 0, 0)]) == "Converged"
+    assert verdict_reason(statuses[key(0.3, 0, 5, 0, 0)]) == "Forces before it stopped: steady"
+    (project / "runs" / "M0p3_0km_a5" / "history.csv").unlink()
+    assert verdict_reason(statuses[key(0.3, 0, 5, 0, 0)]) == ""
 
 
 def test_cases_without_values_are_reported(tmp_path):
