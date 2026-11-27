@@ -19,7 +19,7 @@ from nicegui import run, ui
 from ...engine.errors import AeroSuiteError
 from ...engine.naming import format_value
 from ...engine.tracker import VERDICTS, Key, verdict_reason
-from ...engine.tracker_links import Link, LinkReport, RunEdit, discard_queued, edit_or_queue, report, saved_links
+from ...engine.tracker_links import Link, LinkReport, RunEdit, discard_queued, edit_or_queue, report
 from ..layout import project_url
 from ..tracker_view import SQUARE_TONES, STATUS_CHOICES, bar_html, bar_text
 from ..ui_kit import banner, card, flat_button, hint, primary_button, secondary_button
@@ -474,7 +474,7 @@ class Coverage:
                     save.on_click(lambda: self._save({found.run_id: RunEdit(
                         status=status.value, notes=notes.value if notes is not None else None)}, found.run_id))
         if source is not None and source.status in VERDICTS:
-            text = await run.io_bound(verdict_reason, Path(source.folder), source.case)
+            text = await run.io_bound(verdict_reason, source)
             if not reason.is_deleted:  # still open
                 reason.set_text(text)
 
@@ -576,11 +576,3 @@ class Coverage:
 def _percent(runs: list[Run]) -> str:
     return f"{round(100 * sum(run.status == 'Converged' for run in runs) / len(runs))}%" if runs else ""
 
-
-def sheet_chips(current: Link, view: str) -> None:
-    """The linked sheets, to switch to in the same view."""
-    with ui.row().classes("gap-2"):
-        for link in saved_links():
-            on = link.id == current.id
-            ui.link(link.sheet, coverage_url(link.id, view)).classes(
-                "as-chip as-cov-chip" + (" as-chip-on" if on else "")).mark(f"coverage-sheet-{link.id}")

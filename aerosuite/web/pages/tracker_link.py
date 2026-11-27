@@ -76,6 +76,14 @@ class LinkForm:
         self.sheet = field(ui.select([], label="Sheet", on_change=lambda: self.recompute())).props(
             "stack-label").classes("as-link-sheet").mark("link-sheet")
         self.found = ui.column().classes("w-full gap-0").mark("link-found")
+        with ui.row().classes("w-full gap-4"):
+            groups = sorted({link.group for link in saved_links() if link.group})
+            self.group = field(ui.input("Group", value=self.link.group, autocomplete=groups),
+                               help="The configuration the sheet belongs to, such as X07-80E: its heading under All "
+                                    "sheets on the coverage page").classes("grow").mark("link-group")
+            self.label = field(ui.input("Short name", value=self.link.label, placeholder=self.link.sheet or None),
+                               help="What the chips and All sheets call it, such as subsonic · 2nd; empty for the "
+                                    "sheet's name").classes("grow").mark("link-label")
         with ui.column().classes("w-full gap-1"):
             ui.label("Projects").classes("as-strong")
             hint("One project per elevator deflection; it is read from the folder name (del0, del20p, del30m). "
@@ -198,7 +206,8 @@ class LinkForm:
             "tags": [t.lstrip("#") for t in self.tags.value or []],
             "skip_tags": [t.lstrip("#") for t in self.skip_tags.value or []],
             "order": self.order.value or "",
-            "overwrite": bool(self.overwrite.value), "auto": bool(self.auto.value)}), ""
+            "overwrite": bool(self.overwrite.value), "auto": bool(self.auto.value),
+            "group": (self.group.value or "").strip(), "label": (self.label.value or "").strip()}), ""
 
     async def recompute(self) -> None:
         self.seen += 1

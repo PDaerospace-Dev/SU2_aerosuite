@@ -11,10 +11,16 @@ Open **Run matrix** from the top bar (or search for a sheet by name).
 
 - **Run matrix** (`/tracker`) lists the linked sheets in two tabs, **Ongoing** and **Completed**, grouped by
   workbook. A sheet is completed once every run has a verdict (Converged, Not Converged, Diverged, Failed), or when
-  you mark it so. Each row shows a bar of the statuses the sheet has now, how many statuses are waiting to be
-  written, and how many of your verdicts the jobs disagree with. **Write** writes the waiting statuses. The row's
-  **⋮** menu has **Mark as completed** (or **Move to ongoing**), **Coverage**, **Change the link** and **Remove from
-  the run matrix** (the workbook stays as it is). **Download** fetches the workbook. **Write automatically** turns
+  you mark it so. Each row has the sheet's name over one line (its runs, the solver order and tags it takes, its
+  projects) and a bar of the statuses the sheet has now: converged, not converged, failed or diverged (red), running
+  or queued, hold; the colours are named once at the bottom of the page. A click on the row opens its coverage. A row
+  says more only when something waits: **Write N** appears when N statuses are waiting to be written (automatic
+  writing off, or the workbook open in Excel), an amber line counts your verdicts the jobs disagree with (click it
+  to review them), and another counts the hand edits queued until the workbook is closed. The row's **⋮** menu has
+  **Coverage**, **Preview a write**, **Change the link**, **Mark as completed** (or **Move to ongoing**) and **Remove
+  from the run matrix** (the workbook stays as it is). The tiles at the top count the runs of every sheet: all,
+  converged, not converged, failed or diverged, and your verdicts the jobs disagree with. **Download** fetches the
+  workbook. **Write automatically** turns
   automatic writing on or off for every sheet of that workbook. **Recent writes**, at the bottom, opens with its
   chevron.
 - **Link a sheet** (`/tracker/link`) takes the workbook path and the sheet. It confirms the run matrix it found,
@@ -41,7 +47,12 @@ Open **Run matrix** from the top bar (or search for a sheet by name).
   - **Pivot**: any two swept parameters as rows and columns. Each box gathers the runs that share that pair of
     values, as a bar and a converged count; this suits a large sheet.
 
-  The chips at the top switch to another linked sheet in the same view.
+  The chips at the top switch to another linked sheet in the same view. They are the **pinned** sheets, at most five
+  (the first ongoing ones while none is pinned), plus the sheet you are on. **All sheets** lists every linked sheet,
+  grouped by configuration and searchable, each with its progress bar, converged share, run count and failed or
+  running runs; completed sheets fold under **Completed**. The pin on a row (or **Pin to the coverage chips** in a
+  sheet's **⋮** menu on the Run matrix page) adds it to the chips. A link's **Group** (e.g. X07-80E) and **Short
+  name** (e.g. subsonic · 2nd), set on Link a sheet, give the headings and names in the list and on the chips.
 
   **Editing by hand.** Click a run to open it below the view. Set its **Status in the sheet** (Converged, Not
   converged, Diverged, Failed, Hold or Blank) and its **Notes**. Beside them, **What the jobs say** shows the newest

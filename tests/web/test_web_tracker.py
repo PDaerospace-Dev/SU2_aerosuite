@@ -73,7 +73,9 @@ async def test_the_overview_shows_and_writes_a_sheet(user: User, matrix):
     link = _link(book, folder)
     await user.open("/tracker")
     await user.should_see(marker=f"tracker-sheet-{link.id}")
-    assert _element(user, f"tracker-sheet-{link.id}-pending").text == "1 to write"
+    assert _element(user, f"tracker-sheet-{link.id}-write").text == "Write 1"
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 1 project"
+    await user.should_see("1 verdict of yours the jobs disagree with · Review")
     assert _element(user, "tracker-kept").text == "1"
     assert _element(user, "tracker-runs").text == "4"
     user.find(marker=f"tracker-sheet-{link.id}-write").click()
@@ -82,6 +84,27 @@ async def test_the_overview_shows_and_writes_a_sheet(user: User, matrix):
     ws = load_workbook(book)["Study"]
     assert (ws["M5"].value, ws["M6"].value) == ("Converged", "Converged")  # the hand verdict stays
     assert load_tracker().log[0].written == 1
+
+
+async def test_a_sheet_row_says_what_it_takes_and_opens_its_coverage(user: User, matrix):
+    book, folder = matrix
+    projects = [LinkedProject(path=str(folder), elevator=0),
+                LinkedProject(path=str(folder.parent / "wing_del-20"), elevator=-20)]
+    link = save_link(Link(workbook=str(book), sheet="Study", projects=projects, tags=["fine"], skip_tags=["#coarse"]))
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}")
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · #fine · not #coarse · 2 projects · δe 0, -20"
+    user.find(marker=f"tracker-sheet-{link.id}-open").click()
+    await user.should_see(marker="tracker-coverage-page")
+
+
+async def test_the_kept_verdicts_line_opens_the_preview(user: User, matrix):
+    book, folder = matrix
+    link = _link(book, folder)
+    await user.open("/tracker")
+    await user.should_see(marker=f"tracker-sheet-{link.id}-kept")
+    user.find(marker=f"tracker-sheet-{link.id}-kept").trigger("click.stop")
+    await user.should_see(marker="tracker-preview-page")
 
 
 async def test_a_missing_workbook_is_shown_on_its_row(user: User, matrix, tmp_path):
@@ -166,6 +189,42 @@ async def _coverage(user, matrix, view="panels"):
     await user.open(f"/tracker/coverage?link={link.id}&view={view}")
     await user.should_see(marker=f"coverage-{view}")
     return book
+
+
+def test_the_chips_are_the_pinned_sheets_and_the_current_one():
+    from aerosuite.web.pages.tracker_sheets import chip_links, grouped
+
+    a, b, c = (Link(workbook="m.xlsx", sheet=name) for name in "abc")
+    done = Link(workbook="m.xlsx", sheet="done", completed=True)
+    assert chip_links([a, b, done], done) == [a, b, done]  # none pinned: the ongoing ones, and where you are
+    b.pinned = True
+    assert chip_links([a, b, c], b) == [b]
+    assert chip_links([a, b, c], c) == [b, c]
+    assert grouped([a, b]) == [("", [a, b])]  # no groups: no headings
+    a.group, c.group = "X09", "X07"
+    assert grouped([a, b, c]) == [("X09", [a]), ("X07", [c]), ("Other", [b])]
+
+
+async def test_all_sheets_lists_every_sheet_and_pins_one(user: User, matrix):
+    book, folder = matrix
+    first = _link(book, folder, group="Wing", label="study · 1st")
+    second = _link(book, folder, group="Wing")
+    done = _link(book, folder, completed=True, label="old")
+    await user.open(f"/tracker/coverage?link={second.id}")
+    await user.should_see(marker="coverage-panels")
+    assert _element(user, f"coverage-sheet-{first.id}").text == "study · 1st"
+    assert _element(user, "coverage-all-sheets-text").text == "All sheets (3)"
+    with user:
+        _element(user, "sheets-menu").open()  # a click on All sheets in the browser
+    await user.should_see(marker=f"sheets-row-{first.id}-progress", retries=40)  # once the workbooks are read
+    assert _element(user, f"sheets-row-{first.id}-progress").text == "25% · 4"  # row 5 Converged of 4 runs
+    user.find(marker="sheets-search").type("old")
+    await user.should_see(marker=f"sheets-row-{done.id}")
+    await user.should_not_see(marker=f"sheets-row-{first.id}")
+    user.find(marker=f"sheets-row-{done.id}-pin").click()
+    await user.should_see(marker=f"coverage-sheet-{done.id}")
+    assert find_link(done.id).pinned
+    await user.should_not_see(marker=f"coverage-sheet-{first.id}")  # pinned now: only the pinned and the current
 
 
 async def test_a_clicked_run_is_set_by_hand(user: User, matrix):
@@ -294,7 +353,7 @@ async def test_sheets_are_ongoing_or_completed(user: User, matrix):
     await user.should_see(marker=f"tracker-sheet-{link.id}-ongoing")
     assert find_link(link.id).completed is True
     assert _element(user, "tracker-group-completed-count").text == "1"
-    assert _element(user, f"tracker-sheet-{link.id}-runs").text == "4 runs · marked completed"
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 1 project · marked completed"
     user.find(marker=f"tracker-sheet-{link.id}-ongoing").click()
     await user.should_see(marker=f"tracker-sheet-{link.id}-complete")
     assert find_link(link.id).completed is False
@@ -306,7 +365,9 @@ async def test_a_sheet_with_a_verdict_on_every_run_is_completed(user: User, tmp_
     await user.open("/tracker")
     await user.should_see(marker=f"tracker-sheet-{link.id}")
     assert _element(user, "tracker-groups").value == "completed"  # nothing ongoing
-    assert _element(user, f"tracker-sheet-{link.id}-runs").text == "4 runs · every run has a verdict"
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 1 project · every run has a verdict"
+    assert _element(user, "tracker-failed").text == "1"
+    await user.should_not_see(marker=f"tracker-sheet-{link.id}-write")  # nothing waits: no Write button
 
 
 async def test_removing_a_sheet_from_its_row(user: User, matrix):
@@ -339,6 +400,20 @@ async def test_linking_a_sheet(user: User, matrix, eventually):
     await user.should_see(marker="tracker-preview-page")
     saved = load_tracker().links[0]
     assert (saved.sheet, saved.auto, [p.elevator for p in saved.projects]) == ("Study", False, [0.0])
+
+
+async def test_a_link_has_a_group_and_a_short_name(user: User, matrix, eventually):
+    book, folder = matrix
+    link = _link(book, folder)
+    await user.open(f"/tracker/link?link={link.id}")
+    await eventually(lambda: _element(user, "link-sheet").value == "Study")
+    with user:
+        _element(user, "link-group").set_value(" X07-80E ")
+        _element(user, "link-label").set_value("subsonic · 2nd")
+    user.find(marker="link-save").click()
+    await user.should_see(marker="tracker-preview-page")
+    saved = find_link(link.id)
+    assert (saved.group, saved.label) == ("X07-80E", "subsonic · 2nd")
 
 
 async def test_a_project_without_a_deflection_must_be_given_one(user: User, matrix, eventually):
@@ -376,7 +451,8 @@ async def test_a_sheet_can_be_kept_to_one_solver_order(user: User, matrix):
     await user.should_see(marker="tracker-preview-page")
     assert find_link(link.id).order == "2nd"
     await user.open("/tracker")
-    await user.should_see(marker=f"tracker-sheet-{link.id}-order")
+    await user.should_see(marker=f"tracker-sheet-{link.id}")
+    assert _element(user, f"tracker-sheet-{link.id}-meta").text == "4 runs · 2nd order · 1 project"
 
 
 async def test_changing_and_removing_a_link(user: User, matrix):

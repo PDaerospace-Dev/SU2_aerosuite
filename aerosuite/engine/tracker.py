@@ -29,7 +29,7 @@ from .imported import read_name
 from .jobs.diagnose import diagnose
 from .jobs.executors import runner_of
 from .jobs.runner import CaseState, JobRecord
-from .jobs.store import JOBS_DIR, scan_jobs
+from .jobs.store import JOBS_DIR, load_job, scan_jobs
 from .locking import file_lock
 from .restarts import RUNS_DIR
 from .results import HISTORY_FILE, check_convergence, load_case_index, read_history
@@ -229,15 +229,40 @@ def job_counts(project_dir: Path, tags: Iterable[str] = (), skip_tags: Iterable[
     return len(chosen), len(jobs)
 
 
-def verdict_reason(folder: Path, case: str) -> str:
-    """Why AeroSuite's convergence check judged a case as it did, from its history now; "" when there is none."""
-    path = Path(folder) / RUNS_DIR / case / HISTORY_FILE
+def verdict_reason(source: CaseStatus) -> str:
+    """Why the jobs say what they do about a case; "" when nothing is known. Converged or Not Converged: the
+    convergence check's words on its history now. Failed or Diverged: the job's diagnosis, then what the check makes
+    of the history up to the stop, labelled as that: SU2 can stop on a local NaN after the forces have settled, and
+    the check's bare "Converged" would then read as a contradiction."""
+    check = _history_check(Path(source.folder), source.case)
+    if source.status not in (DIVERGED, FAILED):
+        return check[1] if check else ""
+    parts = [_failure_summary(source)]
+    if check:
+        parts.append("Forces before it stopped: " + ("steady" if check[0] else check[1]))
+    return ". ".join(part for part in parts if part)
+
+
+def _history_check(folder: Path, case: str) -> Optional[tuple[bool, str]]:
+    """The convergence check on a case's history now; None when it has none or it cannot be read."""
+    path = folder / RUNS_DIR / case / HISTORY_FILE
     if not path.is_file():
-        return ""
+        return None
     try:
-        return check_convergence(read_history(path))[1]
+        return check_convergence(read_history(path))
     except (OSError, ValueError, AeroSuiteError):
+        return None
+
+
+def _failure_summary(source: CaseStatus) -> str:
+    """How the job says the case failed, in one line (diagnose); "" when its record kept no output for it."""
+    try:
+        job = load_job(Path(source.folder), source.job_id)
+    except AeroSuiteError:
         return ""
+    tail = job.failure_tail.get(source.case, "")
+    slurm = job.slurm.get(source.case)
+    return diagnose(tail, getattr(slurm, "state", None)).summary if tail else ""
 
 
 # --- the sheet -------------------------------------------------------------------------------------------------------

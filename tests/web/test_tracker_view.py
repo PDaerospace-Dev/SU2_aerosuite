@@ -16,8 +16,9 @@ def test_every_status_the_engine_writes_has_a_pill_a_square_and_a_bar_segment():
 
 
 def test_the_bar_and_its_words():
-    counts = Counter({"Converged": 2, "Failed": 1, "Diverged": 1, "Running": 1, "": 3})
-    assert bar_text(counts, 8) == "2 converged · 2 not converged · 1 running · 3 no status"
-    assert bar_html(counts, 8).count("<span") == 3 and 'as-mseg-converged" style="width: 25.00%"' in bar_html(counts, 8)
+    counts = Counter({"Converged": 2, "Not Converged": 1, "Failed": 1, "Diverged": 1, "Running": 1, "": 2})
+    assert bar_text(counts, 8) == "2 converged · 1 not converged · 2 failed · 1 running · 2 no status"
+    assert bar_html(counts, 8).count("<span") == 4
+    assert 'as-mseg-failed" style="width: 25.00%"' in bar_html(counts, 8)  # Failed and Diverged: their own part
     assert bar_text(Counter(), 0) == "no runs"
     assert "as-pill-failed" in pill_html("Diverged") and "blank" in pill_html("")
