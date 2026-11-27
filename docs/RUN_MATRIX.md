@@ -47,7 +47,12 @@ Open **Run matrix** from the top bar (or search for a sheet by name).
   - **Pivot**: any two swept parameters as rows and columns. Each box gathers the runs that share that pair of
     values, as a bar and a converged count; this suits a large sheet.
 
-  The chips at the top switch to another linked sheet in the same view.
+  The chips at the top switch to another linked sheet in the same view. They are the **pinned** sheets, at most five
+  (the first ongoing ones while none is pinned), plus the sheet you are on. **All sheets** lists every linked sheet,
+  grouped by configuration and searchable, each with its progress bar, converged share, run count and failed or
+  running runs; completed sheets fold under **Completed**. The pin on a row (or **Pin to the coverage chips** in a
+  sheet's **⋮** menu on the Run matrix page) adds it to the chips. A link's **Group** (e.g. X07-80E) and **Short
+  name** (e.g. subsonic · 2nd), set on Link a sheet, give the headings and names in the list and on the chips.
 
   **Editing by hand.** Click a run to open it below the view. Set its **Status in the sheet** (Converged, Not
   converged, Diverged, Failed, Hold or Blank) and its **Notes**. Beside them, **What the jobs say** shows the newest
