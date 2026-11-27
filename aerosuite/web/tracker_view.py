@@ -42,6 +42,12 @@ def bar_html(counts: Mapping[str, int], total: int) -> str:
     return f'<div class="as-mbar">{"".join(spans)}</div>'
 
 
+def segment_count(counts: Mapping[str, int], key: str) -> int:
+    """How many runs count in one segment of the bar ("converged", "not", "failed", "live", "hold")."""
+    return sum(counts.get(status, 0) for segment, _label, statuses in SEGMENTS if segment == key
+               for status in statuses)
+
+
 def bar_text(counts: Mapping[str, int], total: int) -> str:
     parts = [(sum(counts.get(s, 0) for s in statuses), label.split(" /")[0].lower())
              for _key, label, statuses in SEGMENTS]

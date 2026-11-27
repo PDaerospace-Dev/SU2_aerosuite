@@ -853,6 +853,34 @@ a.as-choice-item:hover { border-color: var(--as-accent); background: var(--as-ac
 .as-cov-lines { columns: 2; column-gap: 32px; font-size: 12px; }
 .as-cov-line { display: flex; gap: 8px; align-items: center; break-inside: avoid; padding: 1px 0; }
 .as-cov-chip { padding: 3px 10px; text-decoration: none; }
+/* the coverage page's sheet switcher: pinned chips, All sheets */
+.as-sheet-nav { flex-wrap: wrap; }
+.as-sheet-all { padding: 0 6px 0 10px; min-height: 28px; font-size: 13px; }
+.as-sheet-all .q-btn__content { gap: 2px; }
+.as-sheet-menu { width: 36rem; max-width: 94vw; padding: 8px; }
+.as-sheet-list { max-height: 60vh; overflow-y: auto; margin-top: 6px; }
+.as-sheet-empty { padding: 8px; }
+.as-sheet-group { justify-content: space-between; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--as-muted); padding: 10px 8px 2px; }
+.as-sheet-row { display: grid; width: 100%; grid-template-columns: minmax(0, 1fr) 110px 72px 72px 30px; gap: 10px;
+  align-items: center; padding: 2px 4px 2px 8px; border-radius: 6px; font-size: 13.5px; }
+.as-sheet-row:hover { background: var(--as-hairline); }
+.as-sheet-row-on, .as-sheet-row-on:hover { background: var(--as-accent-tint); }
+.as-sheet-name { color: var(--as-text); text-decoration: none; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+.as-sheet-row-on .as-sheet-name { color: var(--as-accent-text); font-weight: 600; }
+.as-sheet-bar .as-mbar { height: 5px; }
+.as-sheet-num { text-align: right; font-size: 12px; white-space: nowrap; }
+.as-sheet-flag { text-align: right; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.as-sheet-live { color: var(--as-accent-text); font-weight: 400; }
+.as-sheet-span { grid-column: span 3; font-size: 12px; }
+.as-sheet-pin { color: #b6bec8; }
+.as-sheet-pin .q-icon { transform: rotate(45deg); }
+.as-sheet-pinned { color: var(--as-accent); }
+.as-sheet-pinned .q-icon { transform: none; }
+.as-sheet-done { border-top: 1px solid var(--as-hairline); margin-top: 6px; color: var(--as-muted); }
+.as-sheet-done .nicegui-expansion-content { gap: 0; padding: 0 0 4px; }
+.as-sheet-done .q-item { padding: 4px 8px; min-height: 32px; }
 .as-cov-legend { border-top: none; padding: 0; }
 .as-menu-title { font-size: 11.5px; color: var(--as-muted); padding: 8px 16px 2px; }
 /* a note that names a tag without its # */

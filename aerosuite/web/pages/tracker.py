@@ -26,6 +26,7 @@ from ...engine.tracker_links import (
     saved_links,
     set_auto,
     set_completed,
+    set_pinned,
     write_link,
 )
 from ..layout import header
@@ -43,11 +44,12 @@ from ..ui_kit import (
     th,
     titled,
 )
-from .tracker_coverage import Coverage, coverage_url, sheet_chips
+from .tracker_coverage import Coverage, coverage_url
 from .tracker_link import LinkForm
 from .tracker_new import NewSheetForm
 from .tracker_parts import GROUPS, NEW_URL, _crumbs, _log_text, edit_url, legend, preview_url, stack_cell, when_text
 from .tracker_preview import Preview
+from .tracker_sheets import SheetSwitcher
 
 
 def register() -> None:
@@ -93,7 +95,7 @@ def register() -> None:
             if found is None:
                 banner("error", "This link no longer exists.").mark("tracker-missing")
                 return
-            sheet_chips(found, view)
+            SheetSwitcher(found, view)
             Coverage(found, view)
 
     @ui.page("/tracker/preview")
@@ -291,6 +293,8 @@ class Overview:
                     ui.menu_item("Preview a write", lambda: ui.navigate.to(preview_url(link.id))).mark(
                         f"{mark}-preview")
                     ui.menu_item("Change the link", lambda: ui.navigate.to(edit_url(link.id))).mark(f"{mark}-edit")
+                    ui.menu_item("Unpin from the coverage chips" if link.pinned else "Pin to the coverage chips",
+                                 lambda: self._set_pinned(link, not link.pinned)).mark(f"{mark}-pin")
                     if item.done:
                         ui.menu_item("Move to ongoing", lambda: self._set_completed(link, False)).mark(
                             f"{mark}-ongoing")
@@ -316,6 +320,15 @@ class Overview:
         set_completed(link.id, completed)
         ui.notify(f"{link.sheet} is {'completed' if completed else 'ongoing'}")
         self.group = "completed" if completed else "ongoing"
+        await self.load()
+
+    async def _set_pinned(self, link: Link, pinned: bool) -> None:
+        try:
+            set_pinned(link.id, pinned)
+        except TrackerError as exc:
+            ui.notify(str(exc), type="warning")
+            return
+        ui.notify(f"{link.sheet} is {'pinned to' if pinned else 'no longer pinned to'} the coverage chips")
         await self.load()
 
     def _confirm_remove(self, link: Link) -> None:

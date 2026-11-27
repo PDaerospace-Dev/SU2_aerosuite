@@ -32,6 +32,7 @@ from aerosuite.engine.tracker_links import (
     saved_links,
     set_auto,
     set_completed,
+    set_pinned,
     tracker_file,
     write_link,
 )
@@ -180,6 +181,23 @@ def test_a_sheet_is_completed_by_its_runs_or_by_hand(tmp_path):
     assert report(whole).done
     set_completed(whole.id, False)
     assert not report(find_link(whole.id)).done
+
+
+def test_at_most_five_sheets_are_pinned(tmp_path):
+    links = [save_link(Link(workbook=str(tmp_path / "m.xlsx"), sheet=f"S{n}")) for n in range(6)]
+    for link in links[:5]:
+        set_pinned(link.id, True)
+    with pytest.raises(TrackerError, match="unpin one first"):
+        set_pinned(links[5].id, True)
+    set_pinned(links[0].id, False)
+    set_pinned(links[5].id, True)
+    set_pinned(links[5].id, True)  # pinning a pinned sheet again is no sixth
+    assert [link.pinned for link in load_tracker().links] == [False, True, True, True, True, True]
+
+
+def test_a_sheet_is_called_by_its_short_name_when_it_has_one():
+    assert Link(workbook="m.xlsx", sheet="X07-80E_subsonic_2nd").title == "X07-80E_subsonic_2nd"
+    assert Link(workbook="m.xlsx", sheet="X07-80E_subsonic_2nd", label="subsonic · 2nd").title == "subsonic · 2nd"
 
 
 def test_status_and_notes_are_set_by_hand_and_logged(tmp_path):

@@ -39,6 +39,7 @@ from .tracker import (
 )
 
 LOG_LENGTH = 50
+PINNED_AT_MOST = 5  # sheets pinned as chips on the coverage page
 REASONS_AT_MOST = 300  # kept verdicts whose history is read for the reason
 
 _lock = threading.Lock()
@@ -66,6 +67,13 @@ class Link(_Kept):
     overwrite: bool = False  # a job's verdict replaces one entered by hand
     auto: bool = True  # written as cases start and finish
     completed: Optional[bool] = None  # None: done once every run has a verdict; True / False: set by hand
+    pinned: bool = False  # a chip on the coverage page, beside All sheets
+    group: str = ""  # the configuration the sheet belongs to: its heading in All sheets
+    label: str = ""  # a short name for chips and All sheets ("subsonic · 2nd"); "" for the sheet's own
+
+    @property
+    def title(self) -> str:
+        return self.label or self.sheet
 
 
 class LogEntry(_Kept):
@@ -178,6 +186,16 @@ def set_completed(link_id: str, completed: Optional[bool]) -> None:
         for link in data.links:
             if link.id == link_id:
                 link.completed = completed
+
+
+def set_pinned(link_id: str, pinned: bool) -> None:
+    """Pin a sheet to the coverage page's chips, or unpin it; at most PINNED_AT_MOST are pinned."""
+    with _changing() as data:
+        if pinned and sum(link.pinned for link in data.links if link.id != link_id) >= PINNED_AT_MOST:
+            raise TrackerError(f"{PINNED_AT_MOST} sheets are pinned already: unpin one first.")
+        for link in data.links:
+            if link.id == link_id:
+                link.pinned = pinned
 
 
 def set_auto(link_ids: Iterable[str], auto: bool) -> None:

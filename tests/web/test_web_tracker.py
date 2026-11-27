@@ -191,6 +191,42 @@ async def _coverage(user, matrix, view="panels"):
     return book
 
 
+def test_the_chips_are_the_pinned_sheets_and_the_current_one():
+    from aerosuite.web.pages.tracker_sheets import chip_links, grouped
+
+    a, b, c = (Link(workbook="m.xlsx", sheet=name) for name in "abc")
+    done = Link(workbook="m.xlsx", sheet="done", completed=True)
+    assert chip_links([a, b, done], done) == [a, b, done]  # none pinned: the ongoing ones, and where you are
+    b.pinned = True
+    assert chip_links([a, b, c], b) == [b]
+    assert chip_links([a, b, c], c) == [b, c]
+    assert grouped([a, b]) == [("", [a, b])]  # no groups: no headings
+    a.group, c.group = "X09", "X07"
+    assert grouped([a, b, c]) == [("X09", [a]), ("X07", [c]), ("Other", [b])]
+
+
+async def test_all_sheets_lists_every_sheet_and_pins_one(user: User, matrix):
+    book, folder = matrix
+    first = _link(book, folder, group="Wing", label="study · 1st")
+    second = _link(book, folder, group="Wing")
+    done = _link(book, folder, completed=True, label="old")
+    await user.open(f"/tracker/coverage?link={second.id}")
+    await user.should_see(marker="coverage-panels")
+    assert _element(user, f"coverage-sheet-{first.id}").text == "study · 1st"
+    assert _element(user, "coverage-all-sheets-text").text == "All sheets (3)"
+    with user:
+        _element(user, "sheets-menu").open()  # a click on All sheets in the browser
+    await user.should_see(marker=f"sheets-row-{first.id}-progress", retries=40)  # once the workbooks are read
+    assert _element(user, f"sheets-row-{first.id}-progress").text == "25% · 4"  # row 5 Converged of 4 runs
+    user.find(marker="sheets-search").type("old")
+    await user.should_see(marker=f"sheets-row-{done.id}")
+    await user.should_not_see(marker=f"sheets-row-{first.id}")
+    user.find(marker=f"sheets-row-{done.id}-pin").click()
+    await user.should_see(marker=f"coverage-sheet-{done.id}")
+    assert find_link(done.id).pinned
+    await user.should_not_see(marker=f"coverage-sheet-{first.id}")  # pinned now: only the pinned and the current
+
+
 async def test_a_clicked_run_is_set_by_hand(user: User, matrix):
     book = await _coverage(user, matrix)
     await _pick(user, ["RUN-0001"])  # M0.3 a0: Converged in the sheet, Not Converged by the job
@@ -364,6 +400,20 @@ async def test_linking_a_sheet(user: User, matrix, eventually):
     await user.should_see(marker="tracker-preview-page")
     saved = load_tracker().links[0]
     assert (saved.sheet, saved.auto, [p.elevator for p in saved.projects]) == ("Study", False, [0.0])
+
+
+async def test_a_link_has_a_group_and_a_short_name(user: User, matrix, eventually):
+    book, folder = matrix
+    link = _link(book, folder)
+    await user.open(f"/tracker/link?link={link.id}")
+    await eventually(lambda: _element(user, "link-sheet").value == "Study")
+    with user:
+        _element(user, "link-group").set_value(" X07-80E ")
+        _element(user, "link-label").set_value("subsonic · 2nd")
+    user.find(marker="link-save").click()
+    await user.should_see(marker="tracker-preview-page")
+    saved = find_link(link.id)
+    assert (saved.group, saved.label) == ("X07-80E", "subsonic · 2nd")
 
 
 async def test_a_project_without_a_deflection_must_be_given_one(user: User, matrix, eventually):
